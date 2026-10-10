@@ -1,0 +1,58 @@
+# === Node / Next.js ===
+node_modules/
+.next/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# === Environment files ===
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+# Keep example env files
+!.env.example
+
+# === Python (in case solver tooling uses Python) ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+*.egg
+venv/
+.venv/
+
+# === Docker volumes and data directories ===
+docker-data/
+pgdata/
+redis-data/
+
+# === OSM extract and OSRM build artifacts ===
+*.osm.pbf
+*.osrm
+*.osrm.*
+
+# === Logs ===
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# === OS files ===
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# === Editor / IDE files ===
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
