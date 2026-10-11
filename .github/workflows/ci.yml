@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: floodrelay
+          POSTGRES_PASSWORD: floodrelay_dev
+          POSTGRES_DB: floodrelay
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U floodrelay -d floodrelay"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Uncomment once a package manager lockfile exists:
+      # - name: Install dependencies
+      #   run: npm ci
+
+      # Uncomment once linting is configured:
+      # - name: Lint
+      #   run: npm run lint
+
+      # Uncomment once tests exist:
+      # - name: Test
+      #   run: npm test
+      #   env:
+      #     DATABASE_URL: postgresql://floodrelay:floodrelay_dev@localhost:5432/floodrelay
+
+      - name: Smoke check
+        run: echo "CI pipeline reached the end. Uncomment steps above as code is added."

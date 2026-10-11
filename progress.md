@@ -1,6 +1,6 @@
 # Flood Rescue Resource Allocation Platform — Progress
 
-**Last updated:** 2026-10-10
+**Last updated:** 2026-10-11
 
 **Current focus:** Phase 0 — Project setup
 
@@ -117,8 +117,8 @@ Incoming rescue requests
 | Repo and docs | — | `[x]` |
 | Conventions (branch naming, commits, PR process) | — | `[x]` |
 | Monorepo skeleton | — | `[x]` |
-| docker-compose for Postgres/PostGIS | — | `[ ]` |
-| CI skeleton | — | `[ ]` |
+| docker-compose for Postgres/PostGIS | — | `[x]` |
+| CI skeleton | — | `[x]` |
 | Agree on backend framework | — | `[ ]` |
 
 ### Phase 1 — Solver core and evaluation harness
@@ -188,10 +188,11 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Repository created, documentation written, folder structure in place.
-- **Next up:** docker-compose for Postgres/PostGIS, CI skeleton, agree on backend framework.
-- Repo and docs: done.
-- Everything else: not started.
+- **Last completed:** docker-compose for Postgres/PostGIS, CI skeleton (GitHub Actions).
+- **Next up:** Agree on backend framework (Express, Fastify or NestJS) to finish Phase 0, then begin Phase 1.
+- Repo, docs, conventions, monorepo skeleton, docker-compose, CI skeleton: done.
+- Backend framework decision: not started (team decision needed).
+- Everything in Phase 1 and beyond: not started.
 
 ---
 
