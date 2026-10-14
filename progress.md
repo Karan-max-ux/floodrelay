@@ -4,7 +4,7 @@
 
 **Current focus:** Phase 0 — Project setup
 
-Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
+Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
 ---
 
@@ -114,83 +114,84 @@ Incoming rescue requests
 
 | Task | Owner | Status |
 |---|---|---|
-| Repo and docs | — | `[x]` |
-| Conventions (branch naming, commits, PR process) | — | `[x]` |
-| Monorepo skeleton | — | `[x]` |
-| docker-compose for Postgres/PostGIS | — | `[x]` |
-| CI skeleton | — | `[x]` |
-| Agree on backend framework | — | `[x]` |
+| Repo and docs | — | ✅ |
+| Conventions (branch naming, commits, PR process) | — | ✅ |
+| Folder structure | — | ✅ |
+| Workspace tooling (root package.json, tsconfig, lint configs) | — | ⬜ |
+| docker-compose for Postgres/PostGIS | — | ✅ |
+| CI skeleton | — | ✅ |
+| Agree on backend framework | — | ✅ |
 
 ### Phase 1 — Solver core and evaluation harness
 
 | Task | Owner | Status |
 |---|---|---|
-| Scenario format | — | `[ ]` |
-| Seeded generator | — | `[ ]` |
-| Metrics | — | `[ ]` |
-| Nearest-first baseline | — | `[ ]` |
-| Own DBSCAN | — | `[ ]` |
-| First allocation heuristic with straight-line distances behind TravelTimeProvider | — | `[ ]` |
-| OR-Tools baseline | — | `[ ]` |
-| Results-table script | — | `[ ]` |
+| Scenario format | — | ⬜ |
+| Seeded generator | — | ⬜ |
+| Metrics | — | ⬜ |
+| Nearest-first baseline | — | ⬜ |
+| Own DBSCAN | — | ⬜ |
+| First allocation heuristic with straight-line distances behind TravelTimeProvider | — | ⬜ |
+| OR-Tools baseline | — | ⬜ |
+| Results-table script | — | ⬜ |
 
 ### Phase 2 — API and database
 
 | Task | Owner | Status |
 |---|---|---|
-| Schema | — | `[ ]` |
-| Request intake with idempotency and duplicate detection | — | `[ ]` |
-| PostGIS storage | — | `[ ]` |
-| Assignment endpoints | — | `[ ]` |
-| OpenAPI spec | — | `[ ]` |
+| Schema | — | ⬜ |
+| Request intake with idempotency and duplicate detection | — | ⬜ |
+| PostGIS storage | — | ⬜ |
+| Assignment endpoints | — | ⬜ |
+| OpenAPI spec | — | ⬜ |
 
 ### Phase 3 — Frontend
 
 | Task | Owner | Status |
 |---|---|---|
-| Citizen request form | — | `[ ]` |
-| Operator map and assignment view | — | `[ ]` |
-| Built against saved solver output (fixtures) first | — | `[ ]` |
+| Citizen request form | — | ⬜ |
+| Operator map and assignment view | — | ⬜ |
+| Built against saved solver output (fixtures) first | — | ⬜ |
 
 ### Phase 4 — Road network and uncertainty
 
 | Task | Owner | Status |
 |---|---|---|
-| OSRM travel times (check the OSRM docs for the table request size limit) | — | `[ ]` |
-| Operator-marked blocked areas | — | `[ ]` |
-| Uncertainty features | — | `[ ]` |
-| Perturbation re-runs to report how often assignments change | — | `[ ]` |
+| OSRM travel times (check the OSRM docs for the table request size limit) | — | ⬜ |
+| Operator-marked blocked areas | — | ⬜ |
+| Uncertainty features | — | ⬜ |
+| Perturbation re-runs to report how often assignments change | — | ⬜ |
 
 ### Phase 5 — Incremental updates and live operations
 
 | Task | Owner | Status |
 |---|---|---|
-| Event handlers | — | `[ ]` |
-| Local repair | — | `[ ]` |
-| Frozen committed stops | — | `[ ]` |
-| Churn metric | — | `[ ]` |
-| Live dashboard updates | — | `[ ]` |
-| Roles | — | `[ ]` |
-| Audit log | — | `[ ]` |
+| Event handlers | — | ⬜ |
+| Local repair | — | ⬜ |
+| Frozen committed stops | — | ⬜ |
+| Churn metric | — | ⬜ |
+| Live dashboard updates | — | ⬜ |
+| Roles | — | ⬜ |
+| Audit log | — | ⬜ |
 
 ### Phase 6 — Hardening and documentation
 
 | Task | Owner | Status |
 |---|---|---|
-| Redis queue only if measurements justify it | — | `[ ]` |
-| Optional flood-forecast context layer | — | `[ ]` |
-| Load tests | — | `[ ]` |
-| CI | — | `[ ]` |
-| Limitations page | — | `[ ]` |
-| Demo script | — | `[ ]` |
+| Redis queue only if measurements justify it | — | ⬜ |
+| Optional flood-forecast context layer | — | ⬜ |
+| Load tests | — | ⬜ |
+| CI | — | ⬜ |
+| Limitations page | — | ⬜ |
+| Demo script | — | ⬜ |
 
 ---
 
 ## 9. Current status
 
 - **Last completed:** Backend framework decided (Express + TypeScript).
-- **Next up:** Workspace tooling, then begin Phase 1.
-- Phase 0 checklist items all marked done. Current focus remains Phase 0 until workspace tooling is confirmed.
+- **Next up:** Workspace tooling (root package.json, tsconfig, lint configs) to finish Phase 0, then begin Phase 1.
+- Phase 0 open items: workspace tooling.
 - Everything in Phase 1 and beyond: not started.
 
 ---
@@ -242,4 +243,4 @@ Incoming rescue requests
 
 ## 14. How to update this file
 
-Update `progress.md` in the same pull request that completes a task. Move items between `[ ]`, `[~]` and `[x]`, update "Last updated", "Current focus" and "Current status", and add any new decision to section 11.
+Update `progress.md` in the same pull request that completes a task. Move items between ⬜, 🟡 and ✅, update "Last updated", "Current focus" and "Current status", and add any new decision to section 11.

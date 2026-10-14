@@ -13,7 +13,7 @@ Use one of these prefixes:
 - `main` is protected and changed only through pull requests.
 - At least one teammate must review each PR before merging.
 - Keep PRs small and focused on a single change.
-- Update `progress.md` in the same PR that finishes a task.
+- Update `progress.md` in the same PR that finishes a task. Use the emoji status symbols: ⬜ not started, 🟡 in progress, ✅ done.
 
 ## Commit messages
 
