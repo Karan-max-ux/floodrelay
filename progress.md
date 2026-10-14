@@ -116,7 +116,8 @@ Incoming rescue requests
 |---|---|---|
 | Repo and docs | — | `[x]` |
 | Conventions (branch naming, commits, PR process) | — | `[x]` |
-| Monorepo skeleton | — | `[x]` |
+| Folder structure | — | `[x]` |
+| Workspace tooling (root package.json, tsconfig, lint configs) | — | `[ ]` |
 | docker-compose for Postgres/PostGIS | — | `[x]` |
 | CI skeleton | — | `[x]` |
 | Agree on backend framework | — | `[x]` |
@@ -189,8 +190,8 @@ Incoming rescue requests
 ## 9. Current status
 
 - **Last completed:** Backend framework decided (Express + TypeScript).
-- **Next up:** Workspace tooling, then begin Phase 1.
-- Phase 0 checklist items all marked done. Current focus remains Phase 0 until workspace tooling is confirmed.
+- **Next up:** Workspace tooling (root package.json, tsconfig, lint configs) to finish Phase 0, then begin Phase 1.
+- Phase 0 open items: workspace tooling.
 - Everything in Phase 1 and beyond: not started.
 
 ---
