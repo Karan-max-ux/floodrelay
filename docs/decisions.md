@@ -73,3 +73,14 @@ When recording a new decision, copy this template and fill it in:
 - **Context:** This is a decision-support tool, not an autonomous dispatch system. Human oversight is required for safety and accountability.
 - **Alternatives considered:** Automatic dispatch with operator override.
 - **Consequence:** The UI must clearly present proposed vs. committed assignments. Committed or dispatched stops are frozen and not reshuffled by re-optimization.
+
+---
+
+### ADR-7: Backend framework: Express with TypeScript
+
+- **Date:** 2026-10-15
+- **Decision:** Use Express with TypeScript (strict mode) as the backend framework.
+- **Context:** The team needed to pick a backend framework for the separate Node.js service. The team already knows Express, and setup is minimal. The main effort goes to the solver and allocation workflow, not framework features. TypeScript with strict mode is used across all packages (api, solver, web) so that shared types catch field mismatches at compile time.
+- **Alternatives considered:** Fastify (faster, schema-based validation, but less team familiarity); NestJS (more structure, but heavier and more opinionated than needed); plain JavaScript (no compile-time type checking across packages).
+- **Consequence:** The backend uses Express with TypeScript. The framework can be changed later because the solver has no framework dependency and the API surface is small at this stage.
+
