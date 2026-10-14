@@ -1,6 +1,6 @@
 # Flood Rescue Resource Allocation Platform — Progress
 
-**Last updated:** 2026-10-11
+**Last updated:** 2026-10-15
 
 **Current focus:** Phase 0 — Project setup
 
@@ -39,7 +39,7 @@ Citizens (or helpers) submit rescue requests with location, number of people and
 |---|---|---|---|
 | Frontend (mandatory) | Next.js (App Router) + React + TypeScript | Citizen request form, operator dashboard, field-team view | Planned |
 | Map | react-leaflet loaded with dynamic import and SSR disabled | Leaflet needs the browser `window` object | Planned |
-| Backend | Separate Node.js service (Express, Fastify or NestJS, to be decided) | Intake, assignment, auth, live updates | Planned |
+| Backend | Separate Node.js service, Express + TypeScript (strict mode) | Intake, assignment, auth, live updates | Planned |
 | Database | PostgreSQL + PostGIS | Spatial queries and a built-in DBSCAN to verify our own clustering | Planned |
 | Queue and pub/sub | Redis (BullMQ) | Added only if measurements show the solver must run outside the request cycle | Planned |
 | Routing | OSRM in Docker | Travel-time matrix from OpenStreetMap data | Planned |
@@ -119,7 +119,7 @@ Incoming rescue requests
 | Monorepo skeleton | — | `[x]` |
 | docker-compose for Postgres/PostGIS | — | `[x]` |
 | CI skeleton | — | `[x]` |
-| Agree on backend framework | — | `[ ]` |
+| Agree on backend framework | — | `[x]` |
 
 ### Phase 1 — Solver core and evaluation harness
 
@@ -188,10 +188,9 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** docker-compose for Postgres/PostGIS, CI skeleton (GitHub Actions).
-- **Next up:** Agree on backend framework (Express, Fastify or NestJS) to finish Phase 0, then begin Phase 1.
-- Repo, docs, conventions, monorepo skeleton, docker-compose, CI skeleton: done.
-- Backend framework decision: not started (team decision needed).
+- **Last completed:** Backend framework decided (Express + TypeScript).
+- **Next up:** Workspace tooling, then begin Phase 1.
+- Phase 0 checklist items all marked done. Current focus remains Phase 0 until workspace tooling is confirmed.
 - Everything in Phase 1 and beyond: not started.
 
 ---
@@ -219,6 +218,7 @@ Incoming rescue requests
 | No machine learning | Reliable deterministic algorithms preferred; no measured need for ML |
 | Build solver and evaluation before infrastructure | Validate the core logic before adding queues, real-time layers, etc. |
 | Operator commits assignments | Decision support only; the system never dispatches autonomously |
+| Backend framework: Express with TypeScript | Team knows Express, setup is minimal, effort goes to the solver; TypeScript strict mode shared across all packages catches field mismatches at compile time; framework can be changed later because the solver has no framework dependency |
 
 ---
 
@@ -226,7 +226,6 @@ Incoming rescue requests
 
 - [ ] Confirm with faculty that a separate Node backend is acceptable alongside the mandatory Next.js and React.
 - [ ] Which district or river basin do we use for scenarios?
-- [ ] Backend framework: Express, Fastify or NestJS?
 - [ ] Who owns each role above?
 - [ ] How will boats be modelled, given OSRM has no boat profile?
 
