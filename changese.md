@@ -2,7 +2,7 @@
 
 **File:** `changes.md`  
 **Last updated:** 2026-10-15  
-**Current Branch:** `docs/phase-0-tasks`
+**Current Branch:** `docs/tidy-progress-and-contributing`
 
 ---
 
