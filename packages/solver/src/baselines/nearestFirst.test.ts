@@ -1,0 +1,126 @@
+import type { Scenario } from '@floodrelay/shared';
+import { describe, expect, it } from 'vitest';
+import { generateScenario } from '../generator.js';
+import { solveNearestFirst } from './nearestFirst.js';
+
+describe('solveNearestFirst', () => {
+  const testScenario: Scenario = {
+    id: 'test-scenario',
+    metadata: {
+      id: 'test-scenario',
+      name: 'Test Scenario',
+      region: 'Delhi',
+      createdAt: '2026-10-15T12:00:00Z',
+      bounds: { minLat: 28.5, maxLat: 28.7, minLng: 77.1, maxLng: 77.3 },
+    },
+    requests: [
+      {
+        id: 'req-1',
+        lat: 28.52,
+        lng: 77.12,
+        peopleCount: 3,
+        urgency: 'HIGH',
+        createdAt: '2026-10-15T12:00:00Z',
+        source: 'SIMULATED',
+      },
+      {
+        id: 'req-2',
+        lat: 28.53,
+        lng: 77.13,
+        peopleCount: 4,
+        urgency: 'CRITICAL',
+        createdAt: '2026-10-15T12:00:00Z',
+        source: 'SIMULATED',
+      },
+      {
+        id: 'req-3',
+        lat: 28.55,
+        lng: 77.15,
+        peopleCount: 5,
+        urgency: 'LOW',
+        createdAt: '2026-10-15T12:00:00Z',
+        source: 'SIMULATED',
+      },
+    ],
+    resources: [
+      {
+        id: 'res-boat-1',
+        name: 'Boat Alpha',
+        type: 'BOAT',
+        capacity: 8,
+        speedKmH: 25,
+        lat: 28.5,
+        lng: 77.1,
+        status: 'AVAILABLE',
+      },
+    ],
+    shelters: [
+      {
+        id: 'shelter-1',
+        name: 'Relief Camp',
+        lat: 28.51,
+        lng: 77.11,
+        capacity: 50,
+      },
+    ],
+  };
+
+  it('serves requests and respects capacity constraints', () => {
+    const plan = solveNearestFirst(testScenario);
+
+    expect(plan.routes).toHaveLength(1);
+    const route = plan.routes[0]!;
+
+    // Check capacity constraint at every step
+    let load = 0;
+    for (const stop of route.stops) {
+      if (stop.type === 'PICKUP') {
+        load += stop.passengersPickedUp;
+        expect(load).toBeLessThanOrEqual(8); // boat capacity is 8
+      } else if (stop.type === 'DROPOFF') {
+        load -= stop.passengersDroppedOff;
+        expect(load).toBe(0);
+      }
+    }
+
+    // All 3 requests should be served
+    expect(route.servedRequestIds).toHaveLength(3);
+    expect(plan.unserved).toHaveLength(0);
+    expect(plan.metrics.coveragePercent).toBe(100);
+    expect(plan.metrics.totalTravelTimeMinutes).toBeGreaterThan(0);
+  });
+
+  it('marks unserved requests when resources have insufficient capacity or time', () => {
+    const smallCapacityScenario: Scenario = {
+      ...testScenario,
+      resources: [
+        {
+          ...testScenario.resources[0]!,
+          capacity: 4, // req-3 has 5 people, so it can never fit!
+        },
+      ],
+    };
+
+    const plan = solveNearestFirst(smallCapacityScenario);
+
+    expect(plan.unserved.some((u) => u.requestId === 'req-3')).toBe(true);
+    expect(plan.metrics.unservedRequestsCount).toBe(1);
+    expect(plan.metrics.servedRequestsCount).toBe(2);
+  });
+
+  it('executes reliably on a large generated scenario (50 requests, 6 resources)', () => {
+    const scenario = generateScenario({
+      seed: 42,
+      requestCount: 50,
+      resourceCount: 6,
+      shelterCount: 3,
+    });
+
+    const plan = solveNearestFirst(scenario);
+
+    expect(plan.routes.length).toBeGreaterThan(0);
+    expect(plan.metrics.servedRequestsCount + plan.metrics.unservedRequestsCount).toBe(50);
+    expect(plan.metrics.coveragePercent).toBeGreaterThan(50);
+    expect(plan.metrics.solveDurationMs).toBeLessThan(1000); // Super fast greedy execution
+  });
+});

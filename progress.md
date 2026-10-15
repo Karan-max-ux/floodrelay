@@ -133,7 +133,7 @@ Incoming rescue requests
 | Scenario format                                                                   | —     | ✅     |
 | Seeded generator                                                                  | —     | ✅     |
 | Metrics                                                                           | —     | ✅     |
-| Nearest-first baseline                                                            | —     | ⬜     |
+| Nearest-first baseline                                                            | —     | ✅     |
 | Own DBSCAN                                                                        | —     | ⬜     |
 | First allocation heuristic with straight-line distances behind TravelTimeProvider | —     | ⬜     |
 | OR-Tools baseline                                                                 | —     | ⬜     |
@@ -193,10 +193,10 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Phase 1 — Metrics harness implemented in `@floodrelay/solver` (`calculatePlanMetrics` and `calculateChurn` for coverage, travel time, high-priority wait times, and frozen stops).
-- **Next up:** Phase 1 — Nearest-first baseline (`packages/solver/src/baselines/nearestFirst.ts`).
+- **Last completed:** Phase 1 — Nearest-first baseline solver implemented in `@floodrelay/solver` (`solveNearestFirst` with multi-trip capacity routing and safe shelter dropoffs).
+- **Next up:** Phase 1 — Own DBSCAN (`packages/solver/src/clustering/dbscan.ts`).
 - **Phase 0:** 100% complete.
-- **Phase 1:** 3 of 8 tasks complete (Scenario format ✅, Seeded generator ✅, Metrics ✅). Next up: Nearest-first baseline.
+- **Phase 1:** 4 of 8 tasks complete (Scenario format ✅, Seeded generator ✅, Metrics ✅, Nearest-first baseline ✅). Next up: Own DBSCAN.
 
 ---
 
