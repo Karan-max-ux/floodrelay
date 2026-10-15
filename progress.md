@@ -114,8 +114,12 @@ Incoming rescue requests
 
 | Task | Owner | Status |
 |---|---|---|
-| Repo and docs | — | ✅ |
+| Root README.md | — | ✅ |
+| .gitignore | — | ✅ |
+| .env.example | — | ✅ |
+| docs/decisions.md | — | ✅ |
 | Conventions (branch naming, commits, PR process) | — | ✅ |
+| GitHub branch protection rule on main | — | ⬜ |
 | Folder structure | — | ✅ |
 | Workspace tooling (root package.json, tsconfig, lint configs) | — | ⬜ |
 | docker-compose for Postgres/PostGIS | — | ✅ |
@@ -190,8 +194,8 @@ Incoming rescue requests
 ## 9. Current status
 
 - **Last completed:** Backend framework decided (Express + TypeScript).
-- **Next up:** Workspace tooling (root package.json, tsconfig, lint configs) to finish Phase 0, then begin Phase 1.
-- Phase 0 open items: workspace tooling.
+- **Next up:** GitHub branch protection rule on main, and workspace tooling (root package.json, tsconfig, lint configs) to finish Phase 0, then begin Phase 1.
+- Phase 0 open items: GitHub branch protection rule on main, workspace tooling.
 - Everything in Phase 1 and beyond: not started.
 
 ---

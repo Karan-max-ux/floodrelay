@@ -13,5 +13,6 @@
 ## Checklist
 
 - [ ] `progress.md` updated if a task changed
+- [ ] `docs/decisions.md` entry added if architecture changed
 - [ ] Docs updated if behavior changed
 - [ ] No secrets committed (`.env` stays git-ignored; only `.env.example` is committed)
