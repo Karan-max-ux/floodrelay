@@ -134,7 +134,7 @@ Incoming rescue requests
 | Seeded generator                                                                  | —     | ✅     |
 | Metrics                                                                           | —     | ✅     |
 | Nearest-first baseline                                                            | —     | ✅     |
-| Own DBSCAN                                                                        | —     | ⬜     |
+| Own DBSCAN                                                                        | —     | ✅     |
 | First allocation heuristic with straight-line distances behind TravelTimeProvider | —     | ⬜     |
 | OR-Tools baseline                                                                 | —     | ⬜     |
 | Results-table script                                                              | —     | ⬜     |
@@ -193,10 +193,10 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Phase 1 — Nearest-first baseline solver implemented in `@floodrelay/solver` (`solveNearestFirst` with multi-trip capacity routing and safe shelter dropoffs).
-- **Next up:** Phase 1 — Own DBSCAN (`packages/solver/src/clustering/dbscan.ts`).
+- **Last completed:** Phase 1 — Custom metric DBSCAN spatial clustering implemented in `@floodrelay/solver` (`clusterRequests` with metric distance in meters and noise units preservation).
+- **Next up:** Phase 1 — First allocation heuristic with straight-line distances behind `TravelTimeProvider` (`packages/solver/src/heuristics/clusterAllocation.ts`).
 - **Phase 0:** 100% complete.
-- **Phase 1:** 4 of 8 tasks complete (Scenario format ✅, Seeded generator ✅, Metrics ✅, Nearest-first baseline ✅). Next up: Own DBSCAN.
+- **Phase 1:** 5 of 8 tasks complete (Scenario format ✅, Seeded generator ✅, Metrics ✅, Nearest-first baseline ✅, Own DBSCAN ✅). Next up: Allocation heuristic.
 
 ---
 

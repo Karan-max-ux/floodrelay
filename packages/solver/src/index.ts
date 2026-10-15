@@ -31,3 +31,4 @@ export * from './generator.js';
 export * from './metrics.js';
 export * from './routing/travelTime.js';
 export * from './baselines/nearestFirst.js';
+export * from './clustering/dbscan.js';
