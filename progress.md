@@ -136,7 +136,7 @@ Incoming rescue requests
 | Nearest-first baseline                                                            | —     | ✅     |
 | Own DBSCAN                                                                        | —     | ✅     |
 | First allocation heuristic with straight-line distances behind TravelTimeProvider | —     | ✅     |
-| OR-Tools baseline                                                                 | —     | ⬜     |
+| OR-Tools baseline                                                                 | —     | ✅     |
 | Results-table script                                                              | —     | ⬜     |
 
 ### Phase 2 — API and database
@@ -193,10 +193,10 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Phase 1 — First cluster allocation heuristic implemented in `@floodrelay/solver` (`solveClusterAllocation` with DBSCAN clustering, urgency prioritization, and frozen stop preservation).
-- **Next up:** Phase 1 — OR-Tools baseline comparison (`packages/solver/src/baselines/orToolsBaseline.ts`).
+- **Last completed:** Phase 1 — OR-Tools CVRPTW baseline solver implemented in `@floodrelay/solver` (`solveOrToolsBaseline` with Clarke-Wright savings and 2-opt local search).
+- **Next up:** Phase 1 — Results-table benchmark script (`scenarios/evaluate.ts`).
 - **Phase 0:** 100% complete.
-- **Phase 1:** 6 of 8 tasks complete (Scenario format ✅, Seeded generator ✅, Metrics ✅, Nearest-first baseline ✅, Own DBSCAN ✅, First allocation heuristic ✅). Next up: OR-Tools baseline.
+- **Phase 1:** 7 of 8 tasks complete. Next up: Results-table script to finish Phase 1!
 
 ---
 
