@@ -131,7 +131,7 @@ Incoming rescue requests
 | Task                                                                              | Owner | Status |
 | --------------------------------------------------------------------------------- | ----- | ------ |
 | Scenario format                                                                   | —     | ✅     |
-| Seeded generator                                                                  | —     | ⬜     |
+| Seeded generator                                                                  | —     | ✅     |
 | Metrics                                                                           | —     | ⬜     |
 | Nearest-first baseline                                                            | —     | ⬜     |
 | Own DBSCAN                                                                        | —     | ⬜     |
@@ -193,10 +193,10 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Phase 1 — Scenario format defined in `@floodrelay/shared` with validation rules, unit tests, and sample scenario fixture.
-- **Next up:** Phase 1 — Seeded generator (`scenarios/` generator for reproducible benchmark scenarios).
+- **Last completed:** Phase 1 — Seeded generator implemented in `@floodrelay/solver` with Mulberry32 PRNG and cluster simulation, verified across 20+ seeds and 500-request scale.
+- **Next up:** Phase 1 — Metrics harness (`packages/solver/src/metrics.ts` for coverage, travel time, high-priority wait time, solve time, and churn).
 - **Phase 0:** 100% complete.
-- **Phase 1:** 1 of 8 tasks complete (Scenario format ✅). Next up: Seeded generator.
+- **Phase 1:** 2 of 8 tasks complete (Scenario format ✅, Seeded generator ✅). Next up: Metrics.
 
 ---
 

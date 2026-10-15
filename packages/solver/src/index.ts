@@ -26,3 +26,5 @@ export function haversineKm(a: GeoPoint, b: GeoPoint): number {
 export function requestDistanceKm(a: RescueRequest, b: RescueRequest): number {
   return haversineKm(a, b);
 }
+
+export * from './generator.js';
