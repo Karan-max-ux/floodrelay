@@ -42,6 +42,11 @@ A flood-rescue resource allocation platform. Citizens submit rescue requests, th
 
 Setup instructions will be added as Phase 0 is completed. See [progress.md](progress.md) for current status.
 
+## How we work
+
+All changes go through pull requests against the protected `main` branch with teammate approval.
+See [CONTRIBUTING.md](CONTRIBUTING.md#how-we-work) for our full development and review workflow.
+
 ## Links
 
 - [Progress and roadmap](progress.md) — the team's single source of truth
