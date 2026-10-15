@@ -9,7 +9,7 @@ services:
     container_name: floodrelay-postgres
     restart: unless-stopped
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - '${POSTGRES_PORT:-5432}:5432'
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-floodrelay}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-floodrelay_dev}
@@ -17,7 +17,8 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-floodrelay} -d ${POSTGRES_DB:-floodrelay}"]
+      test:
+        ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-floodrelay} -d ${POSTGRES_DB:-floodrelay}']
       interval: 10s
       timeout: 5s
       retries: 5

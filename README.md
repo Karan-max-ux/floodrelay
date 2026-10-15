@@ -40,7 +40,37 @@ A flood-rescue resource allocation platform. Citizens submit rescue requests, th
 
 ## Getting started
 
-Setup instructions will be added as Phase 0 is completed. See [progress.md](progress.md) for current status.
+### Prerequisites
+
+- Node.js >= 24 (see `.nvmrc`)
+- npm >= 10
+
+### Installation
+
+Clone the repository and install dependencies from the root:
+
+```bash
+npm ci
+```
+
+### Running checks
+
+```bash
+# Run ESLint across the codebase
+npm run lint
+
+# Run TypeScript typechecks across all workspaces
+npm run typecheck
+
+# Run unit tests (Vitest)
+npm test
+
+# Check code formatting (Prettier)
+npm run format:check
+
+# Auto-format code
+npm run format
+```
 
 ## How we work
 

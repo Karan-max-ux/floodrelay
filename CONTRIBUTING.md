@@ -56,6 +56,19 @@ Allowed prefixes: `feat`, `fix`, `docs`, `test`, `chore`, `refactor`.
 - Use `.env` files for local configuration. These are git-ignored.
 - Provide a `.env.example` file with placeholder values so teammates know which variables are needed.
 
+## Continuous Integration (CI)
+
+Every push and pull request against `main` runs our automated CI workflow (`.github/workflows/ci.yml`). Before opening or merging a PR, verify that all local checks pass:
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run format:check
+```
+
+CI runs on Node.js 24 (matching `.nvmrc`) and executes these same four checks after a clean `npm ci`.
+
 ## Architecture decisions
 
 Record architecture decisions in [docs/decisions.md](docs/decisions.md) using the template provided there. If a PR introduces or changes an architectural choice, add an entry.

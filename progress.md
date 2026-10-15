@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-10-15
 
-**Current focus:** Phase 0 — Project setup
+**Current focus:** Phase 1 — Solver core and evaluation harness
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -35,17 +35,17 @@ Citizens (or helpers) submit rescue requests with location, number of people and
 
 ## 4. Tech stack
 
-| Layer | Choice | Why | Status |
-|---|---|---|---|
-| Frontend (mandatory) | Next.js (App Router) + React + TypeScript | Citizen request form, operator dashboard, field-team view | Planned |
-| Map | react-leaflet loaded with dynamic import and SSR disabled | Leaflet needs the browser `window` object | Planned |
-| Backend | Separate Node.js service, Express + TypeScript (strict mode) | Intake, assignment, auth, live updates | Planned |
-| Database | PostgreSQL + PostGIS | Spatial queries and a built-in DBSCAN to verify our own clustering | Planned |
-| Queue and pub/sub | Redis (BullMQ) | Added only if measurements show the solver must run outside the request cycle | Planned |
-| Routing | OSRM in Docker | Travel-time matrix from OpenStreetMap data | Planned |
-| Live updates | Polling first, Socket.IO when the dashboard needs it | — | Planned |
-| Deployment | docker-compose for the backend stack, frontend on any Next.js host | — | Planned |
-| Testing and CI | Jest/Supertest, k6 for load tests, GitHub Actions | — | Planned |
+| Layer                | Choice                                                             | Why                                                                           | Status  |
+| -------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------- | ------- |
+| Frontend (mandatory) | Next.js (App Router) + React + TypeScript                          | Citizen request form, operator dashboard, field-team view                     | Planned |
+| Map                  | react-leaflet loaded with dynamic import and SSR disabled          | Leaflet needs the browser `window` object                                     | Planned |
+| Backend              | Separate Node.js service, Express + TypeScript (strict mode)       | Intake, assignment, auth, live updates                                        | Planned |
+| Database             | PostgreSQL + PostGIS                                               | Spatial queries and a built-in DBSCAN to verify our own clustering            | Planned |
+| Queue and pub/sub    | Redis (BullMQ)                                                     | Added only if measurements show the solver must run outside the request cycle | Planned |
+| Routing              | OSRM in Docker                                                     | Travel-time matrix from OpenStreetMap data                                    | Planned |
+| Live updates         | Polling first, Socket.IO when the dashboard needs it               | —                                                                             | Planned |
+| Deployment           | docker-compose for the backend stack, frontend on any Next.js host | —                                                                             | Planned |
+| Testing and CI       | Jest/Supertest, k6 for load tests, GitHub Actions                  | —                                                                             | Planned |
 
 ---
 
@@ -75,13 +75,13 @@ Incoming rescue requests
 
 ## 6. Incremental update strategy
 
-| Event | Handling |
-|---|---|
-| New request | Insert into best route |
-| Resource goes offline | Unassign its pending stops and re-insert, then local repair |
-| Request cancelled or duplicate | Remove from route |
-| Road newly blocked | Re-cost and repair only affected routes |
-| Periodic or drift-triggered background | Full re-optimization applied only to non-frozen stops |
+| Event                                  | Handling                                                    |
+| -------------------------------------- | ----------------------------------------------------------- |
+| New request                            | Insert into best route                                      |
+| Resource goes offline                  | Unassign its pending stops and re-insert, then local repair |
+| Request cancelled or duplicate         | Remove from route                                           |
+| Road newly blocked                     | Re-cost and repair only affected routes                     |
+| Periodic or drift-triggered background | Full re-optimization applied only to non-frozen stops       |
 
 **Benchmark three strategies:**
 
@@ -112,90 +112,90 @@ Incoming rescue requests
 
 ### Phase 0 — Project setup
 
-| Task | Owner | Status |
-|---|---|---|
-| Root README.md | — | ✅ |
-| .gitignore | — | ✅ |
-| .env.example | — | ✅ |
-| docs/decisions.md | — | ✅ |
-| Conventions (branch naming, commits, PR process) | — | ✅ |
-| GitHub branch protection rule on main | — | ✅ |
-| Folder structure | — | ✅ |
-| Workspace tooling (root package.json, tsconfig, lint configs) | — | ⬜ |
-| docker-compose for Postgres/PostGIS | — | ✅ |
-| CI skeleton | — | ✅ |
-| Agree on backend framework | — | ✅ |
+| Task                                                          | Owner | Status |
+| ------------------------------------------------------------- | ----- | ------ |
+| Root README.md                                                | —     | ✅     |
+| .gitignore                                                    | —     | ✅     |
+| .env.example                                                  | —     | ✅     |
+| docs/decisions.md                                             | —     | ✅     |
+| Conventions (branch naming, commits, PR process)              | —     | ✅     |
+| GitHub branch protection rule on main                         | —     | ✅     |
+| Folder structure                                              | —     | ✅     |
+| Workspace tooling (root package.json, tsconfig, lint configs) | —     | ✅     |
+| docker-compose for Postgres/PostGIS                           | —     | ✅     |
+| CI skeleton                                                   | —     | ✅     |
+| Agree on backend framework                                    | —     | ✅     |
 
 ### Phase 1 — Solver core and evaluation harness
 
-| Task | Owner | Status |
-|---|---|---|
-| Scenario format | — | ⬜ |
-| Seeded generator | — | ⬜ |
-| Metrics | — | ⬜ |
-| Nearest-first baseline | — | ⬜ |
-| Own DBSCAN | — | ⬜ |
-| First allocation heuristic with straight-line distances behind TravelTimeProvider | — | ⬜ |
-| OR-Tools baseline | — | ⬜ |
-| Results-table script | — | ⬜ |
+| Task                                                                              | Owner | Status |
+| --------------------------------------------------------------------------------- | ----- | ------ |
+| Scenario format                                                                   | —     | ⬜     |
+| Seeded generator                                                                  | —     | ⬜     |
+| Metrics                                                                           | —     | ⬜     |
+| Nearest-first baseline                                                            | —     | ⬜     |
+| Own DBSCAN                                                                        | —     | ⬜     |
+| First allocation heuristic with straight-line distances behind TravelTimeProvider | —     | ⬜     |
+| OR-Tools baseline                                                                 | —     | ⬜     |
+| Results-table script                                                              | —     | ⬜     |
 
 ### Phase 2 — API and database
 
-| Task | Owner | Status |
-|---|---|---|
-| Schema | — | ⬜ |
-| Request intake with idempotency and duplicate detection | — | ⬜ |
-| PostGIS storage | — | ⬜ |
-| Assignment endpoints | — | ⬜ |
-| OpenAPI spec | — | ⬜ |
+| Task                                                    | Owner | Status |
+| ------------------------------------------------------- | ----- | ------ |
+| Schema                                                  | —     | ⬜     |
+| Request intake with idempotency and duplicate detection | —     | ⬜     |
+| PostGIS storage                                         | —     | ⬜     |
+| Assignment endpoints                                    | —     | ⬜     |
+| OpenAPI spec                                            | —     | ⬜     |
 
 ### Phase 3 — Frontend
 
-| Task | Owner | Status |
-|---|---|---|
-| Citizen request form | — | ⬜ |
-| Operator map and assignment view | — | ⬜ |
-| Built against saved solver output (fixtures) first | — | ⬜ |
+| Task                                               | Owner | Status |
+| -------------------------------------------------- | ----- | ------ |
+| Citizen request form                               | —     | ⬜     |
+| Operator map and assignment view                   | —     | ⬜     |
+| Built against saved solver output (fixtures) first | —     | ⬜     |
 
 ### Phase 4 — Road network and uncertainty
 
-| Task | Owner | Status |
-|---|---|---|
-| OSRM travel times (check the OSRM docs for the table request size limit) | — | ⬜ |
-| Operator-marked blocked areas | — | ⬜ |
-| Uncertainty features | — | ⬜ |
-| Perturbation re-runs to report how often assignments change | — | ⬜ |
+| Task                                                                     | Owner | Status |
+| ------------------------------------------------------------------------ | ----- | ------ |
+| OSRM travel times (check the OSRM docs for the table request size limit) | —     | ⬜     |
+| Operator-marked blocked areas                                            | —     | ⬜     |
+| Uncertainty features                                                     | —     | ⬜     |
+| Perturbation re-runs to report how often assignments change              | —     | ⬜     |
 
 ### Phase 5 — Incremental updates and live operations
 
-| Task | Owner | Status |
-|---|---|---|
-| Event handlers | — | ⬜ |
-| Local repair | — | ⬜ |
-| Frozen committed stops | — | ⬜ |
-| Churn metric | — | ⬜ |
-| Live dashboard updates | — | ⬜ |
-| Roles | — | ⬜ |
-| Audit log | — | ⬜ |
+| Task                   | Owner | Status |
+| ---------------------- | ----- | ------ |
+| Event handlers         | —     | ⬜     |
+| Local repair           | —     | ⬜     |
+| Frozen committed stops | —     | ⬜     |
+| Churn metric           | —     | ⬜     |
+| Live dashboard updates | —     | ⬜     |
+| Roles                  | —     | ⬜     |
+| Audit log              | —     | ⬜     |
 
 ### Phase 6 — Hardening and documentation
 
-| Task | Owner | Status |
-|---|---|---|
-| Redis queue only if measurements justify it | — | ⬜ |
-| Optional flood-forecast context layer | — | ⬜ |
-| Load tests | — | ⬜ |
-| CI | — | ⬜ |
-| Limitations page | — | ⬜ |
-| Demo script | — | ⬜ |
+| Task                                        | Owner | Status |
+| ------------------------------------------- | ----- | ------ |
+| Redis queue only if measurements justify it | —     | ⬜     |
+| Optional flood-forecast context layer       | —     | ⬜     |
+| Load tests                                  | —     | ⬜     |
+| CI                                          | —     | ⬜     |
+| Limitations page                            | —     | ⬜     |
+| Demo script                                 | —     | ⬜     |
 
 ---
 
 ## 9. Current status
 
-- **Last completed:** GitHub branch protection rule on main confirmed active.
-- **Next up:** Workspace tooling (root package.json, tsconfig, lint configs) to finish Phase 0, then begin Phase 1.
-- **Phase 0 open items:** Workspace tooling (⬜ not started).
+- **Last completed:** Phase 0 — Project setup complete (Workspace tooling configured with Node 24, npm workspaces, TypeScript, ESLint, Prettier, and Vitest; all verification checks passing).
+- **Next up:** Phase 1 — Solver core and evaluation harness (Scenario format in `packages/shared`, seeded generator, evaluation metrics).
+- **Phase 0:** 100% complete. All tasks done.
 - Everything in Phase 1 and beyond: not started.
 
 ---
@@ -203,11 +203,11 @@ Incoming rescue requests
 ## 10. Team
 
 | Member | Role | Current task |
-|---|---|---|
-| | | |
-| | | |
-| | | |
-| | | |
+| ------ | ---- | ------------ |
+|        |      |              |
+|        |      |              |
+|        |      |              |
+|        |      |              |
 
 > **Suggested roles:** backend, geo/algorithms, frontend/map, DevOps/quality/docs.
 
@@ -215,15 +215,15 @@ Incoming rescue requests
 
 ## 11. Decisions made
 
-| Decision | Reason |
-|---|---|
-| Next.js + React frontend | University requirement |
-| Separate Node.js backend | Long-running work and live updates do not fit serverless; stronger backend story |
-| PostgreSQL + PostGIS | Spatial queries, built-in DBSCAN for verification |
-| No machine learning | Reliable deterministic algorithms preferred; no measured need for ML |
-| Build solver and evaluation before infrastructure | Validate the core logic before adding queues, real-time layers, etc. |
-| Operator commits assignments | Decision support only; the system never dispatches autonomously |
-| Backend framework: Express with TypeScript | Team knows Express, setup is minimal, effort goes to the solver; TypeScript strict mode shared across all packages catches field mismatches at compile time; framework can be changed later because the solver has no framework dependency |
+| Decision                                          | Reason                                                                                                                                                                                                                                     |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Next.js + React frontend                          | University requirement                                                                                                                                                                                                                     |
+| Separate Node.js backend                          | Long-running work and live updates do not fit serverless; stronger backend story                                                                                                                                                           |
+| PostgreSQL + PostGIS                              | Spatial queries, built-in DBSCAN for verification                                                                                                                                                                                          |
+| No machine learning                               | Reliable deterministic algorithms preferred; no measured need for ML                                                                                                                                                                       |
+| Build solver and evaluation before infrastructure | Validate the core logic before adding queues, real-time layers, etc.                                                                                                                                                                       |
+| Operator commits assignments                      | Decision support only; the system never dispatches autonomously                                                                                                                                                                            |
+| Backend framework: Express with TypeScript        | Team knows Express, setup is minimal, effort goes to the solver; TypeScript strict mode shared across all packages catches field mismatches at compile time; framework can be changed later because the solver has no framework dependency |
 
 ---
 
