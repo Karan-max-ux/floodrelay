@@ -28,3 +28,4 @@ export function requestDistanceKm(a: RescueRequest, b: RescueRequest): number {
 }
 
 export * from './generator.js';
+export * from './metrics.js';

@@ -132,7 +132,7 @@ Incoming rescue requests
 | --------------------------------------------------------------------------------- | ----- | ------ |
 | Scenario format                                                                   | —     | ✅     |
 | Seeded generator                                                                  | —     | ✅     |
-| Metrics                                                                           | —     | ⬜     |
+| Metrics                                                                           | —     | ✅     |
 | Nearest-first baseline                                                            | —     | ⬜     |
 | Own DBSCAN                                                                        | —     | ⬜     |
 | First allocation heuristic with straight-line distances behind TravelTimeProvider | —     | ⬜     |
@@ -193,10 +193,10 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Phase 1 — Seeded generator implemented in `@floodrelay/solver` with Mulberry32 PRNG and cluster simulation, verified across 20+ seeds and 500-request scale.
-- **Next up:** Phase 1 — Metrics harness (`packages/solver/src/metrics.ts` for coverage, travel time, high-priority wait time, solve time, and churn).
+- **Last completed:** Phase 1 — Metrics harness implemented in `@floodrelay/solver` (`calculatePlanMetrics` and `calculateChurn` for coverage, travel time, high-priority wait times, and frozen stops).
+- **Next up:** Phase 1 — Nearest-first baseline (`packages/solver/src/baselines/nearestFirst.ts`).
 - **Phase 0:** 100% complete.
-- **Phase 1:** 2 of 8 tasks complete (Scenario format ✅, Seeded generator ✅). Next up: Metrics.
+- **Phase 1:** 3 of 8 tasks complete (Scenario format ✅, Seeded generator ✅, Metrics ✅). Next up: Nearest-first baseline.
 
 ---
 
