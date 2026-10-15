@@ -119,7 +119,7 @@ Incoming rescue requests
 | .env.example | — | ✅ |
 | docs/decisions.md | — | ✅ |
 | Conventions (branch naming, commits, PR process) | — | ✅ |
-| GitHub branch protection rule on main | — | 🟡 |
+| GitHub branch protection rule on main | — | ✅ |
 | Folder structure | — | ✅ |
 | Workspace tooling (root package.json, tsconfig, lint configs) | — | ⬜ |
 | docker-compose for Postgres/PostGIS | — | ✅ |
@@ -193,10 +193,9 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Backend framework decided (Express + TypeScript).
-- **In progress:** GitHub branch protection rule on main (awaiting confirmation in GitHub Settings > Rules).
+- **Last completed:** GitHub branch protection rule on main confirmed active.
 - **Next up:** Workspace tooling (root package.json, tsconfig, lint configs) to finish Phase 0, then begin Phase 1.
-- **Phase 0 open items:** GitHub branch protection rule on main (🟡 in progress), workspace tooling (⬜ not started).
+- **Phase 0 open items:** Workspace tooling (⬜ not started).
 - Everything in Phase 1 and beyond: not started.
 
 ---
