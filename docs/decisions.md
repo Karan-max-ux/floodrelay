@@ -84,3 +84,32 @@ When recording a new decision, copy this template and fill it in:
 - **Alternatives considered:** Fastify (faster, schema-based validation, but less team familiarity); NestJS (more structure, but heavier and more opinionated than needed); plain JavaScript (no compile-time type checking across packages).
 - **Consequence:** The backend uses Express with TypeScript. The framework can be changed later because the solver has no framework dependency and the API surface is small at this stage.
 
+---
+
+### ADR-8: Node.js 24 LTS
+
+- **Date:** 2026-10-15
+- **Decision:** Standardize on Node.js 24 LTS across development, monorepo packages, and CI (enforced via `.nvmrc` and root `package.json` `engines`).
+- **Context:** A reliable, modern LTS version of Node.js is required for monorepo development and GitHub Actions CI.
+- **Alternatives considered:** Node 22 (maintenance LTS); Node 26 (entering LTS in late October 2026); Node 20 (end-of-life).
+- **Consequence:** Developers and CI runners must use Node.js 24+.
+
+---
+
+### ADR-9: npm workspaces
+
+- **Date:** 2026-10-15
+- **Decision:** Use npm workspaces for managing monorepo packages (`apps/*`, `services/*`, `packages/*`).
+- **Context:** The project needs cross-package linking (`@floodrelay/solver` -> `@floodrelay/shared`) and unified scripts (`lint`, `typecheck`, `test`) without requiring extra package managers.
+- **Alternatives considered:** pnpm (requires separate tool installation and store semantics); yarn (adds another CLI dependency when npm is already bundled with Node).
+- **Consequence:** Dependency management and script orchestration rely solely on standard npm with zero additional global tooling needed.
+
+---
+
+### ADR-10: ESLint (flat config) + Prettier + Vitest
+
+- **Date:** 2026-10-15
+- **Decision:** Use ESLint with typescript-eslint flat config for linting, Prettier for formatting, and Vitest for testing packages.
+- **Context:** Need consistent code style, static analysis, and fast unit test execution across TypeScript ES modules without complex transpilation setups.
+- **Alternatives considered:** Jest (slower, requires extra Babel or ts-jest transform configuration for native ESM and TypeScript).
+- **Consequence:** Fast, modern test execution with native TypeScript and ESM support in Vitest, and clean separation between code formatting and linting rules.
