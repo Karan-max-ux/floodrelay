@@ -1,0 +1,132 @@
+{
+  "id": "scenario-delhi-yamuna-demo",
+  "metadata": {
+    "id": "scenario-delhi-yamuna-demo",
+    "name": "Yamuna Flood Relief - North Delhi Basin",
+    "description": "Simulated flood rescue operations covering 10 rescue requests, 3 resources, and 2 relief camps along the Yamuna floodplains.",
+    "region": "Delhi NCR",
+    "seed": 2026,
+    "createdAt": "2026-10-15T12:00:00.000Z",
+    "bounds": {
+      "minLat": 28.6,
+      "maxLat": 28.75,
+      "minLng": 77.18,
+      "maxLng": 77.28
+    }
+  },
+  "requests": [
+    {
+      "id": "req-001",
+      "lat": 28.665,
+      "lng": 77.228,
+      "peopleCount": 4,
+      "urgency": "HIGH",
+      "createdAt": "2026-10-15T12:02:00.000Z",
+      "source": "SIMULATED",
+      "notes": "Elderly couple and 2 children stranded on terrace."
+    },
+    {
+      "id": "req-002",
+      "lat": 28.671,
+      "lng": 77.234,
+      "peopleCount": 6,
+      "urgency": "CRITICAL",
+      "createdAt": "2026-10-15T12:05:00.000Z",
+      "source": "SIMULATED",
+      "medicalNeeds": true,
+      "notes": "Rising water, medical attention needed."
+    },
+    {
+      "id": "req-003",
+      "lat": 28.682,
+      "lng": 77.24,
+      "peopleCount": 2,
+      "urgency": "MEDIUM",
+      "createdAt": "2026-10-15T12:10:00.000Z",
+      "source": "SIMULATED"
+    },
+    {
+      "id": "req-004",
+      "lat": 28.69,
+      "lng": 77.225,
+      "peopleCount": 5,
+      "urgency": "HIGH",
+      "createdAt": "2026-10-15T12:12:00.000Z",
+      "source": "SIMULATED"
+    },
+    {
+      "id": "req-005",
+      "lat": 28.678,
+      "lng": 77.218,
+      "peopleCount": 3,
+      "urgency": "LOW",
+      "createdAt": "2026-10-15T12:15:00.000Z",
+      "source": "SIMULATED"
+    }
+  ],
+  "resources": [
+    {
+      "id": "res-boat-01",
+      "name": "NDRF Boat Alpha",
+      "type": "BOAT",
+      "capacity": 8,
+      "speedKmH": 25,
+      "lat": 28.66,
+      "lng": 77.22,
+      "status": "AVAILABLE",
+      "depotId": "shelter-kashmere-gate"
+    },
+    {
+      "id": "res-boat-02",
+      "name": "NDRF Boat Bravo",
+      "type": "BOAT",
+      "capacity": 10,
+      "speedKmH": 25,
+      "lat": 28.68,
+      "lng": 77.23,
+      "status": "AVAILABLE",
+      "depotId": "shelter-wazirabad"
+    },
+    {
+      "id": "res-truck-01",
+      "name": "High-Clearance Rescue Truck 1",
+      "type": "HIGH_WATER_VEHICLE",
+      "capacity": 15,
+      "speedKmH": 40,
+      "lat": 28.65,
+      "lng": 77.21,
+      "status": "AVAILABLE"
+    }
+  ],
+  "shelters": [
+    {
+      "id": "shelter-kashmere-gate",
+      "name": "Kashmere Gate Relief Camp",
+      "lat": 28.668,
+      "lng": 77.232,
+      "capacity": 120,
+      "currentOccupancy": 20
+    },
+    {
+      "id": "shelter-wazirabad",
+      "name": "Wazirabad Community Relief Centre",
+      "lat": 28.705,
+      "lng": 77.228,
+      "capacity": 150,
+      "currentOccupancy": 35
+    }
+  ],
+  "blockedZones": [
+    {
+      "id": "zone-old-railway-bridge",
+      "name": "Old Railway Bridge - Submerged",
+      "severity": "BLOCKED",
+      "polygon": [
+        { "lat": 28.662, "lng": 77.24 },
+        { "lat": 28.665, "lng": 77.245 },
+        { "lat": 28.661, "lng": 77.247 },
+        { "lat": 28.658, "lng": 77.242 }
+      ]
+    }
+  ]
+}

@@ -1,9 +1,6 @@
-import type { RescueRequest } from '@floodrelay/shared';
+import type { GeoPoint, RescueRequest } from '@floodrelay/shared';
 
-export interface GeoPoint {
-  lat: number;
-  lng: number;
-}
+export type { GeoPoint };
 
 const EARTH_RADIUS_KM = 6371.0;
 
