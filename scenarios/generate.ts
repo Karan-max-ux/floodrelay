@@ -40,7 +40,9 @@ function run(): void {
   const targetPath = out ? path.resolve(out) : path.join(__dirname, `scenario-seed-${seed}.json`);
 
   fs.writeFileSync(targetPath, JSON.stringify(scenario, null, 2), 'utf-8');
-  console.log(`Generated scenario with ${scenario.requests.length} requests, ${scenario.resources.length} resources at: ${targetPath}`);
+  console.log(
+    `Generated scenario with ${scenario.requests.length} requests, ${scenario.resources.length} resources at: ${targetPath}`,
+  );
 }
 
 run();

@@ -139,7 +139,7 @@ describe('solveClusterAllocation', () => {
 
     // Cluster allocation targets high-urgency clusters first
     expect(clusterPlan.metrics.highPriorityWaitTimeMinutes).toBeLessThanOrEqual(
-      nearestPlan.metrics.highPriorityWaitTimeMinutes * 1.5
+      nearestPlan.metrics.highPriorityWaitTimeMinutes * 1.5,
     );
   });
 });

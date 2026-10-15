@@ -9,6 +9,7 @@
 ## 1. Summary of Updates & Changes Made
 
 ### A. Phase 0 Task Tracking ([progress.md](progress.md))
+
 - **Itemized Phase 0 Tasks**: Explicitly separated and added the following items to the Phase 0 table:
   - `Root README.md` (Status: ✅ Done)
   - `.gitignore` (Status: ✅ Done)
@@ -21,6 +22,7 @@
   2. Workspace tooling (root `package.json`, `tsconfig`, lint configs).
 
 ### B. Contribution Guidelines ([CONTRIBUTING.md](CONTRIBUTING.md))
+
 - **Aligned Branch Prefixes with Commit Types**:
   - Previously only allowed: `feature/`, `fix/`, `docs/`.
   - Added missing prefixes to match Conventional Commits:
@@ -37,9 +39,11 @@
   - `docs/decisions.md` entry: Added or updated if an architectural decision was introduced or modified.
 
 ### C. GitHub PR Template ([.github/pull_request_template.md](.github/pull_request_template.md))
+
 - Added `- [ ] docs/decisions.md entry added if architecture changed` to ensure pull requests on GitHub remind contributors to log architectural decisions.
 
 ### D. Verified Existing Artifacts
+
 - **[docs/decisions.md](docs/decisions.md)**: Confirmed existing on disk and in git tracking. Contains the Architecture Decision Record (ADR) template and ADR-1 through ADR-7:
   - `ADR-1`: Next.js + React frontend
   - `ADR-2`: Separate Node.js backend
@@ -57,6 +61,7 @@
 ## 2. What We Are Currently Doing & Next Steps
 
 ### 1. Enable GitHub Branch Protection on `main` (Pending Repository Settings)
+
 - **Status**: ⬜ Open
 - **Action Required**: The repository administrator needs to enable branch protection in GitHub Settings:
   - Require a pull request before merging (minimum 1 approval).
@@ -64,6 +69,7 @@
   - Require status checks to pass before merging (`CI skeleton`).
 
 ### 2. Workspace Tooling Setup (Completing Phase 0)
+
 - **Status**: ⬜ Open (Next up in development)
 - **Actions**:
   - Initialize root `package.json` with npm / pnpm / yarn workspaces configuring:
@@ -74,6 +80,7 @@
   - Configure code style and quality tools (ESLint, Prettier).
 
 ### 3. Transition to Phase 1 (Solver Core and Evaluation Harness)
+
 - **Status**: ⬜ Planned
 - **Actions**:
   - Define scenario schema in `packages/shared`.

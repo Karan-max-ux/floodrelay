@@ -17,7 +17,7 @@ describe('clusterRequests (DBSCAN)', () => {
   ];
 
   // Noise point: isolated outlier ~5 km from any cluster
-  const noisePoint = { id: 'noise-1', lat: 28.640, lng: 77.240, peopleCount: 2 };
+  const noisePoint = { id: 'noise-1', lat: 28.64, lng: 77.24, peopleCount: 2 };
 
   it('correctly partitions two distinct spatial clusters with epsilon = 1000m', () => {
     const points = [...clusterA, ...clusterB];
@@ -53,9 +53,9 @@ describe('clusterRequests (DBSCAN)', () => {
 
   it('respects metric distance in meters (separates at 300m, merges at 800m)', () => {
     // Two points ~500m apart along latitude (1 deg lat ~ 111km -> 0.0045 deg ~ 500m)
-    const p1 = { id: 'p1', lat: 28.6000, lng: 77.2000, peopleCount: 2 };
-    const p2 = { id: 'p2', lat: 28.6045, lng: 77.2000, peopleCount: 3 };
-    const p3 = { id: 'p3', lat: 28.6022, lng: 77.2000, peopleCount: 1 }; // In between
+    const p1 = { id: 'p1', lat: 28.6, lng: 77.2, peopleCount: 2 };
+    const p2 = { id: 'p2', lat: 28.6045, lng: 77.2, peopleCount: 3 };
+    const p3 = { id: 'p3', lat: 28.6022, lng: 77.2, peopleCount: 1 }; // In between
 
     // At epsilon = 200m, they cannot bridge to form a cluster
     const smallEps = clusterRequests([p1, p2, p3], { epsilonMeters: 200, minPoints: 2 });

@@ -18,7 +18,7 @@ export interface TravelTimeProvider {
 export class StraightLineTravelTimeProvider implements TravelTimeProvider {
   constructor(
     private readonly detourFactor = 1.3,
-    private readonly defaultSpeedKmH = 30
+    private readonly defaultSpeedKmH = 30,
   ) {}
 
   getTravelEstimate(from: GeoPoint, to: GeoPoint, speedKmH?: number): TravelEstimate {
@@ -33,13 +33,9 @@ export class StraightLineTravelTimeProvider implements TravelTimeProvider {
     };
   }
 
-  getMatrix(
-    origins: GeoPoint[],
-    destinations: GeoPoint[],
-    speedKmH?: number
-  ): TravelEstimate[][] {
+  getMatrix(origins: GeoPoint[], destinations: GeoPoint[], speedKmH?: number): TravelEstimate[][] {
     return origins.map((origin) =>
-      destinations.map((dest) => this.getTravelEstimate(origin, dest, speedKmH))
+      destinations.map((dest) => this.getTravelEstimate(origin, dest, speedKmH)),
     );
   }
 }

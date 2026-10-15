@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-10-15
 
-**Current focus:** Phase 1 — Solver core and evaluation harness
+**Current focus:** Phase 2 — API and database
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -137,7 +137,7 @@ Incoming rescue requests
 | Own DBSCAN                                                                        | —     | ✅     |
 | First allocation heuristic with straight-line distances behind TravelTimeProvider | —     | ✅     |
 | OR-Tools baseline                                                                 | —     | ✅     |
-| Results-table script                                                              | —     | ⬜     |
+| Results-table script                                                              | —     | ✅     |
 
 ### Phase 2 — API and database
 
@@ -193,10 +193,11 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Phase 1 — OR-Tools CVRPTW baseline solver implemented in `@floodrelay/solver` (`solveOrToolsBaseline` with Clarke-Wright savings and 2-opt local search).
-- **Next up:** Phase 1 — Results-table benchmark script (`scenarios/evaluate.ts`).
+- **Last completed:** Phase 1 — Solver core and evaluation harness 100% complete (All 8 tasks done: Scenario format, Seeded generator, Metrics, Nearest-first baseline, Own DBSCAN, Cluster allocation heuristic, OR-Tools baseline, Results-table script).
+- **Next up:** Phase 2 — API and database (Schema, request intake, PostGIS storage, assignment endpoints, OpenAPI spec).
 - **Phase 0:** 100% complete.
-- **Phase 1:** 7 of 8 tasks complete. Next up: Results-table script to finish Phase 1!
+- **Phase 1:** 100% complete (8 of 8 tasks done ✅).
+- Everything in Phase 2 and beyond: not started.
 
 ---
 

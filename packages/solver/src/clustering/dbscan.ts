@@ -28,7 +28,7 @@ export interface ClusteringResult<T> {
  */
 export function clusterRequests<T extends { lat: number; lng: number; peopleCount?: number }>(
   items: T[],
-  options: DBSCANOptions
+  options: DBSCANOptions,
 ): ClusteringResult<T> {
   const { epsilonMeters, minPoints } = options;
   const n = items.length;
@@ -42,7 +42,10 @@ export function clusterRequests<T extends { lat: number; lng: number; peopleCoun
   }
 
   // Pre-calculate distance in meters using Haversine
-  const distanceMeters = (a: { lat: number; lng: number }, b: { lat: number; lng: number }): number => {
+  const distanceMeters = (
+    a: { lat: number; lng: number },
+    b: { lat: number; lng: number },
+  ): number => {
     return haversineKm(a, b) * 1000;
   };
 

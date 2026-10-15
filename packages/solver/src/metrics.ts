@@ -26,7 +26,7 @@ export interface ChurnMetrics {
 export function calculatePlanMetrics(
   scenario: Scenario,
   plan: Pick<SolverPlan, 'routes' | 'unserved'>,
-  solveDurationMs = 0
+  solveDurationMs = 0,
 ): DetailedMetrics {
   const requestsById = new Map<string, RescueRequest>();
   for (const req of scenario.requests) {
@@ -69,7 +69,9 @@ export function calculatePlanMetrics(
   const servedRequestsCount = servedRequestIds.size;
   const unservedRequestsCount = Math.max(0, totalRequestsCount - servedRequestsCount);
   const coveragePercent =
-    totalRequestsCount === 0 ? 100 : Number(((servedRequestsCount / totalRequestsCount) * 100).toFixed(2));
+    totalRequestsCount === 0
+      ? 100
+      : Number(((servedRequestsCount / totalRequestsCount) * 100).toFixed(2));
 
   const average = (arr: number[]): number =>
     arr.length === 0 ? 0 : Number((arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(2));
@@ -96,10 +98,7 @@ export function calculatePlanMetrics(
  * Calculates assignment churn between a previous committed plan and an updated plan.
  * Churn measures how many already-communicated request assignments were changed.
  */
-export function calculateChurn(
-  previousPlan: SolverPlan,
-  updatedPlan: SolverPlan
-): ChurnMetrics {
+export function calculateChurn(previousPlan: SolverPlan, updatedPlan: SolverPlan): ChurnMetrics {
   const previousAssignments = new Map<string, string>(); // requestId -> resourceId
   const frozenStops = new Map<string, RouteStop>(); // stopId / targetId -> stop
 

@@ -109,10 +109,7 @@ export interface ResourceRoute {
 }
 
 export type UnservedReason =
-  | 'CAPACITY_EXCEEDED'
-  | 'NO_REACHABLE_RESOURCE'
-  | 'TIME_WINDOW_EXCEEDED'
-  | 'ISOLATED_ZONE';
+  'CAPACITY_EXCEEDED' | 'NO_REACHABLE_RESOURCE' | 'TIME_WINDOW_EXCEEDED' | 'ISOLATED_ZONE';
 
 export interface UnservedRequest {
   requestId: string;
@@ -201,7 +198,9 @@ export function validateScenario(input: unknown): ValidationResult {
     } else {
       const b = m.bounds;
       if (!isValidCoord(b.minLat, b.minLng) || !isValidCoord(b.maxLat, b.maxLng)) {
-        errors.push('Metadata bounds must contain valid minLat, maxLat, minLng, maxLng coordinates');
+        errors.push(
+          'Metadata bounds must contain valid minLat, maxLat, minLng, maxLng coordinates',
+        );
       } else if (b.minLat > b.maxLat) {
         errors.push('Metadata bounds minLat must be less than or equal to maxLat');
       } else if (b.minLng > b.maxLng) {
@@ -232,7 +231,11 @@ export function validateScenario(input: unknown): ValidationResult {
         errors.push(`Request "${req.id || idx}" has invalid lat/lng coordinates`);
       }
 
-      if (typeof req.peopleCount !== 'number' || !Number.isInteger(req.peopleCount) || req.peopleCount <= 0) {
+      if (
+        typeof req.peopleCount !== 'number' ||
+        !Number.isInteger(req.peopleCount) ||
+        req.peopleCount <= 0
+      ) {
         errors.push(`Request "${req.id || idx}" peopleCount must be a positive integer`);
       }
 
@@ -268,7 +271,11 @@ export function validateScenario(input: unknown): ValidationResult {
         errors.push(`Resource "${res.id || idx}" has invalid lat/lng coordinates`);
       }
 
-      if (typeof res.capacity !== 'number' || !Number.isInteger(res.capacity) || res.capacity <= 0) {
+      if (
+        typeof res.capacity !== 'number' ||
+        !Number.isInteger(res.capacity) ||
+        res.capacity <= 0
+      ) {
         errors.push(`Resource "${res.id || idx}" capacity must be a positive integer`);
       }
 

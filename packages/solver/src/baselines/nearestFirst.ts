@@ -6,10 +6,7 @@ import type {
   UnservedRequest,
 } from '@floodrelay/shared';
 import { calculatePlanMetrics } from '../metrics.js';
-import {
-  StraightLineTravelTimeProvider,
-  type TravelTimeProvider,
-} from '../routing/travelTime.js';
+import { StraightLineTravelTimeProvider, type TravelTimeProvider } from '../routing/travelTime.js';
 
 export interface NearestFirstOptions {
   travelTimeProvider?: TravelTimeProvider;
@@ -21,10 +18,7 @@ export interface NearestFirstOptions {
  * Resources iteratively pick up the closest remaining request that fits capacity,
  * unloading at the nearest safe shelter when full or when no further requests can be added.
  */
-export function solveNearestFirst(
-  scenario: Scenario,
-  options?: NearestFirstOptions
-): SolverPlan {
+export function solveNearestFirst(scenario: Scenario, options?: NearestFirstOptions): SolverPlan {
   const startTime = Date.now();
   const provider = options?.travelTimeProvider ?? new StraightLineTravelTimeProvider();
   const maxShiftMinutes = options?.maxShiftDurationMinutes ?? 480; // 8-hour shift default
@@ -34,7 +28,7 @@ export function solveNearestFirst(
   const unservedList: UnservedRequest[] = [];
 
   const availableResources = scenario.resources.filter(
-    (r) => r.status === 'AVAILABLE' || r.status === 'ASSIGNED'
+    (r) => r.status === 'AVAILABLE' || r.status === 'ASSIGNED',
   );
 
   const shelters = scenario.shelters;
@@ -44,7 +38,10 @@ export function solveNearestFirst(
       unservedList.push({
         requestId: req.id,
         reason: shelters.length === 0 ? 'NO_REACHABLE_RESOURCE' : 'CAPACITY_EXCEEDED',
-        details: shelters.length === 0 ? 'No safe shelters available in scenario' : 'No available rescue resources',
+        details:
+          shelters.length === 0
+            ? 'No safe shelters available in scenario'
+            : 'No available rescue resources',
       });
     }
 
@@ -121,14 +118,22 @@ export function solveNearestFirst(
           let minShelterDist = Number.POSITIVE_INFINITY;
 
           for (const shelter of shelters) {
-            const dist = provider.getTravelEstimate(currentLocation, shelter, resource.speedKmH).distanceKm;
+            const dist = provider.getTravelEstimate(
+              currentLocation,
+              shelter,
+              resource.speedKmH,
+            ).distanceKm;
             if (dist < minShelterDist) {
               minShelterDist = dist;
               nearestShelter = shelter;
             }
           }
 
-          const shelterEstimate = provider.getTravelEstimate(currentLocation, nearestShelter, resource.speedKmH);
+          const shelterEstimate = provider.getTravelEstimate(
+            currentLocation,
+            nearestShelter,
+            resource.speedKmH,
+          );
           currentMinutes += shelterEstimate.durationMinutes;
           currentDistanceKm += shelterEstimate.distanceKm;
           currentLocation = { lat: nearestShelter.lat, lng: nearestShelter.lng };
@@ -157,13 +162,21 @@ export function solveNearestFirst(
       let nearestShelter = shelters[0]!;
       let minShelterDist = Number.POSITIVE_INFINITY;
       for (const shelter of shelters) {
-        const dist = provider.getTravelEstimate(currentLocation, shelter, resource.speedKmH).distanceKm;
+        const dist = provider.getTravelEstimate(
+          currentLocation,
+          shelter,
+          resource.speedKmH,
+        ).distanceKm;
         if (dist < minShelterDist) {
           minShelterDist = dist;
           nearestShelter = shelter;
         }
       }
-      const shelterEstimate = provider.getTravelEstimate(currentLocation, nearestShelter, resource.speedKmH);
+      const shelterEstimate = provider.getTravelEstimate(
+        currentLocation,
+        nearestShelter,
+        resource.speedKmH,
+      );
       currentMinutes += shelterEstimate.durationMinutes;
       currentDistanceKm += shelterEstimate.distanceKm;
 
@@ -200,11 +213,7 @@ export function solveNearestFirst(
   }
 
   const duration = Date.now() - startTime;
-  const metrics = calculatePlanMetrics(
-    scenario,
-    { routes, unserved: unservedList },
-    duration
-  );
+  const metrics = calculatePlanMetrics(scenario, { routes, unserved: unservedList }, duration);
 
   return {
     scenarioId: scenario.id,

@@ -7,10 +7,7 @@ import type {
   UnservedRequest,
 } from '@floodrelay/shared';
 import { calculatePlanMetrics } from '../metrics.js';
-import {
-  StraightLineTravelTimeProvider,
-  type TravelTimeProvider,
-} from '../routing/travelTime.js';
+import { StraightLineTravelTimeProvider, type TravelTimeProvider } from '../routing/travelTime.js';
 
 export interface OrToolsBaselineOptions {
   travelTimeProvider?: TravelTimeProvider;
@@ -25,7 +22,7 @@ export interface OrToolsBaselineOptions {
  */
 export function solveOrToolsBaseline(
   scenario: Scenario,
-  options?: OrToolsBaselineOptions
+  options?: OrToolsBaselineOptions,
 ): SolverPlan {
   const startTime = Date.now();
   const provider = options?.travelTimeProvider ?? new StraightLineTravelTimeProvider();
@@ -34,7 +31,7 @@ export function solveOrToolsBaseline(
 
   const shelters = scenario.shelters;
   const availableResources = scenario.resources.filter(
-    (r) => r.status === 'AVAILABLE' || r.status === 'ASSIGNED'
+    (r) => r.status === 'AVAILABLE' || r.status === 'ASSIGNED',
   );
 
   const unservedList: UnservedRequest[] = [];
@@ -111,11 +108,19 @@ export function solveOrToolsBaseline(
 
         for (let i = 0; i < candidates.length; i++) {
           const reqI = candidates[i]!;
-          const dDepotI = provider.getTravelEstimate(primaryDepot, reqI, resource.speedKmH).distanceKm;
+          const dDepotI = provider.getTravelEstimate(
+            primaryDepot,
+            reqI,
+            resource.speedKmH,
+          ).distanceKm;
 
           for (let j = i + 1; j < candidates.length; j++) {
             const reqJ = candidates[j]!;
-            const dDepotJ = provider.getTravelEstimate(primaryDepot, reqJ, resource.speedKmH).distanceKm;
+            const dDepotJ = provider.getTravelEstimate(
+              primaryDepot,
+              reqJ,
+              resource.speedKmH,
+            ).distanceKm;
             const dIJ = provider.getTravelEstimate(reqI, reqJ, resource.speedKmH).distanceKm;
             const saving = dDepotI + dDepotJ - dIJ;
 
@@ -222,7 +227,11 @@ export function solveOrToolsBaseline(
           }
         }
 
-        const shelterEst = provider.getTravelEstimate(currentLocation, bestShelter, resource.speedKmH);
+        const shelterEst = provider.getTravelEstimate(
+          currentLocation,
+          bestShelter,
+          resource.speedKmH,
+        );
         currentMinutes += shelterEst.durationMinutes;
         currentDistanceKm += shelterEst.distanceKm;
         currentLocation = { lat: bestShelter.lat, lng: bestShelter.lng };
@@ -268,7 +277,7 @@ export function solveOrToolsBaseline(
   const metrics = calculatePlanMetrics(
     scenario,
     { routes: finalRoutes, unserved: unservedList },
-    duration
+    duration,
   );
 
   return {

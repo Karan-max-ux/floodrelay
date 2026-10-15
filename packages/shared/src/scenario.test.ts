@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  validateScenario,
-  type Scenario,
-} from './index.js';
+import { validateScenario, type Scenario } from './index.js';
 
 describe('validateScenario', () => {
   const validScenario: Scenario = {

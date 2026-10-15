@@ -12,6 +12,7 @@
 The local repository was synchronized with `origin/main` (fast-forwarded by 13 commits across 3 merged pull requests).
 
 ### Merged Pull Requests:
+
 1. **PR #5 (`docs/tidy-progress-and-contributing`)**:
    - Aligned `CONTRIBUTING.md` (added `chore/`, `refactor/`, `test/` branch prefixes; deduplicated PR section; added PR checklist).
    - Itemized Phase 0 tasks in `progress.md`.
@@ -44,19 +45,19 @@ The local repository was synchronized with `origin/main` (fast-forwarded by 13 c
 
 **Yes, your friend has completely finished Phase 0!**
 
-| Phase 0 Task | Status | Notes |
-|---|---|---|
-| Root README.md | ✅ Done | Getting started and structure documented. |
-| .gitignore | ✅ Done | Excludes node_modules, build outputs, OSM data, env files. |
-| .env.example | ✅ Done | PostgreSQL / PostGIS configuration template. |
-| docs/decisions.md | ✅ Done | ADR-1 through ADR-8 documented. |
-| Conventions (branching, commits, PRs) | ✅ Done | Conventional Commits, branch prefixes, PR checklist. |
-| GitHub branch protection rule on main | ✅ Done | Marked done in progress.md. |
-| Folder structure | ✅ Done | apps, services, packages, scenarios, infra, docs. |
-| Workspace tooling | ✅ Done | npm workspaces, TypeScript, ESLint, Prettier, Vitest. |
-| docker-compose for Postgres/PostGIS | ✅ Done | PostGIS 16-3.4 service container. |
-| CI skeleton | ✅ Done | GitHub Actions running lint, typecheck, and test. |
-| Agree on backend framework | ✅ Done | Express with TypeScript (ADR-7). |
+| Phase 0 Task                          | Status  | Notes                                                      |
+| ------------------------------------- | ------- | ---------------------------------------------------------- |
+| Root README.md                        | ✅ Done | Getting started and structure documented.                  |
+| .gitignore                            | ✅ Done | Excludes node_modules, build outputs, OSM data, env files. |
+| .env.example                          | ✅ Done | PostgreSQL / PostGIS configuration template.               |
+| docs/decisions.md                     | ✅ Done | ADR-1 through ADR-8 documented.                            |
+| Conventions (branching, commits, PRs) | ✅ Done | Conventional Commits, branch prefixes, PR checklist.       |
+| GitHub branch protection rule on main | ✅ Done | Marked done in progress.md.                                |
+| Folder structure                      | ✅ Done | apps, services, packages, scenarios, infra, docs.          |
+| Workspace tooling                     | ✅ Done | npm workspaces, TypeScript, ESLint, Prettier, Vitest.      |
+| docker-compose for Postgres/PostGIS   | ✅ Done | PostGIS 16-3.4 service container.                          |
+| CI skeleton                           | ✅ Done | GitHub Actions running lint, typecheck, and test.          |
+| Agree on backend framework            | ✅ Done | Express with TypeScript (ADR-7).                           |
 
 ---
 
