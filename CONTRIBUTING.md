@@ -18,13 +18,22 @@ Use one of these prefixes:
 - `feature/<short-name>` — new functionality
 - `fix/<short-name>` — bug fixes
 - `docs/<short-name>` — documentation changes
+- `chore/<short-name>` — maintenance, tooling, configuration, and dependencies
+- `refactor/<short-name>` — code changes that neither fix a bug nor add a feature
+- `test/<short-name>` — adding or updating tests
 
 ## Pull requests
 
-- `main` is protected and changed only through pull requests.
-- At least one teammate must review each PR before merging.
-- Keep PRs small and focused on a single change.
 - Update `progress.md` in the same PR that finishes a task. Use the emoji status symbols: ⬜ not started, 🟡 in progress, ✅ done.
+
+### PR checklist
+
+Every pull request must include:
+
+- [ ] **Description**: Clear explanation of what changed and why.
+- [ ] **How to verify**: Steps, commands, or test instructions to verify the change.
+- [ ] **`progress.md` updated**: Task status updated with appropriate emoji (⬜, 🟡, ✅).
+- [ ] **`docs/decisions.md` entry**: Added or updated if an architectural decision was introduced or modified.
 
 ## Commit messages
 
