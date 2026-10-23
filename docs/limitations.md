@@ -15,7 +15,6 @@ This file documents honest limitations of the system. Keep it updated as the pro
 - **Routing and speed assumptions (uncalibrated placeholders):**
   Travel times and synthetic scenarios rely on estimated parameters that are not calibrated against empirical disaster-response telemetry:
   - `ASSUMED_ROAD_DETOUR_FACTOR` (1.3): Geodesic haversine distance multiplier to approximate road route tortuosity (placeholder, not measured).
-  - `ASSUMED_DETOUR_FACTOR` (1.3): Alias for `ASSUMED_ROAD_DETOUR_FACTOR` (placeholder, not measured).
   - `ASSUMED_DEFAULT_SPEED_KMH` (30 km/h): Fallback speed for travel time estimation when resource speed is not specified (placeholder, not measured).
   - `ASSUMED_FLOOD_IMPEDANCE_MULTIPLIER` (1.5): Travel impedance multiplier applied when routing through flooded or degraded zones (placeholder, not measured).
   - `ASSUMED_BOAT_SPEED_MIN_KMH` (20 km/h) and `ASSUMED_BOAT_SPEED_MAX_KMH` (30 km/h): Synthetic speed range for boat resources in scenario generator (placeholder, not measured).

@@ -2,7 +2,6 @@ import type { GeoPoint } from '@floodrelay/shared';
 import { haversineKm } from '../index.js';
 
 export const ASSUMED_ROAD_DETOUR_FACTOR = 1.3; // placeholder, not measured
-export const ASSUMED_DETOUR_FACTOR = ASSUMED_ROAD_DETOUR_FACTOR; // placeholder, not measured
 export const ASSUMED_DEFAULT_SPEED_KMH = 30; // placeholder, not measured
 export const ASSUMED_FLOOD_IMPEDANCE_MULTIPLIER = 1.5; // placeholder, not measured
 
