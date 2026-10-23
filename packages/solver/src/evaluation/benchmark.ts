@@ -69,12 +69,13 @@ function meanAndStdev(values: number[]): { mean: number; stdev: number } {
 
 export function evaluateSolversOnCase(
   benchCase: BenchmarkCase,
-  seedCount = 5,
+  seedCount = 20,
   solvers: Record<string, SolverFn> = {
     'Nearest-First (Greedy)': solveNearestFirst,
     'Cluster-Allocation': solveClusterAllocation,
     'Clarke-Wright + 2-opt': solveClarkeWrightBaseline,
   },
+  baseSeed?: number,
 ): SolverBenchmarkSummary[] {
   const summaries: SolverBenchmarkSummary[] = [];
 
@@ -84,9 +85,10 @@ export function evaluateSolversOnCase(
     const highPriorityWaits: number[] = [];
     const solveTimes: number[] = [];
 
-    for (let seed = 1; seed <= seedCount; seed++) {
+    for (let i = 0; i < seedCount; i++) {
+      const seed = baseSeed !== undefined ? baseSeed + i : (i + 1) * 1000 + 42;
       const scenario = generateScenario({
-        seed: seed * 1000 + 42,
+        seed,
         requestCount: benchCase.requestCount,
         resourceCount: benchCase.resourceCount,
         shelterCount: benchCase.shelterCount,
