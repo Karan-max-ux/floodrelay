@@ -11,10 +11,31 @@ export interface BenchmarkCase {
   shelterCount: number;
 }
 
+export const BENCHMARK_SIZE_SMALL: BenchmarkCase = {
+  name: 'Small (20 req / 4 res)',
+  requestCount: 20,
+  resourceCount: 4,
+  shelterCount: 2,
+};
+
+export const BENCHMARK_SIZE_MEDIUM: BenchmarkCase = {
+  name: 'Medium (100 req / 12 res)',
+  requestCount: 100,
+  resourceCount: 12,
+  shelterCount: 3,
+};
+
+export const BENCHMARK_SIZE_LARGE: BenchmarkCase = {
+  name: 'Large (500 req / 30 res)',
+  requestCount: 500,
+  resourceCount: 30,
+  shelterCount: 5,
+};
+
 export const STANDARD_BENCHMARK_CASES: readonly BenchmarkCase[] = [
-  { name: 'Small (20 req / 4 res)', requestCount: 20, resourceCount: 4, shelterCount: 2 },
-  { name: 'Medium (100 req / 12 res)', requestCount: 100, resourceCount: 12, shelterCount: 3 },
-  { name: 'Large (500 req / 30 res)', requestCount: 500, resourceCount: 30, shelterCount: 5 },
+  BENCHMARK_SIZE_SMALL,
+  BENCHMARK_SIZE_MEDIUM,
+  BENCHMARK_SIZE_LARGE,
 ];
 
 export type SolverFn = (scenario: Scenario) => SolverPlan;

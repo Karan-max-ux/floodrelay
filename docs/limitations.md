@@ -10,7 +10,7 @@ This file documents honest limitations of the system. Keep it updated as the pro
 
 - **No live traffic.** Travel-time estimates do not account for real-time traffic conditions.
 
-- **Results are from simulated scenarios.** All evaluation results are from simulated scenarios and are not field-validated. They should not be interpreted as guarantees of real-world performance.
+- **Results are from simulated scenarios.** All evaluation results are from simulated scenarios across predefined synthetic sizes (Small: 20 req / 4 res, Medium: 100 req / 12 res, Large: 500 req / 30 res) and are not field-validated. They should not be interpreted as guarantees of real-world performance.
 
 - **Routing and speed assumptions (uncalibrated placeholders):**
   Travel times and synthetic scenarios rely on estimated parameters that are not calibrated against empirical disaster-response telemetry:
