@@ -264,11 +264,15 @@ export function solveClarkeWrightBaseline(
     }
   }
 
+  const maxResourceCapacity = Math.max(0, ...scenario.resources.map((r) => r.capacity));
   for (const [id, req] of unservedRequests.entries()) {
+    const isTooLarge = req.peopleCount > maxResourceCapacity;
     unservedList.push({
       requestId: id,
-      reason: 'CAPACITY_EXCEEDED',
-      details: `Request of ${req.peopleCount} passengers could not be assigned in Clarke-Wright baseline`,
+      reason: isTooLarge ? 'GROUP_LARGER_THAN_ANY_VEHICLE' : 'SHIFT_LIMIT_REACHED',
+      details: isTooLarge
+        ? `Request of ${req.peopleCount} passengers exceeds maximum vehicle capacity (${maxResourceCapacity})`
+        : `Request of ${req.peopleCount} passengers could not be assigned within shift limits in Clarke-Wright baseline`,
     });
   }
 

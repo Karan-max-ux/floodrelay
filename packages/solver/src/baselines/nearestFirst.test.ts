@@ -104,8 +104,18 @@ describe('solveNearestFirst', () => {
     const plan = solveNearestFirst(smallCapacityScenario);
 
     expect(plan.unserved.some((u) => u.requestId === 'req-3')).toBe(true);
+    const unservedReq = plan.unserved.find((u) => u.requestId === 'req-3');
+    expect(unservedReq?.reason).toBe('GROUP_LARGER_THAN_ANY_VEHICLE');
     expect(plan.metrics.unservedRequestsCount).toBe(1);
     expect(plan.metrics.servedRequestsCount).toBe(2);
+  });
+
+  it('marks unserved requests with SHIFT_LIMIT_REACHED when shift time is exceeded', () => {
+    const plan = solveNearestFirst(testScenario, { maxShiftDurationMinutes: 1 });
+    expect(plan.unserved.length).toBeGreaterThan(0);
+    for (const u of plan.unserved) {
+      expect(u.reason).toBe('SHIFT_LIMIT_REACHED');
+    }
   });
 
   it('executes reliably on a large generated scenario (50 requests, 6 resources)', () => {

@@ -113,7 +113,12 @@ export interface ResourceRoute {
 }
 
 export type UnservedReason =
-  'CAPACITY_EXCEEDED' | 'NO_REACHABLE_RESOURCE' | 'TIME_WINDOW_EXCEEDED' | 'ISOLATED_ZONE';
+  | 'CAPACITY_EXCEEDED'
+  | 'NO_REACHABLE_RESOURCE'
+  | 'TIME_WINDOW_EXCEEDED'
+  | 'ISOLATED_ZONE'
+  | 'GROUP_LARGER_THAN_ANY_VEHICLE'
+  | 'SHIFT_LIMIT_REACHED';
 
 export interface UnservedRequest {
   requestId: string;

@@ -162,4 +162,29 @@ describe('solveClarkeWrightBaseline', () => {
     expect(routeResourceIds).not.toContain(genScenario.resources[0]!.id);
     expect(routeResourceIds).not.toContain(genScenario.resources[1]!.id);
   });
+
+  it('marks unserved requests with GROUP_LARGER_THAN_ANY_VEHICLE when request exceeds vehicle capacity', () => {
+    const smallCapacityScenario = {
+      ...scenario,
+      resources: [
+        {
+          ...scenario.resources[0]!,
+          capacity: 3, // req-2 has 4 people
+        },
+      ],
+    };
+
+    const plan = solveClarkeWrightBaseline(smallCapacityScenario);
+    const unservedReq = plan.unserved.find((u) => u.requestId === 'req-2');
+    expect(unservedReq).toBeDefined();
+    expect(unservedReq?.reason).toBe('GROUP_LARGER_THAN_ANY_VEHICLE');
+  });
+
+  it('marks unserved requests with SHIFT_LIMIT_REACHED when shift limit is exhausted', () => {
+    const plan = solveClarkeWrightBaseline(scenario, { maxShiftMinutes: 1 });
+    expect(plan.unserved.length).toBeGreaterThan(0);
+    for (const u of plan.unserved) {
+      expect(u.reason).toBe('SHIFT_LIMIT_REACHED');
+    }
+  });
 });

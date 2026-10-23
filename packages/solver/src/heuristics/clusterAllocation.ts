@@ -329,11 +329,15 @@ export function solveClusterAllocation(
     }
   }
 
+  const maxResourceCapacity = Math.max(0, ...scenario.resources.map((r) => r.capacity));
   for (const [id, req] of remainingRequests.entries()) {
+    const isTooLarge = req.peopleCount > maxResourceCapacity;
     unservedList.push({
       requestId: id,
-      reason: 'CAPACITY_EXCEEDED',
-      details: `Request for ${req.peopleCount} people could not be scheduled within shift constraints`,
+      reason: isTooLarge ? 'GROUP_LARGER_THAN_ANY_VEHICLE' : 'SHIFT_LIMIT_REACHED',
+      details: isTooLarge
+        ? `Request for ${req.peopleCount} people exceeds maximum vehicle capacity (${maxResourceCapacity})`
+        : `Request for ${req.peopleCount} people could not be scheduled within shift constraints`,
     });
   }
 
