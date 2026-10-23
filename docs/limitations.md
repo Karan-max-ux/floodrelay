@@ -23,8 +23,9 @@ This file documents honest limitations of the system. Keep it updated as the pro
 
 - **Baseline trade-offs and travel time characteristics:**
   In synthetic benchmark evaluations, Nearest-First (Greedy) exhibits lower total travel time than Clarke-Wright + 2-opt. Both baselines calculate travel time identically (geodesic distance with detour factor, intermediate shelter drop-offs upon reaching vehicle capacity). This difference is an inherent algorithmic trade-off, not a calculation bug:
-  - Nearest-First purely minimizes immediate step distance and ignores request urgency, forming hyper-local tours with low travel duration but high wait times for critical requests (~231 min).
-  - Clarke-Wright + 2-opt batches candidates prioritized by urgency across the map before building savings routes, requiring longer transit across dispersed high-urgency incidents.
-  - Cluster-Allocation balances spatial compactness with triage priority via DBSCAN clustering, yielding significantly lower high-priority wait times (~72 min).
+  - Nearest-First purely minimizes immediate step distance and ignores request urgency, forming hyper-local tours with low travel duration at the expense of higher wait times for critical requests.
+  - Clarke-Wright + 2-opt selects trip candidates prioritized by urgency descending before building savings routes, requiring longer transit across dispersed high-urgency incidents.
+  - Cluster-Allocation balances spatial compactness with triage priority via DBSCAN clustering, achieving lower high-priority wait times while maintaining reasonable travel efficiency.
+  - For current benchmark numbers, run `npx tsx scenarios/evaluate.ts`.
 
 - **TODO:** A real Google OR-Tools baseline is not implemented. The current algorithmic baselines are Nearest-First (Greedy) and Clarke-Wright (savings + 2-opt).
