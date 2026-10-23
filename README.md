@@ -72,6 +72,12 @@ npm run format:check
 npm run format
 ```
 
+### Scenarios and evaluation
+
+The repository contains seeded synthetic scenarios for testing and benchmark evaluation:
+- `scenarios/sample-scenario.json`: A simulated baseline scenario (North Delhi / Yamuna basin) containing 10 simulated rescue requests, 3 resources, and 2 shelters. All data in this file is strictly simulated (`"simulated": true`) and does not represent real-world emergency incidents.
+- Evaluation harness: Run `npx tsx scenarios/evaluate.ts` to evaluate allocation solvers across reproducible synthetic scenarios.
+
 ## How we work
 
 All changes go through pull requests against the protected `main` branch with teammate approval.

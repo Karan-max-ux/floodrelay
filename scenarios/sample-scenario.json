@@ -1,11 +1,15 @@
 {
   "id": "scenario-delhi-yamuna-demo",
+  "simulated": true,
+  "syntheticDataNote": "This scenario contains purely simulated synthetic data generated for testing and algorithmic evaluation. It does not represent real-world incidents.",
   "metadata": {
     "id": "scenario-delhi-yamuna-demo",
-    "name": "Yamuna Flood Relief - North Delhi Basin",
+    "name": "Yamuna Flood Relief - North Delhi Basin (Simulated)",
     "description": "Simulated flood rescue operations covering 10 rescue requests, 3 resources, and 2 relief camps along the Yamuna floodplains.",
     "region": "Delhi NCR",
     "seed": 2026,
+    "simulated": true,
+    "syntheticDataNote": "This scenario contains purely simulated synthetic data generated for testing and algorithmic evaluation.",
     "createdAt": "2026-10-15T12:00:00.000Z",
     "bounds": {
       "minLat": 28.6,

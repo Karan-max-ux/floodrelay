@@ -74,10 +74,14 @@ export interface ScenarioMetadata {
   seed?: number;
   createdAt: string;
   bounds: BoundingBox;
+  simulated?: boolean;
+  syntheticDataNote?: string;
 }
 
 export interface Scenario {
   id: string;
+  simulated?: boolean;
+  syntheticDataNote?: string;
   metadata: ScenarioMetadata;
   requests: RescueRequest[];
   resources: RescueResource[];
