@@ -98,6 +98,93 @@ describe('Sanity Scenarios', () => {
     );
   });
 
+  it('bidirectional straight line scenario: requests on both sides of vehicle start point', () => {
+    // Vehicle starts at center (28.55, 77.10) with depot/shelter at center.
+    // Requests on both sides along the north-south line, all with HIGH urgency.
+    const bidirectionalLineScenario: Scenario = {
+      id: 'bidirectional-line-sanity',
+      metadata: {
+        id: 'bidirectional-line-sanity',
+        name: 'Bidirectional Line Sanity',
+        region: 'Delhi',
+        createdAt: '2026-10-15T12:00:00Z',
+        bounds: { minLat: 28.5, maxLat: 28.6, minLng: 77.1, maxLng: 77.1 },
+      },
+      requests: [
+        {
+          id: 'req-n1',
+          lat: 28.57,
+          lng: 77.1,
+          peopleCount: 2,
+          urgency: 'HIGH',
+          createdAt: '2026-10-15T12:00:00Z',
+          source: 'SIMULATED',
+        },
+        {
+          id: 'req-n2',
+          lat: 28.59,
+          lng: 77.1,
+          peopleCount: 2,
+          urgency: 'HIGH',
+          createdAt: '2026-10-15T12:00:00Z',
+          source: 'SIMULATED',
+        },
+        {
+          id: 'req-s1',
+          lat: 28.53,
+          lng: 77.1,
+          peopleCount: 2,
+          urgency: 'HIGH',
+          createdAt: '2026-10-15T12:00:00Z',
+          source: 'SIMULATED',
+        },
+        {
+          id: 'req-s2',
+          lat: 28.51,
+          lng: 77.1,
+          peopleCount: 2,
+          urgency: 'HIGH',
+          createdAt: '2026-10-15T12:00:00Z',
+          source: 'SIMULATED',
+        },
+      ],
+      resources: [
+        {
+          id: 'res-truck-1',
+          name: 'Rescue Truck Alpha',
+          type: 'HIGH_WATER_VEHICLE',
+          capacity: 20, // Enough capacity for all 8 people
+          speedKmH: 30,
+          lat: 28.55,
+          lng: 77.1,
+          status: 'AVAILABLE',
+        },
+      ],
+      shelters: [
+        {
+          id: 'shelter-center',
+          name: 'Center Depot Shelter',
+          lat: 28.55,
+          lng: 77.1,
+          capacity: 100,
+        },
+      ],
+    };
+
+    const nfPlan = solveNearestFirst(bidirectionalLineScenario);
+    const cwPlan = solveClarkeWrightBaseline(bidirectionalLineScenario);
+
+    console.log(
+      `[Sanity Check] Bidirectional line: Savings baseline total travel time = ${cwPlan.metrics.totalTravelTimeMinutes} min, Nearest-First = ${nfPlan.metrics.totalTravelTimeMinutes} min`,
+    );
+
+    expect(nfPlan.metrics.coveragePercent).toBe(100);
+    expect(cwPlan.metrics.coveragePercent).toBe(100);
+    expect(cwPlan.metrics.totalTravelTimeMinutes).toBeLessThanOrEqual(
+      nfPlan.metrics.totalTravelTimeMinutes,
+    );
+  });
+
   it('two clusters far apart scenario: validates solver allocation behavior', () => {
     // Cluster 1 (South, near initial vehicle position, LOW urgency)
     // Cluster 2 (North, ~20 km away, CRITICAL urgency)
