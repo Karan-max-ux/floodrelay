@@ -28,4 +28,7 @@ This file documents honest limitations of the system. Keep it updated as the pro
   - Cluster-Allocation balances spatial compactness with triage priority via DBSCAN clustering, achieving lower high-priority wait times while maintaining reasonable travel efficiency.
   - For current benchmark numbers, run `npx tsx scenarios/evaluate.ts`.
 
+- **Solver coverage under shift duration constraints:**
+  In dense scenarios, Clarke-Wright + 2-opt may occasionally leave a small portion of requests unserved under vehicle capacity and shift duration limits. Because Clarke-Wright selects trip candidates prioritized by urgency across the map rather than by immediate geographic proximity, vehicles spend more operational shift time traveling between distant high-urgency incidents. As a consequence, vehicle shift limits can be exhausted before the fleet finishes serving all remaining low-urgency or peripheral requests. In contrast, solvers that group demand by spatial clusters reduce transit overhead, avoiding premature shift exhaustion.
+
 - **TODO:** A real Google OR-Tools baseline is not implemented. The current algorithmic baselines are Nearest-First (Greedy) and Clarke-Wright (savings + 2-opt).
