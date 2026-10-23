@@ -20,7 +20,7 @@ describe('SeededRNG', () => {
 });
 
 describe('generateScenario', () => {
-  it('is completely reproducible with the same seed', () => {
+  it('same seed gives an identical scenario', () => {
     const s1 = generateScenario({ seed: 12345, requestCount: 20, resourceCount: 4 });
     const s2 = generateScenario({ seed: 12345, requestCount: 20, resourceCount: 4 });
 
@@ -29,7 +29,7 @@ describe('generateScenario', () => {
     expect(s1.shelters).toEqual(s2.shelters);
   });
 
-  it('produces different results with different seeds', () => {
+  it('different seeds give different scenarios', () => {
     const s1 = generateScenario({ seed: 100, requestCount: 10 });
     const s2 = generateScenario({ seed: 200, requestCount: 10 });
 

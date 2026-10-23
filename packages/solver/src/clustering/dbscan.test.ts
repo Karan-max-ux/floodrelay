@@ -36,7 +36,7 @@ describe('clusterRequests (DBSCAN)', () => {
     expect(people).toEqual([9, 12]);
   });
 
-  it('identifies noise points and preserves them as individual demand units (never dropped)', () => {
+  it('DBSCAN keeps noise points as singleton demands', () => {
     const points = [...clusterA, ...clusterB, noisePoint];
     const result = clusterRequests(points, { epsilonMeters: 1000, minPoints: 3 });
 

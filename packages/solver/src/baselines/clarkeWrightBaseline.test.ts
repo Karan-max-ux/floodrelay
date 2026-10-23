@@ -101,4 +101,65 @@ describe('solveClarkeWrightBaseline', () => {
     expect(plan.metrics.coveragePercent).toBeGreaterThan(40);
     expect(plan.metrics.solveDurationMs).toBeLessThan(1000);
   });
+
+  it('capacity is never exceeded', () => {
+    const genScenario = generateScenario({
+      seed: 555,
+      requestCount: 30,
+      resourceCount: 4,
+      shelterCount: 2,
+    });
+    const plan = solveClarkeWrightBaseline(genScenario);
+    expect(plan.routes.length).toBeGreaterThan(0);
+
+    for (const route of plan.routes) {
+      const resource = genScenario.resources.find((r) => r.id === route.resourceId);
+      expect(resource).toBeDefined();
+      let load = 0;
+      for (const stop of route.stops) {
+        if (stop.type === 'PICKUP') {
+          load += stop.passengersPickedUp;
+        } else if (stop.type === 'DROPOFF') {
+          load -= stop.passengersDroppedOff;
+        }
+        expect(load).toBeLessThanOrEqual(resource!.capacity);
+        expect(load).toBeGreaterThanOrEqual(0);
+      }
+    }
+  });
+
+  it('no request is assigned twice', () => {
+    const genScenario = generateScenario({
+      seed: 666,
+      requestCount: 40,
+      resourceCount: 5,
+      shelterCount: 2,
+    });
+    const plan = solveClarkeWrightBaseline(genScenario);
+    const assignedIds = plan.routes.flatMap((r) => r.servedRequestIds);
+    const uniqueIds = new Set(assignedIds);
+    expect(assignedIds.length).toBe(uniqueIds.size);
+
+    const pickupIds = plan.routes
+      .flatMap((r) => r.stops)
+      .filter((s) => s.type === 'PICKUP')
+      .map((s) => s.targetId);
+    expect(pickupIds.length).toBe(new Set(pickupIds).size);
+  });
+
+  it('unavailable resources get nothing', () => {
+    const genScenario = generateScenario({
+      seed: 777,
+      requestCount: 20,
+      resourceCount: 4,
+      shelterCount: 2,
+    });
+    genScenario.resources[0]!.status = 'MAINTENANCE';
+    genScenario.resources[1]!.status = 'OFFLINE';
+
+    const plan = solveClarkeWrightBaseline(genScenario);
+    const routeResourceIds = plan.routes.map((r) => r.resourceId);
+    expect(routeResourceIds).not.toContain(genScenario.resources[0]!.id);
+    expect(routeResourceIds).not.toContain(genScenario.resources[1]!.id);
+  });
 });
