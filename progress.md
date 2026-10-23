@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-10-23
 
-**Current focus:** Phase 1 review fixes and verification (OR-Tools baseline pending)
+**Current focus:** Phase 1 review fixes and verification (1 baseline open)
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -197,9 +197,9 @@ Incoming rescue requests
 ## 9. Current status
 
 - **Last completed:** Phase 1 review fixes: invariant tests for all solvers, ASSUMED_* constants documented in limitations, simulated scenario labelling, standard benchmark scenario sizes, evaluation CLI disclaimers, and Phase 1 test traceability in progress.md.
-- **Next up:** Google OR-Tools baseline (open ⬜), then proceed to Phase 2.
+- **Next up:** Complete the single open baseline task (⬜), then proceed to Phase 2.
 - **Phase 0:** 100% complete.
-- **Phase 1:** In progress (7 of 8 tasks complete ✅; OR-Tools baseline open ⬜).
+- **Phase 1:** In progress (7 of 8 tasks complete ✅; 1 task open ⬜).
 - Everything in Phase 2 and beyond: not started.
 
 ---
