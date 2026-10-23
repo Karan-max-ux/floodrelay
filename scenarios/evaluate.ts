@@ -31,9 +31,7 @@ const allSummaries = [];
 
 for (const benchCase of casesToRun) {
   const seedInfo =
-    seedArg !== undefined
-      ? `baseSeed = ${seedArg}, seeds = ${seedCount}`
-      : `seeds = ${seedCount}`;
+    seedArg !== undefined ? `baseSeed = ${seedArg}, seeds = ${seedCount}` : `seeds = ${seedCount}`;
   console.log(`Evaluating: ${benchCase.name} (${seedInfo})...`);
   const summaries = evaluateSolversOnCase(benchCase, seedCount, undefined, seedArg);
   allSummaries.push(...summaries);
@@ -41,4 +39,3 @@ for (const benchCase of casesToRun) {
 
 console.log('\n### Benchmark Results Table\n');
 console.log(formatMarkdownResultsTable(allSummaries));
-

@@ -18,11 +18,7 @@ export interface TravelTimeProvider {
     speedKmH?: number,
     isFlooded?: boolean,
   ): TravelEstimate;
-  getMatrix(
-    origins: GeoPoint[],
-    destinations: GeoPoint[],
-    speedKmH?: number,
-  ): TravelEstimate[][];
+  getMatrix(origins: GeoPoint[], destinations: GeoPoint[], speedKmH?: number): TravelEstimate[][];
 }
 
 /**
