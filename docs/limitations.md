@@ -21,4 +21,10 @@ This file documents honest limitations of the system. Keep it updated as the pro
   - `ASSUMED_BOAT_SPEED_MIN_KMH` (20 km/h) and `ASSUMED_BOAT_SPEED_MAX_KMH` (30 km/h): Synthetic speed range for boat resources in scenario generator (placeholder, not measured).
   - `ASSUMED_TRUCK_SPEED_MIN_KMH` (35 km/h) and `ASSUMED_TRUCK_SPEED_MAX_KMH` (50 km/h): Synthetic speed range for high-water truck resources in scenario generator (placeholder, not measured).
 
+- **Baseline trade-offs and travel time characteristics:**
+  In synthetic benchmark evaluations, Nearest-First (Greedy) exhibits lower total travel time than Clarke-Wright + 2-opt. Both baselines calculate travel time identically (geodesic distance with detour factor, intermediate shelter drop-offs upon reaching vehicle capacity). This difference is an inherent algorithmic trade-off, not a calculation bug:
+  - Nearest-First purely minimizes immediate step distance and ignores request urgency, forming hyper-local tours with low travel duration but high wait times for critical requests (~231 min).
+  - Clarke-Wright + 2-opt batches candidates prioritized by urgency across the map before building savings routes, requiring longer transit across dispersed high-urgency incidents.
+  - Cluster-Allocation balances spatial compactness with triage priority via DBSCAN clustering, yielding significantly lower high-priority wait times (~72 min).
+
 - **TODO:** A real Google OR-Tools baseline is not implemented. The current algorithmic baselines are Nearest-First (Greedy) and Clarke-Wright (savings + 2-opt).
