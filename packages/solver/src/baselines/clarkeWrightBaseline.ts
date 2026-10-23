@@ -9,20 +9,19 @@ import type {
 import { calculatePlanMetrics } from '../metrics.js';
 import { StraightLineTravelTimeProvider, type TravelTimeProvider } from '../routing/travelTime.js';
 
-export interface OrToolsBaselineOptions {
+export interface ClarkeWrightBaselineOptions {
   travelTimeProvider?: TravelTimeProvider;
   maxShiftMinutes?: number;
   max2OptIterations?: number;
 }
 
 /**
- * Standard Capacitated Vehicle Routing Problem with Time Windows (CVRPTW) baseline.
- * Mirrors Google OR-Tools routing model using Clarke-Wright Savings initialization
- * followed by 2-opt local search route improvement with multi-trip depot reload support.
+ * Clarke-Wright Savings heuristic with 2-opt local search (no time windows).
+ * Multi-trip vehicle routing heuristic with depot reload support.
  */
-export function solveOrToolsBaseline(
+export function solveClarkeWrightBaseline(
   scenario: Scenario,
-  options?: OrToolsBaselineOptions,
+  options?: ClarkeWrightBaselineOptions,
 ): SolverPlan {
   const startTime = Date.now();
   const provider = options?.travelTimeProvider ?? new StraightLineTravelTimeProvider();
@@ -269,7 +268,7 @@ export function solveOrToolsBaseline(
     unservedList.push({
       requestId: id,
       reason: 'CAPACITY_EXCEEDED',
-      details: `Request of ${req.peopleCount} passengers could not be assigned in OR-Tools CVRPTW baseline`,
+      details: `Request of ${req.peopleCount} passengers could not be assigned in Clarke-Wright baseline`,
     });
   }
 

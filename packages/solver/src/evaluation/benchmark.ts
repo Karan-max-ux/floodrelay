@@ -1,6 +1,6 @@
 import type { Scenario, SolverPlan } from '@floodrelay/shared';
 import { solveNearestFirst } from '../baselines/nearestFirst.js';
-import { solveOrToolsBaseline } from '../baselines/orToolsBaseline.js';
+import { solveClarkeWrightBaseline } from '../baselines/clarkeWrightBaseline.js';
 import { generateScenario } from '../generator.js';
 import { solveClusterAllocation } from '../heuristics/clusterAllocation.js';
 
@@ -52,7 +52,7 @@ export function evaluateSolversOnCase(
   solvers: Record<string, SolverFn> = {
     'Nearest-First (Greedy)': solveNearestFirst,
     'Cluster-Allocation': solveClusterAllocation,
-    'OR-Tools CVRPTW': solveOrToolsBaseline,
+    'Clarke-Wright + 2-opt': solveClarkeWrightBaseline,
   },
 ): SolverBenchmarkSummary[] {
   const summaries: SolverBenchmarkSummary[] = [];

@@ -1,14 +1,14 @@
 import type { Scenario } from '@floodrelay/shared';
 import { describe, expect, it } from 'vitest';
 import { generateScenario } from '../generator.js';
-import { solveOrToolsBaseline } from './orToolsBaseline.js';
+import { solveClarkeWrightBaseline } from './clarkeWrightBaseline.js';
 
-describe('solveOrToolsBaseline', () => {
+describe('solveClarkeWrightBaseline', () => {
   const scenario: Scenario = {
-    id: 'ortools-test-scenario',
+    id: 'clarke-wright-test-scenario',
     metadata: {
-      id: 'ortools-test-scenario',
-      name: 'OR-Tools Test Scenario',
+      id: 'clarke-wright-test-scenario',
+      name: 'Clarke-Wright Test Scenario',
       region: 'Delhi',
       createdAt: '2026-10-15T12:00:00Z',
       bounds: { minLat: 28.5, maxLat: 28.7, minLng: 77.1, maxLng: 77.3 },
@@ -66,7 +66,7 @@ describe('solveOrToolsBaseline', () => {
   };
 
   it('serves requests while strictly obeying resource capacity constraints', () => {
-    const plan = solveOrToolsBaseline(scenario);
+    const plan = solveClarkeWrightBaseline(scenario);
 
     expect(plan.routes).toHaveLength(1);
     const route = plan.routes[0]!;
@@ -95,7 +95,7 @@ describe('solveOrToolsBaseline', () => {
       shelterCount: 2,
     });
 
-    const plan = solveOrToolsBaseline(genScenario);
+    const plan = solveClarkeWrightBaseline(genScenario);
 
     expect(plan.routes.length).toBeGreaterThan(0);
     expect(plan.metrics.coveragePercent).toBeGreaterThan(40);

@@ -11,3 +11,5 @@ This file documents honest limitations of the system. Keep it updated as the pro
 - **No live traffic.** Travel-time estimates do not account for real-time traffic conditions.
 
 - **Results are from simulated scenarios.** All evaluation results are from simulated scenarios and are not field-validated. They should not be interpreted as guarantees of real-world performance.
+
+- **TODO:** A real Google OR-Tools baseline is not implemented. The current algorithmic baselines are Nearest-First (Greedy) and Clarke-Wright (savings + 2-opt).

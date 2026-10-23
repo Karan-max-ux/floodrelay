@@ -33,5 +33,5 @@ export * from './routing/travelTime.js';
 export * from './baselines/nearestFirst.js';
 export * from './clustering/dbscan.js';
 export * from './heuristics/clusterAllocation.js';
-export * from './baselines/orToolsBaseline.js';
+export * from './baselines/clarkeWrightBaseline.js';
 export * from './evaluation/benchmark.js';
