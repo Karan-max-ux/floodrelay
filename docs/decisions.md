@@ -113,3 +113,28 @@ When recording a new decision, copy this template and fill it in:
 - **Context:** Need consistent code style, static analysis, and fast unit test execution across TypeScript ES modules without complex transpilation setups.
 - **Alternatives considered:** Jest (slower, requires extra Babel or ts-jest transform configuration for native ESM and TypeScript).
 - **Consequence:** Fast, modern test execution with native TypeScript and ESM support in Vitest, and clean separation between code formatting and linting rules.
+
+---
+
+### ADR-11: Shelter drop-off model
+
+- **Date:** 2026-10-20
+- **Decision:** Model vehicle capacity constraints with intermediate shelter drop-off stops. When a rescue vehicle reaches its passenger capacity (or concludes servicing a localized cluster of requests), it routes to a designated safe shelter to disembark evacuees before servicing further requests or returning to its home depot.
+- **Context:** Rescue vehicles (inflatable boats, high-water trucks) have finite passenger capacities (typically 6–18 people). In severe flooding events with hundreds of stranded victims, a vehicle cannot execute a continuous tour without offloading evacuees. Routing models must explicitly account for intermediate shelter drop-off trips to guarantee passenger safety and avoid vehicle overloading.
+- **Alternatives considered:**
+  - Single-trip routing: Each vehicle performs at most one pickup leg from depot, offloads once, and halts. (Rejected: extremely inefficient resource utilization during large-scale operations).
+  - Infinite vehicle capacity: Route vehicles purely to minimize distance without capacity boundaries or shelter drop-offs. (Rejected: physically impossible and unsafe in real flood rescues).
+- **Consequence:** Routing algorithms (Nearest-First, Clarke-Wright + 2-opt, Cluster Allocation) maintain current passenger load and insert shelter drop-off stops whenever servicing an additional request would exceed vehicle capacity.
+
+---
+
+### ADR-12: Flood impedance multipliers
+
+- **Date:** 2026-10-20
+- **Decision:** Use a configurable travel impedance multiplier (`ASSUMED_FLOOD_IMPEDANCE_MULTIPLIER = 1.5`) applied to geodesic/network travel estimates when routing through flood-affected or waterlogged zones.
+- **Context:** Flood conditions degrade vehicular speeds due to submerged debris, reduced traction, water resistance, and caution required by operators. Simple dry-road network routing or unweighted geodesic distances significantly underestimate real-world mission duration during active flooding emergencies.
+- **Alternatives considered:**
+  - Binary passable/impassable road edges only: Treat flooded roads as strictly blocked (infinite travel time). (Rejected: specialized high-water trucks and rescue boats can traverse certain flooded corridors, and strictly blocking all flooded areas can cause solver infeasibility).
+  - Static dry-road speeds: Use standard unweighted road speeds everywhere. (Rejected: dangerous optimism leading to unrealistic ETAs and unachievable dispatch schedules).
+- **Consequence:** Travel time providers support impedance scaling for flooded segments, and all speed and impedance parameters are explicitly exported as uncalibrated placeholder assumptions (`ASSUMED_*`) documented in `docs/limitations.md`.
+
