@@ -12,4 +12,13 @@ This file documents honest limitations of the system. Keep it updated as the pro
 
 - **Results are from simulated scenarios.** All evaluation results are from simulated scenarios and are not field-validated. They should not be interpreted as guarantees of real-world performance.
 
+- **Routing and speed assumptions (uncalibrated placeholders):**
+  Travel times and synthetic scenarios rely on estimated parameters that are not calibrated against empirical disaster-response telemetry:
+  - `ASSUMED_ROAD_DETOUR_FACTOR` (1.3): Geodesic haversine distance multiplier to approximate road route tortuosity (placeholder, not measured).
+  - `ASSUMED_DETOUR_FACTOR` (1.3): Alias for `ASSUMED_ROAD_DETOUR_FACTOR` (placeholder, not measured).
+  - `ASSUMED_DEFAULT_SPEED_KMH` (30 km/h): Fallback speed for travel time estimation when resource speed is not specified (placeholder, not measured).
+  - `ASSUMED_FLOOD_IMPEDANCE_MULTIPLIER` (1.5): Travel impedance multiplier applied when routing through flooded or degraded zones (placeholder, not measured).
+  - `ASSUMED_BOAT_SPEED_MIN_KMH` (20 km/h) and `ASSUMED_BOAT_SPEED_MAX_KMH` (30 km/h): Synthetic speed range for boat resources in scenario generator (placeholder, not measured).
+  - `ASSUMED_TRUCK_SPEED_MIN_KMH` (35 km/h) and `ASSUMED_TRUCK_SPEED_MAX_KMH` (50 km/h): Synthetic speed range for high-water truck resources in scenario generator (placeholder, not measured).
+
 - **TODO:** A real Google OR-Tools baseline is not implemented. The current algorithmic baselines are Nearest-First (Greedy) and Clarke-Wright (savings + 2-opt).

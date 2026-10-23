@@ -1,29 +1,50 @@
 import type { GeoPoint } from '@floodrelay/shared';
 import { haversineKm } from '../index.js';
 
+export const ASSUMED_ROAD_DETOUR_FACTOR = 1.3; // placeholder, not measured
+export const ASSUMED_DETOUR_FACTOR = ASSUMED_ROAD_DETOUR_FACTOR; // placeholder, not measured
+export const ASSUMED_DEFAULT_SPEED_KMH = 30; // placeholder, not measured
+export const ASSUMED_FLOOD_IMPEDANCE_MULTIPLIER = 1.5; // placeholder, not measured
+
 export interface TravelEstimate {
   distanceKm: number;
   durationMinutes: number;
 }
 
 export interface TravelTimeProvider {
-  getTravelEstimate(from: GeoPoint, to: GeoPoint, speedKmH?: number): TravelEstimate;
-  getMatrix(origins: GeoPoint[], destinations: GeoPoint[], speedKmH?: number): TravelEstimate[][];
+  getTravelEstimate(
+    from: GeoPoint,
+    to: GeoPoint,
+    speedKmH?: number,
+    isFlooded?: boolean,
+  ): TravelEstimate;
+  getMatrix(
+    origins: GeoPoint[],
+    destinations: GeoPoint[],
+    speedKmH?: number,
+  ): TravelEstimate[][];
 }
 
 /**
  * StraightLineTravelTimeProvider calculates geodesic distance via haversine,
- * scaled by a road network detour factor (default 1.3x).
+ * scaled by a road network detour factor (default 1.3x) and flood impedance multiplier.
  */
 export class StraightLineTravelTimeProvider implements TravelTimeProvider {
   constructor(
-    private readonly detourFactor = 1.3,
-    private readonly defaultSpeedKmH = 30,
+    private readonly detourFactor: number = ASSUMED_ROAD_DETOUR_FACTOR,
+    private readonly defaultSpeedKmH: number = ASSUMED_DEFAULT_SPEED_KMH,
+    private readonly floodImpedanceMultiplier: number = ASSUMED_FLOOD_IMPEDANCE_MULTIPLIER,
   ) {}
 
-  getTravelEstimate(from: GeoPoint, to: GeoPoint, speedKmH?: number): TravelEstimate {
+  getTravelEstimate(
+    from: GeoPoint,
+    to: GeoPoint,
+    speedKmH?: number,
+    isFlooded?: boolean,
+  ): TravelEstimate {
     const rawDistance = haversineKm(from, to);
-    const distanceKm = Number((rawDistance * this.detourFactor).toFixed(3));
+    const impedance = isFlooded ? this.floodImpedanceMultiplier : 1.0;
+    const distanceKm = Number((rawDistance * this.detourFactor * impedance).toFixed(3));
     const speed = speedKmH && speedKmH > 0 ? speedKmH : this.defaultSpeedKmH;
     const durationMinutes = Number(((distanceKm / speed) * 60).toFixed(2));
 
