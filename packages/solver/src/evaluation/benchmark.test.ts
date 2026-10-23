@@ -16,7 +16,7 @@ describe('Solver Evaluation Benchmark Harness', () => {
     const solverNames = summaries.map((s) => s.solverName);
     expect(solverNames).toContain('Nearest-First (Greedy)');
     expect(solverNames).toContain('Cluster-Allocation');
-    expect(solverNames).toContain('Clarke-Wright + 2-opt');
+    expect(solverNames).toContain('Urgency-batched savings + 2-opt');
 
     for (const summary of summaries) {
       expect(summary.seedsRun).toBe(3);
@@ -29,6 +29,6 @@ describe('Solver Evaluation Benchmark Harness', () => {
     expect(markdownTable).toContain('| Scenario Size | Solver | Seeds |');
     expect(markdownTable).toContain('Nearest-First (Greedy)');
     expect(markdownTable).toContain('Cluster-Allocation');
-    expect(markdownTable).toContain('Clarke-Wright + 2-opt');
+    expect(markdownTable).toContain('Urgency-batched savings + 2-opt');
   });
 });

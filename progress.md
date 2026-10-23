@@ -100,7 +100,7 @@ Incoming rescue requests
   - Solve time
   - Latency per event (p50 and p95)
   - Assignment churn (how many already-communicated assignments change per event)
-- **Baselines:** nearest-first greedy and Clarke-Wright (savings + 2-opt).
+- **Baselines:** nearest-first greedy and Urgency-batched savings + 2-opt.
 - At least 20 random seeds per scenario size, report mean and spread.
 - **Standard scenario sizes:**
   - Small: 20 requests / 4 resources / 2 shelters
@@ -139,7 +139,7 @@ Incoming rescue requests
 | Nearest-first baseline                                                            | —     | ✅     | `packages/solver/src/baselines/nearestFirst.test.ts` (`capacity is never exceeded`, `no request is assigned twice`, `unavailable resources get nothing`)                                                           |
 | Own DBSCAN                                                                        | —     | ✅     | `packages/solver/src/clustering/dbscan.test.ts` (`correctly partitions two distinct spatial clusters`, `DBSCAN keeps noise points as singleton demands`)                                                           |
 | First allocation heuristic with straight-line distances behind TravelTimeProvider | —     | ✅     | `packages/solver/src/heuristics/clusterAllocation.test.ts` (`allocates resources to clusters and prioritizes critical urgency requests`, `frozen stops are not moved by replanning`, `capacity is never exceeded`) |
-| OR-Tools baseline                                                                 | —     | ⬜     | — (not implemented; algorithmic baselines are Nearest-First and Clarke-Wright + 2-opt)                                                                                                                             |
+| OR-Tools baseline                                                                 | —     | ⬜     | — (not implemented; algorithmic baselines are Nearest-First and Urgency-batched savings + 2-opt)                                                                                                                   |
 | Results-table script                                                              | —     | ✅     | `packages/solver/src/evaluation/benchmark.test.ts` (`evaluates all solvers across random seeds and generates a results table`), verified via `scenarios/evaluate.ts`                                               |
 
 ### Phase 2 — API and database

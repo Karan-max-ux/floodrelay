@@ -73,7 +73,7 @@ export function evaluateSolversOnCase(
   solvers: Record<string, SolverFn> = {
     'Nearest-First (Greedy)': solveNearestFirst,
     'Cluster-Allocation': solveClusterAllocation,
-    'Clarke-Wright + 2-opt': solveClarkeWrightBaseline,
+    'Urgency-batched savings + 2-opt': solveClarkeWrightBaseline,
   },
   baseSeed?: number,
 ): SolverBenchmarkSummary[] {

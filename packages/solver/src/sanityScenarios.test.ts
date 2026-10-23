@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { solveClarkeWrightBaseline, solveClusterAllocation, solveNearestFirst } from './index.js';
 
 describe('Sanity Scenarios', () => {
-  it('straight line scenario: Clarke-Wright + 2-opt total travel time is <= nearest-first', () => {
+  it('straight line scenario: Urgency-batched savings + 2-opt total travel time is <= nearest-first', () => {
     // 1 vehicle with capacity for all requests, requests placed along a line
     const straightLineScenario: Scenario = {
       id: 'straight-line-sanity',
@@ -92,7 +92,7 @@ describe('Sanity Scenarios', () => {
     expect(cwPlan.metrics.coveragePercent).toBe(100);
     expect(caPlan.metrics.coveragePercent).toBe(100);
 
-    // Required check: Clarke-Wright + 2-opt total travel time <= nearest-first
+    // Required check: Urgency-batched savings + 2-opt total travel time <= nearest-first
     expect(cwPlan.metrics.totalTravelTimeMinutes).toBeLessThanOrEqual(
       nfPlan.metrics.totalTravelTimeMinutes,
     );

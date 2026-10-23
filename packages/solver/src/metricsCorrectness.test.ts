@@ -25,7 +25,7 @@ describe('Metric correctness across solvers', () => {
       const solvers = [
         { name: 'Nearest-First', fn: solveNearestFirst },
         { name: 'Cluster-Allocation', fn: solveClusterAllocation },
-        { name: 'Clarke-Wright + 2-opt', fn: solveClarkeWrightBaseline },
+        { name: 'Urgency-batched savings + 2-opt', fn: solveClarkeWrightBaseline },
       ];
 
       for (const { name, fn } of solvers) {

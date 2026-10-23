@@ -124,7 +124,7 @@ When recording a new decision, copy this template and fill it in:
 - **Alternatives considered:**
   - Single-trip routing: Each vehicle performs at most one pickup leg from depot, offloads once, and halts. (Rejected: extremely inefficient resource utilization during large-scale operations).
   - Infinite vehicle capacity: Route vehicles purely to minimize distance without capacity boundaries or shelter drop-offs. (Rejected: physically impossible and unsafe in real flood rescues).
-- **Consequence:** Routing algorithms (Nearest-First, Clarke-Wright + 2-opt, Cluster Allocation) maintain current passenger load and insert shelter drop-off stops whenever servicing an additional request would exceed vehicle capacity.
+- **Consequence:** Routing algorithms (Nearest-First, Urgency-batched savings + 2-opt, Cluster Allocation) maintain current passenger load and insert shelter drop-off stops whenever servicing an additional request would exceed vehicle capacity.
 
 ---
 
