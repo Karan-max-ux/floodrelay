@@ -161,3 +161,15 @@ When recording a new decision, copy this template and fill it in:
   - Silent deduplication / dropping duplicate submissions: Rejected because false-positive drops during life-or-death emergencies could leave victims unserved.
   - Ephemeral in-memory idempotency cache: Rejected because node restarts or multi-instance deployments lose idempotency keys; database persistence ensures durable idempotency.
 - **Consequence:** Requests are reliably persisted with full audit traceability (`audit_events` logged for every creation and duplicate flag). Operators retain complete visibility to inspect unverified or flagged submissions before or during solver dispatch runs.
+
+---
+
+### ADR-15: Operator-committed assignments and stop-freezing lifecycle
+
+- **Date:** 2026-10-28
+- **Decision:** Allocation endpoints run the solver solely to propose assignment plans (`status: 'PROPOSED'`). Only an explicit operator action via `POST /assignments/:id/commit` transitions an assignment to `COMMITTED`, freezes all route stops (`is_frozen = true`), and marks served requests as `ASSIGNED`. Once committed, an assignment cannot be re-committed or mutated, and subsequent replanning cycles (`POST /assignments/propose` with `preserveFrozen: true`) preserve frozen stops at the head of vehicle routes.
+- **Context:** Emergency dispatch decisions carry severe legal and ethical consequences during active flood disasters. Autonomous dispatch risks directing first responders into dangerous, rapidly changing hazard areas without human verification. Requiring human-in-the-loop operator commitment ensures operational authority remains with dispatchers while freezing dispatched stops ensures vehicles are not disrupted or redirected mid-mission.
+- **Alternatives considered:**
+  - Autonomous dispatch: Solver immediately commits and dispatches resources without operator review. (Rejected: unsafe in volatile flood disasters where ground truth overrides model assumptions).
+  - Mutable committed plans: Allow unconstrained editing of committed stops without audit trail or freeze enforcement. (Rejected: creates fleet confusion and dispatch churn).
+- **Consequence:** Clear lifecycle separation between solver proposals and human operator commits, with full audit logging (`ASSIGNMENT_PROPOSED`, `ASSIGNMENT_COMMITTED`, `ASSIGNMENT_STOP_MODIFIED`) and stop-freezing guarantees during dynamic replanning.

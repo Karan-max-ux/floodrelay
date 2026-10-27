@@ -2,11 +2,14 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import { getPool } from './db/connection.js';
 import { PostgisRepository } from './db/repository.js';
 import { RequestService } from './services/requestService.js';
+import { AssignmentService } from './services/assignmentService.js';
 import { createRequestsRouter } from './routes/requests.js';
+import { createAssignmentsRouter } from './routes/assignments.js';
 
 export interface AppDependencies {
   repository?: PostgisRepository;
   requestService?: RequestService;
+  assignmentService?: AssignmentService;
 }
 
 export function createApp(deps?: AppDependencies): Express {
@@ -16,14 +19,16 @@ export function createApp(deps?: AppDependencies): Express {
 
   const repo = deps?.repository ?? new PostgisRepository(getPool());
   const requestService = deps?.requestService ?? new RequestService(repo);
+  const assignmentService = deps?.assignmentService ?? new AssignmentService(repo);
 
   // Health check endpoint
   app.get('/health', (_req: Request, res: Response) => {
     res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
-  // Mount requests API
+  // Mount API routers
   app.use('/requests', createRequestsRouter(requestService));
+  app.use('/assignments', createAssignmentsRouter(assignmentService));
 
   // 404 handler for undefined routes
   app.use((_req: Request, res: Response) => {

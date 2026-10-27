@@ -212,8 +212,10 @@ describe('PostgisRepository SQL Construction & Spatial Operations', () => {
     expect(executedQueries[0]).toContain("status = 'COMMITTED'");
     // Verifies route stops are frozen
     expect(executedQueries[1]).toContain('UPDATE assignment_stops SET is_frozen = TRUE');
+    // Verifies served requests status is updated to ASSIGNED
+    expect(executedQueries[2]).toContain("status = 'ASSIGNED'");
     // Verifies audit event insertion
-    expect(executedQueries[2]).toContain('INSERT INTO audit_events');
+    expect(executedQueries[3]).toContain('INSERT INTO audit_events');
   });
 });
 

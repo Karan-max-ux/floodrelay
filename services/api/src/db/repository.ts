@@ -197,6 +197,7 @@ export class PostgisRepository {
     status?: RequestStatus;
     urgency?: UrgencyLevel;
     source?: RequestSource;
+    excludeFlaggedDuplicates?: boolean;
     limit?: number;
     offset?: number;
   }): Promise<RescueRequest[]> {
@@ -214,6 +215,9 @@ export class PostgisRepository {
     if (filter?.source) {
       values.push(filter.source);
       conditions.push(`source = $${values.length}`);
+    }
+    if (filter?.excludeFlaggedDuplicates) {
+      conditions.push(`is_flagged_duplicate = FALSE`);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -728,6 +732,19 @@ export class PostgisRepository {
       [assignmentId],
     );
 
+    // Update all served requests to ASSIGNED status so they are marked as handled
+    await this.client.query(
+      `
+      UPDATE requests
+      SET status = 'ASSIGNED', updated_at = NOW()
+      WHERE id IN (
+        SELECT target_id FROM assignment_stops
+        WHERE assignment_id = $1 AND type = 'PICKUP'
+      );
+      `,
+      [assignmentId],
+    );
+
     // Audit event log
     await this.insertAuditEvent({
       entityType: 'ASSIGNMENT',
@@ -738,6 +755,120 @@ export class PostgisRepository {
     });
 
     return true;
+  }
+
+  async listAssignments(filter?: {
+    status?: 'PROPOSED' | 'COMMITTED';
+    scenarioId?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<DbAssignment[]> {
+    const conditions: string[] = [];
+    const values: unknown[] = [];
+
+    if (filter?.status) {
+      values.push(filter.status);
+      conditions.push(`status = $${values.length}`);
+    }
+    if (filter?.scenarioId) {
+      values.push(filter.scenarioId);
+      conditions.push(`scenario_id = $${values.length}`);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = filter?.limit ?? 50;
+    const offset = filter?.offset ?? 0;
+    values.push(limit, offset);
+
+    const sql = `
+      SELECT
+        id, scenario_id, status, metrics, unserved, committed_at, committed_by, created_at, updated_at
+      FROM assignments
+      ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${values.length - 1} OFFSET $${values.length};
+    `;
+
+    const result = await this.client.query(sql, values);
+    return result.rows.map((row) => ({
+      id: row.id,
+      scenario_id: row.scenario_id,
+      status: row.status,
+      metrics: typeof row.metrics === 'string' ? JSON.parse(row.metrics) : row.metrics,
+      unserved: typeof row.unserved === 'string' ? JSON.parse(row.unserved) : row.unserved,
+      committed_at: row.committed_at,
+      committed_by: row.committed_by,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
+  async getLatestCommittedAssignment(
+    scenarioId?: string,
+  ): Promise<{ assignment: DbAssignment; stops: DbAssignmentStop[] } | null> {
+    const conditions = ["status = 'COMMITTED'"];
+    const values: unknown[] = [];
+    if (scenarioId) {
+      values.push(scenarioId);
+      conditions.push(`scenario_id = $${values.length}`);
+    }
+
+    const sql = `
+      SELECT id
+      FROM assignments
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY committed_at DESC NULLS LAST, created_at DESC
+      LIMIT 1;
+    `;
+    const result = await this.client.query(sql, values);
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return this.getAssignmentWithStops(row.id);
+  }
+
+  async updateAssignmentStop(
+    assignmentId: string,
+    stopId: string,
+    updates: {
+      is_frozen?: boolean;
+      stop_number?: number;
+      resource_id?: string;
+    },
+  ): Promise<DbAssignmentStop | null> {
+    const sets: string[] = [];
+    const values: unknown[] = [assignmentId, stopId];
+
+    if (updates.is_frozen !== undefined) {
+      values.push(updates.is_frozen);
+      sets.push(`is_frozen = $${values.length}`);
+    }
+    if (updates.stop_number !== undefined) {
+      values.push(updates.stop_number);
+      sets.push(`stop_number = $${values.length}`);
+    }
+    if (updates.resource_id !== undefined) {
+      values.push(updates.resource_id);
+      sets.push(`resource_id = $${values.length}`);
+    }
+
+    if (sets.length === 0) {
+      return null;
+    }
+
+    const sql = `
+      UPDATE assignment_stops
+      SET ${sets.join(', ')}
+      WHERE assignment_id = $1 AND id = $2
+      RETURNING
+        id, assignment_id, resource_id, stop_number, type, target_id,
+        ST_AsText(location) as location,
+        passengers_picked_up, passengers_dropped_off,
+        estimated_arrival_minutes, is_frozen, created_at;
+    `;
+
+    const result = await this.client.query<DbAssignmentStop>(sql, values);
+    return result.rows[0] ?? null;
   }
 
   // ==========================================
