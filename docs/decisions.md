@@ -173,3 +173,15 @@ When recording a new decision, copy this template and fill it in:
   - Autonomous dispatch: Solver immediately commits and dispatches resources without operator review. (Rejected: unsafe in volatile flood disasters where ground truth overrides model assumptions).
   - Mutable committed plans: Allow unconstrained editing of committed stops without audit trail or freeze enforcement. (Rejected: creates fleet confusion and dispatch churn).
 - **Consequence:** Clear lifecycle separation between solver proposals and human operator commits, with full audit logging (`ASSIGNMENT_PROPOSED`, `ASSIGNMENT_COMMITTED`, `ASSIGNMENT_STOP_MODIFIED`) and stop-freezing guarantees during dynamic replanning.
+
+---
+
+### ADR-16: OpenAPI 3.1 specification and automated anti-drift validation
+
+- **Date:** 2026-10-28
+- **Decision:** Document all platform endpoints using OpenAPI 3.1 (`docs/openapi.json` and served over HTTP at `GET /openapi.json`), backed by an automated test suite (`services/api/src/openapi.test.ts`) that introspects Express routes and enforces bidirectional zero-drift between code and specification.
+- **Context:** API specifications frequently diverge from actual code as endpoints evolve, breaking downstream frontend interfaces and client integrations. An automated anti-drift test guarantees that every registered Express endpoint has matching documentation, and conversely, no stale or non-existent endpoints remain in the specification.
+- **Alternatives considered:**
+  - Manual unverified documentation: Rejected because manual docs drift within days of development.
+  - Runtime decorator generators (e.g. tsoa, routing-controllers): Adds invasive decorators, extra compilation steps, and unnecessary runtime reflection overhead.
+- **Consequence:** OpenAPI document is guaranteed 100% accurate, automatically validated in CI/tests, and served live from the backend API for client discovery and UI generation.

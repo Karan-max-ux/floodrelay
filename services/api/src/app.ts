@@ -1,10 +1,17 @@
 import express, { type Express, type Request, type Response, type NextFunction } from 'express';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { getPool } from './db/connection.js';
 import { PostgisRepository } from './db/repository.js';
 import { RequestService } from './services/requestService.js';
 import { AssignmentService } from './services/assignmentService.js';
 import { createRequestsRouter } from './routes/requests.js';
 import { createAssignmentsRouter } from './routes/assignments.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const openapiSpec = JSON.parse(readFileSync(join(__dirname, 'openapi.json'), 'utf-8'));
 
 export interface AppDependencies {
   repository?: PostgisRepository;
@@ -24,6 +31,11 @@ export function createApp(deps?: AppDependencies): Express {
   // Health check endpoint
   app.get('/health', (_req: Request, res: Response) => {
     res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
+  // OpenAPI spec endpoint
+  app.get('/openapi.json', (_req: Request, res: Response) => {
+    res.status(200).json(openapiSpec);
   });
 
   // Mount API routers

@@ -1,0 +1,766 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Flood Rescue Resource Allocation Platform API",
+    "version": "1.0.0",
+    "description": "REST API for citizen rescue request intake, spatial proximity deduplication, and operator-committed resource dispatching during active flood emergencies."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local development server"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Service health check",
+        "description": "Returns service operational health status and timestamp.",
+        "responses": {
+          "200": {
+            "description": "Service is healthy and responding",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["status", "timestamp"],
+                  "properties": {
+                    "status": { "type": "string", "example": "ok" },
+                    "timestamp": { "type": "string", "format": "date-time" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "summary": "OpenAPI specification",
+        "description": "Returns the complete OpenAPI 3.1 specification for the platform API.",
+        "responses": {
+          "200": {
+            "description": "OpenAPI specification JSON",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/requests": {
+      "post": {
+        "summary": "Submit rescue request",
+        "description": "Citizen rescue request intake with geographic coordinate validation, idempotency caching, spatial-temporal duplicate detection (within 100m, 2 hours, ±2 people), and unverified request retention.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRescueRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Rescue request created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["success", "data"],
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "data": { "$ref": "#/components/schemas/RescueRequestResponse" }
+                  }
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Idempotent replay: request was previously processed with this idempotency key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["success", "idempotent", "data"],
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "idempotent": { "type": "boolean", "example": true },
+                    "data": { "$ref": "#/components/schemas/RescueRequestResponse" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error (out-of-bounds coordinates, non-positive people count, invalid urgency)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "List rescue requests",
+        "description": "Retrieves stored rescue requests with filtering by status, urgency, verification status, duplicate flags, bounding box, and pagination.",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": { "$ref": "#/components/schemas/RequestStatus" }
+          },
+          {
+            "name": "urgency",
+            "in": "query",
+            "schema": { "$ref": "#/components/schemas/UrgencyLevel" }
+          },
+          {
+            "name": "verificationStatus",
+            "in": "query",
+            "schema": { "$ref": "#/components/schemas/VerificationStatus" }
+          },
+          { "name": "isFlaggedDuplicate", "in": "query", "schema": { "type": "boolean" } },
+          {
+            "name": "minLat",
+            "in": "query",
+            "schema": { "type": "number", "minimum": -90, "maximum": 90 }
+          },
+          {
+            "name": "maxLat",
+            "in": "query",
+            "schema": { "type": "number", "minimum": -90, "maximum": 90 }
+          },
+          {
+            "name": "minLng",
+            "in": "query",
+            "schema": { "type": "number", "minimum": -180, "maximum": 180 }
+          },
+          {
+            "name": "maxLng",
+            "in": "query",
+            "schema": { "type": "number", "minimum": -180, "maximum": 180 }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "default": 50, "maximum": 200 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "default": 0, "minimum": 0 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of matching rescue requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["success", "count", "data"],
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "count": { "type": "integer", "example": 5 },
+                    "data": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/RescueRequestResponse" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameters",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/requests/{id}": {
+      "get": {
+        "summary": "Get rescue request by ID",
+        "description": "Fetches a single rescue request by its unique identifier.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rescue request found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["success", "data"],
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "data": { "$ref": "#/components/schemas/RescueRequestResponse" }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Rescue request not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assignments/propose": {
+      "post": {
+        "summary": "Propose resource allocation plan",
+        "description": "Runs deterministic allocation solver on stored platform data (unassigned requests, available resources, safe shelters) to produce an assignment proposal. Preserves frozen committed stops if requested. The proposal is strictly PROPOSED and is never committed or dispatched autonomously.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposeAssignmentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Allocation proposal generated successfully with status PROPOSED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["success", "data"],
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "data": { "$ref": "#/components/schemas/AssignmentDetailResponse" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid proposal options",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assignments": {
+      "get": {
+        "summary": "List assignment plans",
+        "description": "Retrieves assignment plans filtered by status or scenario ID.",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["PROPOSED", "COMMITTED"] }
+          },
+          {
+            "name": "scenarioId",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "default": 20, "maximum": 100 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "default": 0, "minimum": 0 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of assignment plans",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["success", "count", "data"],
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "count": { "type": "integer", "example": 2 },
+                    "data": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/DbAssignmentSummary" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameters",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assignments/{id}": {
+      "get": {
+        "summary": "Get assignment plan details",
+        "description": "Retrieves complete assignment plan including reconstructed vehicle routes, individual route stops, unserved requests with explicit reasons, and performance metrics.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Assignment plan details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["success", "data"],
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "data": { "$ref": "#/components/schemas/AssignmentDetailResponse" }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Assignment plan not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assignments/{id}/commit": {
+      "post": {
+        "summary": "Operator commit assignment plan",
+        "description": "Human operator commits a PROPOSED assignment plan. Transitions status to COMMITTED, permanently freezes all route stops (is_frozen = true), and marks all served requests as ASSIGNED. Already committed plans cannot be re-committed.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommitAssignmentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Plan committed successfully and stops frozen",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["success", "message", "data"],
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "message": { "type": "string" },
+                    "data": { "$ref": "#/components/schemas/AssignmentDetailResponse" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing operatorId or invalid body",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          },
+          "404": {
+            "description": "Assignment plan not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          },
+          "409": {
+            "description": "Plan is already committed (ALREADY_COMMITTED)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assignments/{id}/stops/{stopId}": {
+      "patch": {
+        "summary": "Operator modify stop",
+        "description": "Allows an operator to modify a route stop (toggle freeze status, change stop sequence number, or reassign resource) on a PROPOSED plan. Modifications on COMMITTED plans are rejected.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "stopId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModifyStopRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stop modified successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["success", "data"],
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "data": { "$ref": "#/components/schemas/RouteStop" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid stop modification parameters",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          },
+          "404": {
+            "description": "Assignment or stop not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          },
+          "409": {
+            "description": "Cannot modify stops on a committed assignment plan (CANNOT_MODIFY_COMMITTED)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "UrgencyLevel": {
+        "type": "string",
+        "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+      },
+      "RequestStatus": {
+        "type": "string",
+        "enum": ["PENDING", "ASSIGNED", "IN_TRANSIT", "RESCUED", "CANCELLED"]
+      },
+      "VerificationStatus": {
+        "type": "string",
+        "enum": ["UNVERIFIED", "VERIFIED", "REJECTED"]
+      },
+      "StopType": {
+        "type": "string",
+        "enum": ["PICKUP", "DROPOFF", "DEPOT"]
+      },
+      "CreateRescueRequest": {
+        "type": "object",
+        "required": ["lat", "lng", "peopleCount", "urgency"],
+        "properties": {
+          "lat": { "type": "number", "minimum": -90, "maximum": 90, "example": 28.695 },
+          "lng": { "type": "number", "minimum": -180, "maximum": 180, "example": 77.23 },
+          "peopleCount": { "type": "integer", "minimum": 1, "maximum": 100, "example": 4 },
+          "urgency": { "$ref": "#/components/schemas/UrgencyLevel" },
+          "medicalNeeds": { "type": "boolean", "default": false, "example": false },
+          "notes": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true,
+            "example": "Water at chest height"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "maxLength": 128,
+            "nullable": true,
+            "example": "client_retry_uuid_123"
+          },
+          "source": { "type": "string", "enum": ["SIMULATED", "REPORTED"], "default": "REPORTED" }
+        }
+      },
+      "RescueRequestResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "lat",
+          "lng",
+          "peopleCount",
+          "urgency",
+          "source",
+          "status",
+          "verificationStatus",
+          "medicalNeeds",
+          "isFlaggedDuplicate",
+          "createdAt"
+        ],
+        "properties": {
+          "id": { "type": "string", "example": "req_172983719" },
+          "lat": { "type": "number", "example": 28.695 },
+          "lng": { "type": "number", "example": 77.23 },
+          "peopleCount": { "type": "integer", "example": 4 },
+          "urgency": { "$ref": "#/components/schemas/UrgencyLevel" },
+          "source": { "type": "string", "enum": ["SIMULATED", "REPORTED"] },
+          "status": { "$ref": "#/components/schemas/RequestStatus" },
+          "verificationStatus": { "$ref": "#/components/schemas/VerificationStatus" },
+          "medicalNeeds": { "type": "boolean", "example": false },
+          "notes": { "type": "string", "nullable": true },
+          "idempotencyKey": { "type": "string", "nullable": true },
+          "isFlaggedDuplicate": { "type": "boolean", "example": false },
+          "duplicateOfId": { "type": "string", "nullable": true },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ProposeAssignmentRequest": {
+        "type": "object",
+        "properties": {
+          "scenarioId": { "type": "string", "default": "scenario-delhi-yamuna-demo" },
+          "algorithm": {
+            "type": "string",
+            "enum": ["cluster-allocation", "nearest-first", "savings"],
+            "default": "cluster-allocation"
+          },
+          "includeUnverified": { "type": "boolean", "default": false },
+          "preserveFrozen": { "type": "boolean", "default": true },
+          "maxShiftMinutes": { "type": "integer", "minimum": 1, "maximum": 1440, "default": 480 }
+        }
+      },
+      "CommitAssignmentRequest": {
+        "type": "object",
+        "required": ["operatorId"],
+        "properties": {
+          "operatorId": { "type": "string", "example": "operator_karan" },
+          "notes": {
+            "type": "string",
+            "maxLength": 1000,
+            "example": "Approved by Sector 4 commander"
+          }
+        }
+      },
+      "ModifyStopRequest": {
+        "type": "object",
+        "properties": {
+          "isFrozen": { "type": "boolean" },
+          "stopNumber": { "type": "integer", "minimum": 1 },
+          "resourceId": { "type": "string" }
+        }
+      },
+      "RouteStop": {
+        "type": "object",
+        "required": [
+          "stopNumber",
+          "type",
+          "targetId",
+          "lat",
+          "lng",
+          "passengersPickedUp",
+          "passengersDroppedOff",
+          "estimatedArrivalMinutes"
+        ],
+        "properties": {
+          "stopNumber": { "type": "integer", "example": 1 },
+          "type": { "$ref": "#/components/schemas/StopType" },
+          "targetId": { "type": "string", "example": "req_123" },
+          "lat": { "type": "number", "example": 28.695 },
+          "lng": { "type": "number", "example": 77.23 },
+          "passengersPickedUp": { "type": "integer", "example": 3 },
+          "passengersDroppedOff": { "type": "integer", "example": 0 },
+          "estimatedArrivalMinutes": { "type": "number", "example": 14.5 },
+          "isFrozen": { "type": "boolean", "example": false }
+        }
+      },
+      "ResourceRoute": {
+        "type": "object",
+        "required": [
+          "resourceId",
+          "stops",
+          "totalTravelDistanceKm",
+          "totalDurationMinutes",
+          "servedRequestIds"
+        ],
+        "properties": {
+          "resourceId": { "type": "string", "example": "boat_01" },
+          "stops": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/RouteStop" }
+          },
+          "totalTravelDistanceKm": { "type": "number", "example": 8.4 },
+          "totalDurationMinutes": { "type": "number", "example": 45.2 },
+          "servedRequestIds": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "UnservedReason": {
+        "type": "string",
+        "enum": [
+          "CAPACITY_EXCEEDED",
+          "NO_REACHABLE_RESOURCE",
+          "TIME_WINDOW_EXCEEDED",
+          "ISOLATED_ZONE",
+          "GROUP_LARGER_THAN_ANY_VEHICLE",
+          "SHIFT_LIMIT_REACHED"
+        ]
+      },
+      "UnservedRequest": {
+        "type": "object",
+        "required": ["requestId", "reason"],
+        "properties": {
+          "requestId": { "type": "string", "example": "req_88" },
+          "reason": { "$ref": "#/components/schemas/UnservedReason" },
+          "details": { "type": "string", "example": "No available resources" }
+        }
+      },
+      "SolverMetrics": {
+        "type": "object",
+        "required": [
+          "coveragePercent",
+          "totalTravelTimeMinutes",
+          "totalTravelDistanceKm",
+          "highPriorityWaitTimeMinutes",
+          "solveDurationMs",
+          "servedRequestsCount",
+          "unservedRequestsCount"
+        ],
+        "properties": {
+          "coveragePercent": { "type": "number", "example": 85.5 },
+          "totalTravelTimeMinutes": { "type": "number", "example": 120.4 },
+          "totalTravelDistanceKm": { "type": "number", "example": 32.1 },
+          "highPriorityWaitTimeMinutes": { "type": "number", "example": 22.0 },
+          "solveDurationMs": { "type": "number", "example": 14 },
+          "servedRequestsCount": { "type": "integer", "example": 10 },
+          "unservedRequestsCount": { "type": "integer", "example": 2 }
+        }
+      },
+      "AssignmentDetailResponse": {
+        "type": "object",
+        "required": ["id", "status", "metrics", "unserved", "routes", "createdAt", "updatedAt"],
+        "properties": {
+          "id": { "type": "string", "example": "assign_172983800_abc" },
+          "scenarioId": {
+            "type": "string",
+            "nullable": true,
+            "example": "scenario-delhi-yamuna-demo"
+          },
+          "status": { "type": "string", "enum": ["PROPOSED", "COMMITTED"] },
+          "committedAt": { "type": "string", "format": "date-time", "nullable": true },
+          "committedBy": { "type": "string", "nullable": true, "example": "operator_karan" },
+          "metrics": { "$ref": "#/components/schemas/SolverMetrics" },
+          "unserved": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/UnservedRequest" }
+          },
+          "routes": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ResourceRoute" }
+          },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "DbAssignmentSummary": {
+        "type": "object",
+        "required": ["id", "status", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "string" },
+          "scenario_id": { "type": "string", "nullable": true },
+          "status": { "type": "string", "enum": ["PROPOSED", "COMMITTED"] },
+          "metrics": { "$ref": "#/components/schemas/SolverMetrics" },
+          "unserved": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/UnservedRequest" }
+          },
+          "committed_at": { "type": "string", "format": "date-time", "nullable": true },
+          "committed_by": { "type": "string", "nullable": true },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message", "timestamp"],
+            "properties": {
+              "code": { "type": "string", "example": "VALIDATION_ERROR" },
+              "message": { "type": "string", "example": "Invalid parameters" },
+              "details": { "type": "object" },
+              "timestamp": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

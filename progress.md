@@ -1,8 +1,8 @@
 # Flood Rescue Resource Allocation Platform — Progress
 
-**Last updated:** 2026-10-27
+**Last updated:** 2026-10-28
 
-**Current focus:** Phase 2 — Database and API Core (Task 5: OpenAPI specification)
+**Current focus:** Phase 2 Complete ✅ — Database and API Core (Ready for Phase 3: Frontend)
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -150,7 +150,7 @@ Incoming rescue requests
 | PostGIS storage                                         | —     | ✅     | `services/api/src/db/repository.test.ts` (`constructs correct PostGIS ST_MakePoint with (lng, lat) order on insertRequest`, `queries spatial proximity using ST_DWithin and ST_Distance in findNearbyRequests`, `preserves SIMULATED source label on all rows when loading a simulated scenario`, `runs scenario seeder in dry-run mode without requiring live database`)                                                                                                                                                                                                                                                                    |
 | Request intake with idempotency and duplicate detection | —     | ✅     | `services/api/src/routes/requests.test.ts` (`validates valid request input and returns 201 Created`, `rejects invalid coordinates and counts`, `idempotency returns existing request on replay`, `flags near duplicate within 100m window without dropping`, `stores unverified request without discarding`, `filters requests by status and urgency`)                                                                                                                                                                                                                                                                                       |
 | Assignment endpoints                                    | —     | ✅     | `services/api/src/routes/assignments.test.ts` (`runs solver on stored requests and resources and returns 201 Created with status PROPOSED`, `supports selecting different algorithms (nearest-first and savings baseline)`, `persists unserved requests with explicit reasons when no resources are available`, `lists stored assignments and filters by status`, `operator commits a proposed assignment and freezes all stops`, `rejects committing an already committed assignment with 409 Conflict`, `operator modifies a stop on a PROPOSED assignment`, `preserves committed frozen stops when replanning with preserveFrozen: true`) |
-| OpenAPI spec                                            | —     | ⬜     | —                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| OpenAPI spec                                            | —     | ✅     | `services/api/src/openapi.test.ts` (`ensures services/api/src/openapi.json and docs/openapi.json are identical`, `validates OpenAPI document structure and metadata`, `serves OpenAPI spec at GET /openapi.json with HTTP 200`, `verifies that every registered Express endpoint is documented in OpenAPI`, `verifies that every OpenAPI operation corresponds to a real registered Express route`, `verifies that all component $ref references resolve`, `verifies schema property alignment between OpenAPI spec and platform data contracts`)                                                                                            |
 
 ### Phase 3 — Frontend
 
@@ -196,11 +196,11 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Phase 2 Task 4: Assignment endpoints (propose, list, commit with stop freezing, and stop modification with proving tests in services/api).
-- **Next up:** Phase 2 Task 5: OpenAPI specification.
+- **Last completed:** Phase 2 Task 5: OpenAPI 3.1 specification and automated zero-drift test suite.
+- **Next up:** Phase 3: Frontend (Citizen request form, Operator map and assignment view).
 - **Phase 0:** 100% complete.
 - **Phase 1:** Complete (algorithmic baselines: Nearest-First and Urgency-batched savings + 2-opt; Cluster-Allocation heuristic).
-- **Phase 2:** In progress (4 of 5 tasks complete ✅).
+- **Phase 2:** 100% complete (5 of 5 tasks complete ✅).
 - Everything in Phase 3 and beyond: not started.
 
 ---
@@ -234,6 +234,7 @@ Incoming rescue requests
 | PostGIS schema and plain SQL migrations                    | GEOGRAPHY(Point, 4326) with GiST spatial indexes, plain SQL migrations with transactional runner, strict alignment with @floodrelay/shared (ADR-13)                                                                                        |
 | Request intake validation and duplicate detection          | Zod coordinate bounds, DB idempotency keys, spatial-temporal duplicate flagging (<=100m, <=2h, +-2 people) without dropping records, unverified submissions retained (ADR-14)                                                              |
 | Operator-committed assignments and stop-freezing lifecycle | Solver only proposes; operator action commits, freezes stops, marks requests ASSIGNED, subsequent replans preserve frozen stops (ADR-15)                                                                                                   |
+| OpenAPI 3.1 specification and anti-drift testing           | OpenAPI 3.1 spec served at /openapi.json and validated via automated route-introspection tests against Express handlers (ADR-16)                                                                                                           |
 
 ---
 
