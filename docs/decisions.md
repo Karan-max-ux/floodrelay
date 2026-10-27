@@ -149,3 +149,15 @@ When recording a new decision, copy this template and fill it in:
   - Prisma / Drizzle ORM: Heavier abstraction layers with evolving spatial geometry types; higher cognitive overhead when debugging raw spatial SQL.
   - Geometry vs Geography: Using `GEOMETRY` with flat Euclidean projections requires managing SRID projections. `GEOGRAPHY(Point, 4326)` calculates true spherical distances in meters natively.
 - **Consequence:** Database tables (`requests`, `resources`, `shelters`, `assignments`, `assignment_stops`, `audit_events`) have spatial GiST indexing, supporting sub-millisecond proximity queries, duplicate detection within radial meters, and strict alignment with TypeScript interfaces in `@floodrelay/shared`.
+
+---
+
+### ADR-14: Request intake validation, idempotency, and non-destructive duplicate detection
+
+- **Date:** 2026-10-27
+- **Decision:** Validate citizen rescue requests using Zod with coordinate and schema bounds, enforce intake idempotency via database `idempotency_key` lookups, and detect spatial-temporal duplicates (distance $\le 100\text{ m}$, submission window $\le 2\text{ hours}$, passenger delta $\le 2$ people). Flagged duplicate requests and unverified submissions are always stored in the database with their respective flags (`is_flagged_duplicate: true`, `duplicate_of_id`, `verification_status: 'UNVERIFIED'`) and are never silently discarded or dropped.
+- **Context:** Emergency intake endpoints face erratic network conditions causing client retries, as well as multiple reports from neighbors or family members for the same stranded individuals. Discarding any call risks life safety if a duplicate classification is mistaken; simultaneously, dispatching multiple rescue boats to identical locations wastes scarce emergency capacity. Idempotency prevents duplicate records from client retry loops, while audit logging preserves every submission event.
+- **Alternatives considered:**
+  - Silent deduplication / dropping duplicate submissions: Rejected because false-positive drops during life-or-death emergencies could leave victims unserved.
+  - Ephemeral in-memory idempotency cache: Rejected because node restarts or multi-instance deployments lose idempotency keys; database persistence ensures durable idempotency.
+- **Consequence:** Requests are reliably persisted with full audit traceability (`audit_events` logged for every creation and duplicate flag). Operators retain complete visibility to inspect unverified or flagged submissions before or during solver dispatch runs.

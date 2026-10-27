@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-10-27
 
-**Current focus:** Phase 2 — Database and API Core (Task 3: Request intake endpoint)
+**Current focus:** Phase 2 — Database and API Core (Task 4: Assignment endpoints)
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -148,7 +148,7 @@ Incoming rescue requests
 | ------------------------------------------------------- | ----- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Schema                                                  | —     | ✅     | `services/api/src/db/schema.test.ts` (`provides up and down migration files`, `includes PostGIS extension and all required core tables in initial schema`, `defines spatial GiST indexes for all location geography columns`, `defines idempotency and deduplication columns and constraints`, `defines frozen stop capability on assignment stops`)                      |
 | PostGIS storage                                         | —     | ✅     | `services/api/src/db/repository.test.ts` (`constructs correct PostGIS ST_MakePoint with (lng, lat) order on insertRequest`, `queries spatial proximity using ST_DWithin and ST_Distance in findNearbyRequests`, `preserves SIMULATED source label on all rows when loading a simulated scenario`, `runs scenario seeder in dry-run mode without requiring live database`) |
-| Request intake with idempotency and duplicate detection | —     | ⬜     | —                                                                                                                                                                                                                                                                                                                                                                         |
+| Request intake with idempotency and duplicate detection | —     | ✅     | `services/api/src/routes/requests.test.ts` (`validates valid request input and returns 201 Created`, `rejects invalid coordinates and counts`, `idempotency returns existing request on replay`, `flags near duplicate within 100m window without dropping`, `stores unverified request without discarding`, `filters requests by status and urgency`)                    |
 | Assignment endpoints                                    | —     | ⬜     | —                                                                                                                                                                                                                                                                                                                                                                         |
 | OpenAPI spec                                            | —     | ⬜     | —                                                                                                                                                                                                                                                                                                                                                                         |
 
@@ -196,11 +196,11 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Phase 2 Task 2: PostGIS storage layer (data-access repository and scenario seeder script with proving tests in services/api).
-- **Next up:** Phase 2 Task 3: Request intake endpoint with validation, idempotency, and duplicate detection.
+- **Last completed:** Phase 2 Task 3: Request intake endpoint with validation, idempotency, duplicate detection, and unverified request retention (proving tests in services/api).
+- **Next up:** Phase 2 Task 4: Assignment endpoints (propose and commit assignments with frozen stops).
 - **Phase 0:** 100% complete.
 - **Phase 1:** Complete (algorithmic baselines: Nearest-First and Urgency-batched savings + 2-opt; Cluster-Allocation heuristic).
-- **Phase 2:** In progress (2 of 5 tasks complete ✅).
+- **Phase 2:** In progress (3 of 5 tasks complete ✅).
 - Everything in Phase 3 and beyond: not started.
 
 ---
@@ -232,6 +232,7 @@ Incoming rescue requests
 | Shelter drop-off model                            | Intermediate safe shelter drop-off stops inserted when vehicle passenger capacity is reached during multi-trip dispatching (ADR-11)                                                                                                        |
 | Flood impedance multipliers                       | Travel impedance multiplier (ASSUMED_FLOOD_IMPEDANCE_MULTIPLIER = 1.5) applied to travel times in flood-affected zones (ADR-12)                                                                                                            |
 | PostGIS schema and plain SQL migrations           | GEOGRAPHY(Point, 4326) with GiST spatial indexes, plain SQL migrations with transactional runner, strict alignment with @floodrelay/shared (ADR-13)                                                                                        |
+| Request intake validation and duplicate detection | Zod coordinate bounds, DB idempotency keys, spatial-temporal duplicate flagging (<=100m, <=2h, +-2 people) without dropping records, unverified submissions retained (ADR-14)                                                              |
 
 ---
 
