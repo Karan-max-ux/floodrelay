@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "migrate": "tsx src/db/migrator.ts up",
-    "migrate:down": "tsx src/db/migrator.ts down"
+    "migrate:down": "tsx src/db/migrator.ts down",
+    "seed": "tsx src/scripts/seedScenario.ts"
   },
   "dependencies": {
     "@floodrelay/shared": "*",

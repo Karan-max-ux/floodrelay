@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-10-27
 
-**Current focus:** Phase 2 — Database and API Core (Task 2: PostGIS storage layer)
+**Current focus:** Phase 2 — Database and API Core (Task 3: Request intake endpoint)
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -144,13 +144,13 @@ Incoming rescue requests
 
 ### Phase 2 — API and database
 
-| Task                                                    | Owner | Status | Proving test(s)                                                                                                                                                                                                                                                                                                                                      |
-| ------------------------------------------------------- | ----- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Schema                                                  | —     | ✅     | `services/api/src/db/schema.test.ts` (`provides up and down migration files`, `includes PostGIS extension and all required core tables in initial schema`, `defines spatial GiST indexes for all location geography columns`, `defines idempotency and deduplication columns and constraints`, `defines frozen stop capability on assignment stops`) |
-| Request intake with idempotency and duplicate detection | —     | ⬜     | —                                                                                                                                                                                                                                                                                                                                                    |
-| PostGIS storage                                         | —     | ⬜     | —                                                                                                                                                                                                                                                                                                                                                    |
-| Assignment endpoints                                    | —     | ⬜     | —                                                                                                                                                                                                                                                                                                                                                    |
-| OpenAPI spec                                            | —     | ⬜     | —                                                                                                                                                                                                                                                                                                                                                    |
+| Task                                                    | Owner | Status | Proving test(s)                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------- | ----- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Schema                                                  | —     | ✅     | `services/api/src/db/schema.test.ts` (`provides up and down migration files`, `includes PostGIS extension and all required core tables in initial schema`, `defines spatial GiST indexes for all location geography columns`, `defines idempotency and deduplication columns and constraints`, `defines frozen stop capability on assignment stops`)                      |
+| PostGIS storage                                         | —     | ✅     | `services/api/src/db/repository.test.ts` (`constructs correct PostGIS ST_MakePoint with (lng, lat) order on insertRequest`, `queries spatial proximity using ST_DWithin and ST_Distance in findNearbyRequests`, `preserves SIMULATED source label on all rows when loading a simulated scenario`, `runs scenario seeder in dry-run mode without requiring live database`) |
+| Request intake with idempotency and duplicate detection | —     | ⬜     | —                                                                                                                                                                                                                                                                                                                                                                         |
+| Assignment endpoints                                    | —     | ⬜     | —                                                                                                                                                                                                                                                                                                                                                                         |
+| OpenAPI spec                                            | —     | ⬜     | —                                                                                                                                                                                                                                                                                                                                                                         |
 
 ### Phase 3 — Frontend
 
@@ -196,11 +196,11 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Phase 2 Task 1: Database schema, PostGIS spatial indexing, and SQL migrations with proving tests in services/api.
-- **Next up:** Phase 2 Task 2: PostGIS storage layer (data-access layer and scenario loader).
+- **Last completed:** Phase 2 Task 2: PostGIS storage layer (data-access repository and scenario seeder script with proving tests in services/api).
+- **Next up:** Phase 2 Task 3: Request intake endpoint with validation, idempotency, and duplicate detection.
 - **Phase 0:** 100% complete.
 - **Phase 1:** Complete (algorithmic baselines: Nearest-First and Urgency-batched savings + 2-opt; Cluster-Allocation heuristic).
-- **Phase 2:** In progress (1 of 5 tasks complete ✅).
+- **Phase 2:** In progress (2 of 5 tasks complete ✅).
 - Everything in Phase 3 and beyond: not started.
 
 ---
