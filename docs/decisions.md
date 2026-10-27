@@ -137,3 +137,15 @@ When recording a new decision, copy this template and fill it in:
   - Binary passable/impassable road edges only: Treat flooded roads as strictly blocked (infinite travel time). (Rejected: specialized high-water trucks and rescue boats can traverse certain flooded corridors, and strictly blocking all flooded areas can cause solver infeasibility).
   - Static dry-road speeds: Use standard unweighted road speeds everywhere. (Rejected: dangerous optimism leading to unrealistic ETAs and unachievable dispatch schedules).
 - **Consequence:** Travel time providers support impedance scaling for flooded segments, and all speed and impedance parameters are explicitly exported as uncalibrated placeholder assumptions (`ASSUMED_*`) documented in `docs/limitations.md`.
+
+---
+
+### ADR-13: Database schema, PostGIS spatial indexing, and SQL migration strategy
+
+- **Date:** 2026-10-27
+- **Decision:** Use plain SQL migrations (`infra/migrations/`) executed via a lightweight runner (`services/api/src/db/migrator.ts`), `node-postgres` (`pg`) connection pooling, and PostGIS `GEOGRAPHY(Point, 4326)` columns with spatial GiST indexes for all location entities. Keep table schemas and columns strictly aligned with `@floodrelay/shared` data contracts.
+- **Context:** Phase 2 requires persistent storage for citizen rescue requests, fleet resources, safe shelters, solver assignment proposals, route stops, and an audit event log. PostGIS spatial functions (`ST_DWithin`, `ST_Distance`) are best queried with native SQL without ORM abstraction penalties.
+- **Alternatives considered:**
+  - Prisma / Drizzle ORM: Heavier abstraction layers with evolving spatial geometry types; higher cognitive overhead when debugging raw spatial SQL.
+  - Geometry vs Geography: Using `GEOMETRY` with flat Euclidean projections requires managing SRID projections. `GEOGRAPHY(Point, 4326)` calculates true spherical distances in meters natively.
+- **Consequence:** Database tables (`requests`, `resources`, `shelters`, `assignments`, `assignment_stops`, `audit_events`) have spatial GiST indexing, supporting sub-millisecond proximity queries, duplicate detection within radial meters, and strict alignment with TypeScript interfaces in `@floodrelay/shared`.

@@ -1,8 +1,8 @@
 # Flood Rescue Resource Allocation Platform — Progress
 
-**Last updated:** 2026-10-23
+**Last updated:** 2026-10-27
 
-**Current focus:** Phase 1 review fixes and verification (1 baseline open)
+**Current focus:** Phase 2 — Database and API Core (Task 2: PostGIS storage layer)
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -144,13 +144,13 @@ Incoming rescue requests
 
 ### Phase 2 — API and database
 
-| Task                                                    | Owner | Status |
-| ------------------------------------------------------- | ----- | ------ |
-| Schema                                                  | —     | ⬜     |
-| Request intake with idempotency and duplicate detection | —     | ⬜     |
-| PostGIS storage                                         | —     | ⬜     |
-| Assignment endpoints                                    | —     | ⬜     |
-| OpenAPI spec                                            | —     | ⬜     |
+| Task                                                    | Owner | Status | Proving test(s)                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------------- | ----- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Schema                                                  | —     | ✅     | `services/api/src/db/schema.test.ts` (`provides up and down migration files`, `includes PostGIS extension and all required core tables in initial schema`, `defines spatial GiST indexes for all location geography columns`, `defines idempotency and deduplication columns and constraints`, `defines frozen stop capability on assignment stops`) |
+| Request intake with idempotency and duplicate detection | —     | ⬜     | —                                                                                                                                                                                                                                                                                                                                                    |
+| PostGIS storage                                         | —     | ⬜     | —                                                                                                                                                                                                                                                                                                                                                    |
+| Assignment endpoints                                    | —     | ⬜     | —                                                                                                                                                                                                                                                                                                                                                    |
+| OpenAPI spec                                            | —     | ⬜     | —                                                                                                                                                                                                                                                                                                                                                    |
 
 ### Phase 3 — Frontend
 
@@ -196,11 +196,12 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Phase 1 review fixes: invariant tests for all solvers, ASSUMED_* constants documented in limitations, simulated scenario labelling, standard benchmark scenario sizes, evaluation CLI disclaimers, and Phase 1 test traceability in progress.md.
-- **Next up:** Complete the single open baseline task (⬜), then proceed to Phase 2.
+- **Last completed:** Phase 2 Task 1: Database schema, PostGIS spatial indexing, and SQL migrations with proving tests in services/api.
+- **Next up:** Phase 2 Task 2: PostGIS storage layer (data-access layer and scenario loader).
 - **Phase 0:** 100% complete.
-- **Phase 1:** In progress (7 of 8 tasks complete ✅; 1 task open ⬜).
-- Everything in Phase 2 and beyond: not started.
+- **Phase 1:** Complete (algorithmic baselines: Nearest-First and Urgency-batched savings + 2-opt; Cluster-Allocation heuristic).
+- **Phase 2:** In progress (1 of 5 tasks complete ✅).
+- Everything in Phase 3 and beyond: not started.
 
 ---
 
@@ -228,6 +229,9 @@ Incoming rescue requests
 | Build solver and evaluation before infrastructure | Validate the core logic before adding queues, real-time layers, etc.                                                                                                                                                                       |
 | Operator commits assignments                      | Decision support only; the system never dispatches autonomously                                                                                                                                                                            |
 | Backend framework: Express with TypeScript        | Team knows Express, setup is minimal, effort goes to the solver; TypeScript strict mode shared across all packages catches field mismatches at compile time; framework can be changed later because the solver has no framework dependency |
+| Shelter drop-off model                            | Intermediate safe shelter drop-off stops inserted when vehicle passenger capacity is reached during multi-trip dispatching (ADR-11)                                                                                                        |
+| Flood impedance multipliers                       | Travel impedance multiplier (ASSUMED_FLOOD_IMPEDANCE_MULTIPLIER = 1.5) applied to travel times in flood-affected zones (ADR-12)                                                                                                            |
+| PostGIS schema and plain SQL migrations           | GEOGRAPHY(Point, 4326) with GiST spatial indexes, plain SQL migrations with transactional runner, strict alignment with @floodrelay/shared (ADR-13)                                                                                        |
 
 ---
 
