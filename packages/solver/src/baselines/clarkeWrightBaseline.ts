@@ -191,7 +191,14 @@ export function solveClarkeWrightBaseline(
 
       for (const req of orderedPickups) {
         const est = provider.getTravelEstimate(currentLocation, req, resource.speedKmH);
-        if (currentMinutes + est.durationMinutes > maxShiftMinutes) break;
+        let minShelterDuration = Number.POSITIVE_INFINITY;
+        for (const sh of shelters) {
+          const shelterEst = provider.getTravelEstimate(req, sh, resource.speedKmH);
+          if (shelterEst.durationMinutes < minShelterDuration) {
+            minShelterDuration = shelterEst.durationMinutes;
+          }
+        }
+        if (currentMinutes + est.durationMinutes + minShelterDuration > maxShiftMinutes) break;
 
         currentMinutes += est.durationMinutes;
         currentDistanceKm += est.distanceKm;
