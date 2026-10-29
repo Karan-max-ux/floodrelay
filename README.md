@@ -72,6 +72,23 @@ npm run format:check
 npm run format
 ```
 
+### Scenarios and evaluation
+
+The repository contains seeded synthetic scenarios for testing and benchmark evaluation:
+
+- `scenarios/sample-scenario.json`: A simulated baseline scenario (North Delhi / Yamuna basin) containing 10 simulated rescue requests, 3 resources, and 2 shelters. All data in this file is strictly simulated (`"simulated": true`) and does not represent real-world emergency incidents.
+- Standard benchmark sizes:
+  - Small: 20 requests / 4 resources / 2 shelters
+  - Medium: 100 requests / 12 resources / 3 shelters
+  - Large: 500 requests / 30 resources / 5 shelters
+- Evaluation harness: Run `npx tsx scenarios/evaluate.ts` to evaluate allocation solvers across reproducible synthetic scenarios (solvers evaluated: Nearest-First (Greedy), Urgency-batched savings + 2-opt, and Cluster-Allocation).
+
+**Evaluation trade-offs & data notice:**
+
+- Solvers balance competing objectives: minimizing total route travel duration vs. minimizing wait times for critical, high-urgency rescues. A lower total travel time does not automatically indicate superior dispatch quality, as greedily minimizing local distance can delay critical rescues.
+- Relative solver performance varies with scenario scale and seed set. For current benchmark numbers across scenario scales, run `npx tsx scenarios/evaluate.ts`.
+- All scenario data (requests, resource locations, safe shelters) is purely synthetic and simulated. Travel times are estimates calculated using assumed placeholder speeds and detour factors rather than live traffic or empirical disaster telemetry. See [docs/limitations.md](docs/limitations.md) and [docs/evaluation.md](docs/evaluation.md).
+
 ## How we work
 
 All changes go through pull requests against the protected `main` branch with teammate approval.

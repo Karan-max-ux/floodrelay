@@ -1,9 +1,6 @@
-import type { RescueRequest } from '@floodrelay/shared';
+import type { GeoPoint, RescueRequest } from '@floodrelay/shared';
 
-export interface GeoPoint {
-  lat: number;
-  lng: number;
-}
+export type { GeoPoint };
 
 const EARTH_RADIUS_KM = 6371.0;
 
@@ -29,3 +26,12 @@ export function haversineKm(a: GeoPoint, b: GeoPoint): number {
 export function requestDistanceKm(a: RescueRequest, b: RescueRequest): number {
   return haversineKm(a, b);
 }
+
+export * from './generator.js';
+export * from './metrics.js';
+export * from './routing/travelTime.js';
+export * from './baselines/nearestFirst.js';
+export * from './clustering/dbscan.js';
+export * from './heuristics/clusterAllocation.js';
+export * from './baselines/clarkeWrightBaseline.js';
+export * from './evaluation/benchmark.js';
