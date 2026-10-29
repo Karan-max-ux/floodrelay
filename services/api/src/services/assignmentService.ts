@@ -1,13 +1,16 @@
-import type {
-  BoundingBox,
-  RescueRequest,
-  RescueResource,
-  ResourceRoute,
-  RouteStop,
-  Scenario,
-  Shelter,
-  SolverPlan,
-  UnservedRequest,
+import {
+  validateScenario,
+  type BoundingBox,
+  type GeoPoint,
+  type RescueRequest,
+  type RescueResource,
+  type ResourceRoute,
+  type RouteStop,
+  type Scenario,
+  type ScenarioProvenance,
+  type Shelter,
+  type SolverPlan,
+  type UnservedRequest,
 } from '@floodrelay/shared';
 import {
   solveClusterAllocation,
@@ -40,6 +43,121 @@ export interface AssignmentDetailResponse {
   routes: ResourceRoute[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ProvenanceClassification {
+  provenance: ScenarioProvenance;
+  simulated?: boolean;
+  syntheticDataNote?: string;
+  description: string;
+}
+
+export function classifyScenarioProvenance(
+  requests: RescueRequest[],
+  resources: RescueResource[],
+  shelters: Shelter[],
+): ProvenanceClassification {
+  let simulatedCount = 0;
+  let realCount = 0;
+
+  for (const req of requests) {
+    if (req.source === 'SIMULATED') {
+      simulatedCount++;
+    } else if (
+      req.source === 'REPORTED' ||
+      (req as unknown as { source: string }).source === 'REAL'
+    ) {
+      realCount++;
+    }
+  }
+
+  for (const res of resources) {
+    if (res.source === 'SIMULATED') {
+      simulatedCount++;
+    } else if (res.source === 'REAL') {
+      realCount++;
+    }
+  }
+
+  for (const sh of shelters) {
+    if (sh.source === 'SIMULATED') {
+      simulatedCount++;
+    } else if (sh.source === 'REAL') {
+      realCount++;
+    }
+  }
+
+  if (realCount > 0 && simulatedCount === 0) {
+    return {
+      provenance: 'REAL',
+      simulated: false,
+      syntheticDataNote: undefined,
+      description: 'Operational dispatch scenario constructed from real-world platform data',
+    };
+  }
+
+  if (simulatedCount > 0 && realCount === 0) {
+    return {
+      provenance: 'SIMULATED',
+      simulated: true,
+      syntheticDataNote: 'PROPOSED dispatch scenario generated on simulated platform data',
+      description: 'Simulation scenario constructed from synthetic platform data',
+    };
+  }
+
+  if (simulatedCount > 0 && realCount > 0) {
+    return {
+      provenance: 'MIXED',
+      simulated: undefined,
+      syntheticDataNote: `MIXED PROVENANCE: Scenario incorporates both real-world (${realCount}) and simulated (${simulatedCount}) operational entities`,
+      description: `Mixed-provenance dispatch scenario combining ${realCount} real-world and ${simulatedCount} synthetic entities`,
+    };
+  }
+
+  return {
+    provenance: 'REAL',
+    simulated: false,
+    syntheticDataNote: undefined,
+    description: 'Empty operational scenario constructed from stored platform data',
+  };
+}
+
+export function deriveRegionFromCoordinates(points: GeoPoint[]): string {
+  if (points.length === 0) {
+    return 'Operational Area (Unspecified)';
+  }
+
+  const centerLat = points.reduce((sum, p) => sum + p.lat, 0) / points.length;
+  const centerLng = points.reduce((sum, p) => sum + p.lng, 0) / points.length;
+
+  if (centerLat >= 28.3 && centerLat <= 28.9 && centerLng >= 76.8 && centerLng <= 77.5) {
+    return 'Delhi NCR / Yamuna Floodplain';
+  }
+  if (centerLat >= 18.8 && centerLat <= 19.4 && centerLng >= 72.7 && centerLng <= 73.2) {
+    return 'Mumbai Metropolitan / Konkan Coast';
+  }
+  if (centerLat >= 8.2 && centerLat <= 12.9 && centerLng >= 74.8 && centerLng <= 77.6) {
+    return 'Kerala Flood Region';
+  }
+  if (centerLat >= 25.5 && centerLat <= 28.2 && centerLng >= 89.5 && centerLng <= 96.2) {
+    return 'Assam / Brahmaputra Basin';
+  }
+  if (centerLat >= 24.8 && centerLat <= 26.8 && centerLng >= 83.8 && centerLng <= 88.2) {
+    return 'Bihar / Middle Ganga Basin';
+  }
+  if (centerLat >= 12.8 && centerLat <= 13.4 && centerLng >= 80.0 && centerLng <= 80.4) {
+    return 'Chennai Metropolitan Area';
+  }
+  if (centerLat >= 22.3 && centerLat <= 23.0 && centerLng >= 88.1 && centerLng <= 88.6) {
+    return 'Kolkata / Lower Ganga Basin';
+  }
+  if (centerLat >= 29.0 && centerLat <= 31.0 && centerLng >= -96.0 && centerLng <= -94.0) {
+    return 'Gulf Coast / Greater Houston Region';
+  }
+
+  const latStr = `${Math.abs(centerLat).toFixed(2)}°${centerLat >= 0 ? 'N' : 'S'}`;
+  const lngStr = `${Math.abs(centerLng).toFixed(2)}°${centerLng >= 0 ? 'E' : 'W'}`;
+  return `Operational Area (${latStr}, ${lngStr})`;
 }
 
 export class AssignmentService {
@@ -92,25 +210,21 @@ export class AssignmentService {
       );
     }
 
-    // 5. Construct scenario for the solver
-    const bounds = this.computeBoundingBox(requests, availableResources, shelters);
-    const scenario: Scenario = {
-      id: input.scenarioId,
-      simulated: true,
-      syntheticDataNote: 'PROPOSED dispatch scenario generated on simulated platform data',
-      metadata: {
-        id: input.scenarioId,
-        name: `Active Scenario (${input.scenarioId})`,
-        description: 'Dynamic dispatch scenario constructed from stored platform data',
-        region: 'Delhi / Yamuna Floodplain',
-        createdAt: new Date().toISOString(),
-        bounds,
-        simulated: true,
-      },
+    // 5. Construct scenario for the solver with validated geographic metadata and provenance
+    const scenario = this.constructOperationalScenario(
+      input.scenarioId,
       requests,
-      resources: availableResources,
+      availableResources,
       shelters,
-    };
+    );
+
+    const validation = validateScenario(scenario);
+    if (!validation.valid) {
+      const err = new Error(`Constructed scenario is invalid: ${validation.errors.join('; ')}`);
+      (err as unknown as { code: string; statusCode: number }).code = 'INVALID_SCENARIO';
+      (err as unknown as { code: string; statusCode: number }).statusCode = 400;
+      throw err;
+    }
 
     // 6. Execute selected solver algorithm
     let plan: SolverPlan;
@@ -328,10 +442,10 @@ export class AssignmentService {
 
     if (points.length === 0) {
       return {
-        minLat: 28.5,
-        maxLat: 28.8,
-        minLng: 77.1,
-        maxLng: 77.4,
+        minLat: -0.01,
+        maxLat: 0.01,
+        minLng: -0.01,
+        maxLng: 0.01,
       };
     }
 
@@ -339,10 +453,51 @@ export class AssignmentService {
     const lngs = points.map((p) => p.lng);
 
     return {
-      minLat: Math.min(...lats) - 0.02,
-      maxLat: Math.max(...lats) + 0.02,
-      minLng: Math.min(...lngs) - 0.02,
-      maxLng: Math.max(...lngs) + 0.02,
+      minLat: Math.max(-90, Math.min(...lats) - 0.02),
+      maxLat: Math.min(90, Math.max(...lats) + 0.02),
+      minLng: Math.max(-180, Math.min(...lngs) - 0.02),
+      maxLng: Math.min(180, Math.max(...lngs) + 0.02),
+    };
+  }
+
+  /**
+   * Constructs an operational scenario with coordinate-derived bounds and region,
+   * and explicit provenance labeling (REAL, SIMULATED, or MIXED).
+   */
+  public constructOperationalScenario(
+    scenarioId: string,
+    requests: RescueRequest[],
+    resources: RescueResource[],
+    shelters: Shelter[],
+  ): Scenario {
+    const bounds = this.computeBoundingBox(requests, resources, shelters);
+    const allPoints = [
+      ...requests.map((r) => ({ lat: r.lat, lng: r.lng })),
+      ...resources.map((r) => ({ lat: r.lat, lng: r.lng })),
+      ...shelters.map((s) => ({ lat: s.lat, lng: s.lng })),
+    ];
+    const region = deriveRegionFromCoordinates(allPoints);
+    const classification = classifyScenarioProvenance(requests, resources, shelters);
+
+    return {
+      id: scenarioId,
+      simulated: classification.simulated,
+      provenance: classification.provenance,
+      syntheticDataNote: classification.syntheticDataNote,
+      metadata: {
+        id: scenarioId,
+        name: `Active Scenario (${scenarioId})`,
+        description: classification.description,
+        region,
+        createdAt: new Date().toISOString(),
+        bounds,
+        simulated: classification.simulated,
+        provenance: classification.provenance,
+        syntheticDataNote: classification.syntheticDataNote,
+      },
+      requests,
+      resources,
+      shelters,
     };
   }
 }

@@ -48,6 +48,7 @@ export interface RescueResource {
   lng: number;
   status: ResourceStatus;
   depotId?: string;
+  source?: 'SIMULATED' | 'REAL';
 }
 
 // Safe Shelters and Depots
@@ -58,6 +59,7 @@ export interface Shelter {
   lng: number;
   capacity: number;
   currentOccupancy?: number;
+  source?: 'SIMULATED' | 'REAL';
 }
 
 // Hazard and Blocked zones
@@ -70,6 +72,9 @@ export interface BlockedZone {
   polygon: GeoPoint[];
 }
 
+// Scenario provenance classification
+export type ScenarioProvenance = 'REAL' | 'SIMULATED' | 'MIXED';
+
 // Scenario definition
 export interface ScenarioMetadata {
   id: string;
@@ -80,12 +85,14 @@ export interface ScenarioMetadata {
   createdAt: string;
   bounds: BoundingBox;
   simulated?: boolean;
+  provenance?: ScenarioProvenance;
   syntheticDataNote?: string;
 }
 
 export interface Scenario {
   id: string;
   simulated?: boolean;
+  provenance?: ScenarioProvenance;
   syntheticDataNote?: string;
   metadata: ScenarioMetadata;
   requests: RescueRequest[];
@@ -304,6 +311,10 @@ export function validateScenario(input: unknown): ValidationResult {
       if (!VALID_RESOURCE_STATUSES.has(res.status as string)) {
         errors.push(`Resource "${res.id || idx}" has invalid status: "${res.status}"`);
       }
+
+      if (res.source !== undefined && res.source !== 'SIMULATED' && res.source !== 'REAL') {
+        errors.push(`Resource "${res.id || idx}" has invalid source: "${res.source}"`);
+      }
     });
   }
 
@@ -331,6 +342,10 @@ export function validateScenario(input: unknown): ValidationResult {
 
       if (typeof sh.capacity !== 'number' || !Number.isInteger(sh.capacity) || sh.capacity <= 0) {
         errors.push(`Shelter "${sh.id || idx}" capacity must be a positive integer`);
+      }
+
+      if (sh.source !== undefined && sh.source !== 'SIMULATED' && sh.source !== 'REAL') {
+        errors.push(`Shelter "${sh.id || idx}" has invalid source: "${sh.source}"`);
       }
     });
   }
