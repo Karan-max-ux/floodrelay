@@ -16,7 +16,7 @@ export type ProposeAssignmentInput = z.infer<typeof ProposeAssignmentSchema>;
 export const CommitAssignmentSchema = z.object({
   operatorId: z
     .string({
-      required_error: 'operatorId is required to commit an assignment',
+      message: 'operatorId is required to commit an assignment',
     })
     .min(1, 'operatorId cannot be empty'),
   notes: z.string().max(1000).optional(),

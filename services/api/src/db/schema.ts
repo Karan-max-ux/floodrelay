@@ -123,6 +123,7 @@ export function rescueRequestToDb(
   options?: {
     verificationStatus?: VerificationStatus;
     idempotencyKey?: string | null;
+    idempotencyRequestHash?: string | null;
     duplicateOfId?: string | null;
     isFlaggedDuplicate?: boolean;
   },
@@ -138,6 +139,7 @@ export function rescueRequestToDb(
     medical_needs: req.medicalNeeds ?? false,
     notes: req.notes ?? null,
     idempotency_key: options?.idempotencyKey ?? null,
+    idempotency_request_hash: options?.idempotencyRequestHash ?? null,
     duplicate_of_id: options?.duplicateOfId ?? null,
     is_flagged_duplicate: options?.isFlaggedDuplicate ?? false,
   };

@@ -22,7 +22,7 @@ export interface AppDependencies {
 export function createApp(deps?: AppDependencies): Express {
   const app = express();
 
-  app.use(express.json());
+  app.use(express.json({ limit: '100kb' }));
 
   const repo = deps?.repository ?? new PostgisRepository(getPool());
   const requestService = deps?.requestService ?? new RequestService(repo);

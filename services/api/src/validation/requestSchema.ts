@@ -13,15 +13,15 @@ export const VerificationStatusSchema = z.enum(['UNVERIFIED', 'VERIFIED', 'REJEC
 
 export const CreateRequestSchema = z.object({
   lat: z
-    .number({ required_error: 'Latitude is required' })
+    .number({ message: 'Latitude is required' })
     .min(-90, 'Latitude must be between -90 and 90')
     .max(90, 'Latitude must be between -90 and 90'),
   lng: z
-    .number({ required_error: 'Longitude is required' })
+    .number({ message: 'Longitude is required' })
     .min(-180, 'Longitude must be between -180 and 180')
     .max(180, 'Longitude must be between -180 and 180'),
   peopleCount: z
-    .number({ required_error: 'peopleCount is required' })
+    .number({ message: 'peopleCount is required' })
     .int('peopleCount must be an integer')
     .positive('peopleCount must be greater than zero'),
   urgency: UrgencyLevelSchema,
