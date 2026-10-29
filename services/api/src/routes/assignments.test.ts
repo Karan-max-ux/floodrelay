@@ -79,7 +79,9 @@ class InMemoryAssignmentDbMock implements Queryable {
         return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
       }
       return {
-        rows: [{ id: assign.id, status: assign.status, scenario_id: assign.scenario_id } as unknown as R],
+        rows: [
+          { id: assign.id, status: assign.status, scenario_id: assign.scenario_id } as unknown as R,
+        ],
         command: 'SELECT',
         rowCount: 1,
         oid: 0,
@@ -93,7 +95,13 @@ class InMemoryAssignmentDbMock implements Queryable {
         .map((id) => this.requests.get(id))
         .filter((r): r is DbRequest => Boolean(r))
         .map((r) => ({ id: r.id, status: r.status }));
-      return { rows: rows as unknown as R[], command: 'SELECT', rowCount: rows.length, oid: 0, fields: [] };
+      return {
+        rows: rows as unknown as R[],
+        command: 'SELECT',
+        rowCount: rows.length,
+        oid: 0,
+        fields: [],
+      };
     }
 
     if (sql.includes('FROM assignment_stops s') && sql.includes('JOIN assignments a')) {
@@ -104,7 +112,10 @@ class InMemoryAssignmentDbMock implements Queryable {
         if (stop.assignment_id === excludeAssignmentId) continue;
         if (!resourceIds.includes(stop.resource_id)) continue;
         const parentAssign = this.assignments.get(stop.assignment_id);
-        if (parentAssign && (parentAssign.status === 'COMMITTED' || parentAssign.status === 'DISPATCHED')) {
+        if (
+          parentAssign &&
+          (parentAssign.status === 'COMMITTED' || parentAssign.status === 'DISPATCHED')
+        ) {
           rows.push({
             id: stop.id,
             resource_id: stop.resource_id,
@@ -117,7 +128,13 @@ class InMemoryAssignmentDbMock implements Queryable {
           });
         }
       }
-      return { rows: rows as unknown as R[], command: 'SELECT', rowCount: rows.length, oid: 0, fields: [] };
+      return {
+        rows: rows as unknown as R[],
+        command: 'SELECT',
+        rowCount: rows.length,
+        oid: 0,
+        fields: [],
+      };
     }
 
     // 1. SELECT FROM requests
@@ -815,8 +832,8 @@ describe('Assignment Endpoints Integration Tests', () => {
         medical_needs: false,
         notes: 'Newly stranded household',
         idempotency_key: null,
-      idempotency_request_hash: null,
-      duplicate_of_id: null,
+        idempotency_request_hash: null,
+        duplicate_of_id: null,
         is_flagged_duplicate: false,
         created_at: new Date(),
         updated_at: new Date(),
@@ -850,7 +867,9 @@ describe('Assignment Endpoints Integration Tests', () => {
 
       expect(resFail1.status).toBe(409);
       expect(dbMock.assignments.get(assignId1)?.status).toBe('PROPOSED');
-      const sampleStop = Array.from(dbMock.stops.values()).find((s) => s.assignment_id === assignId1);
+      const sampleStop = Array.from(dbMock.stops.values()).find(
+        (s) => s.assignment_id === assignId1,
+      );
       expect(sampleStop?.is_frozen).toBe(false);
 
       // 2. Failure on UPDATE requests

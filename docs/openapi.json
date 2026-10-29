@@ -23,10 +23,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": [
-                    "status",
-                    "timestamp"
-                  ],
+                  "required": ["status", "timestamp"],
                   "properties": {
                     "status": {
                       "type": "string",
@@ -83,11 +80,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": [
-                    "success",
-                    "idempotent",
-                    "data"
-                  ],
+                  "required": ["success", "idempotent", "data"],
                   "properties": {
                     "success": {
                       "type": "boolean",
@@ -111,10 +104,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": [
-                    "success",
-                    "data"
-                  ],
+                  "required": ["success", "data"],
                   "properties": {
                     "success": {
                       "type": "boolean",
@@ -248,11 +238,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": [
-                    "success",
-                    "count",
-                    "data"
-                  ],
+                  "required": ["success", "count", "data"],
                   "properties": {
                     "success": {
                       "type": "boolean",
@@ -307,10 +293,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": [
-                    "success",
-                    "data"
-                  ],
+                  "required": ["success", "data"],
                   "properties": {
                     "success": {
                       "type": "boolean",
@@ -358,10 +341,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": [
-                    "success",
-                    "data"
-                  ],
+                  "required": ["success", "data"],
                   "properties": {
                     "success": {
                       "type": "boolean",
@@ -398,10 +378,7 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "enum": [
-                "PROPOSED",
-                "COMMITTED"
-              ]
+              "enum": ["PROPOSED", "COMMITTED"]
             }
           },
           {
@@ -437,11 +414,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": [
-                    "success",
-                    "count",
-                    "data"
-                  ],
+                  "required": ["success", "count", "data"],
                   "properties": {
                     "success": {
                       "type": "boolean",
@@ -496,10 +469,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": [
-                    "success",
-                    "data"
-                  ],
+                  "required": ["success", "data"],
                   "properties": {
                     "success": {
                       "type": "boolean",
@@ -557,11 +527,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": [
-                    "success",
-                    "message",
-                    "data"
-                  ],
+                  "required": ["success", "message", "data"],
                   "properties": {
                     "success": {
                       "type": "boolean",
@@ -650,10 +616,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": [
-                    "success",
-                    "data"
-                  ],
+                  "required": ["success", "data"],
                   "properties": {
                     "success": {
                       "type": "boolean",
@@ -705,47 +668,23 @@
     "schemas": {
       "UrgencyLevel": {
         "type": "string",
-        "enum": [
-          "LOW",
-          "MEDIUM",
-          "HIGH",
-          "CRITICAL"
-        ]
+        "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
       },
       "RequestStatus": {
         "type": "string",
-        "enum": [
-          "PENDING",
-          "ASSIGNED",
-          "IN_TRANSIT",
-          "RESCUED",
-          "CANCELLED"
-        ]
+        "enum": ["PENDING", "ASSIGNED", "IN_TRANSIT", "RESCUED", "CANCELLED"]
       },
       "VerificationStatus": {
         "type": "string",
-        "enum": [
-          "UNVERIFIED",
-          "VERIFIED",
-          "REJECTED"
-        ]
+        "enum": ["UNVERIFIED", "VERIFIED", "REJECTED"]
       },
       "StopType": {
         "type": "string",
-        "enum": [
-          "PICKUP",
-          "DROPOFF",
-          "DEPOT"
-        ]
+        "enum": ["PICKUP", "DROPOFF", "DEPOT"]
       },
       "CreateRescueRequest": {
         "type": "object",
-        "required": [
-          "lat",
-          "lng",
-          "peopleCount",
-          "urgency"
-        ],
+        "required": ["lat", "lng", "peopleCount", "urgency"],
         "properties": {
           "lat": {
             "type": "number",
@@ -787,10 +726,7 @@
           },
           "source": {
             "type": "string",
-            "enum": [
-              "SIMULATED",
-              "REPORTED"
-            ],
+            "enum": ["SIMULATED", "REPORTED"],
             "default": "REPORTED"
           }
         }
@@ -832,10 +768,7 @@
           },
           "source": {
             "type": "string",
-            "enum": [
-              "SIMULATED",
-              "REPORTED"
-            ]
+            "enum": ["SIMULATED", "REPORTED"]
           },
           "status": {
             "$ref": "#/components/schemas/RequestStatus"
@@ -878,11 +811,7 @@
           },
           "algorithm": {
             "type": "string",
-            "enum": [
-              "cluster-allocation",
-              "nearest-first",
-              "savings"
-            ],
+            "enum": ["cluster-allocation", "nearest-first", "savings"],
             "default": "cluster-allocation"
           },
           "includeUnverified": {
@@ -903,9 +832,7 @@
       },
       "CommitAssignmentRequest": {
         "type": "object",
-        "required": [
-          "operatorId"
-        ],
+        "required": ["operatorId"],
         "properties": {
           "operatorId": {
             "type": "string",
@@ -1032,10 +959,7 @@
       },
       "UnservedRequest": {
         "type": "object",
-        "required": [
-          "requestId",
-          "reason"
-        ],
+        "required": ["requestId", "reason"],
         "properties": {
           "requestId": {
             "type": "string",
@@ -1094,15 +1018,7 @@
       },
       "AssignmentDetailResponse": {
         "type": "object",
-        "required": [
-          "id",
-          "status",
-          "metrics",
-          "unserved",
-          "routes",
-          "createdAt",
-          "updatedAt"
-        ],
+        "required": ["id", "status", "metrics", "unserved", "routes", "createdAt", "updatedAt"],
         "properties": {
           "id": {
             "type": "string",
@@ -1115,10 +1031,7 @@
           },
           "status": {
             "type": "string",
-            "enum": [
-              "PROPOSED",
-              "COMMITTED"
-            ]
+            "enum": ["PROPOSED", "COMMITTED"]
           },
           "committedAt": {
             "type": "string",
@@ -1157,12 +1070,7 @@
       },
       "DbAssignmentSummary": {
         "type": "object",
-        "required": [
-          "id",
-          "status",
-          "created_at",
-          "updated_at"
-        ],
+        "required": ["id", "status", "created_at", "updated_at"],
         "properties": {
           "id": {
             "type": "string"
@@ -1173,10 +1081,7 @@
           },
           "status": {
             "type": "string",
-            "enum": [
-              "PROPOSED",
-              "COMMITTED"
-            ]
+            "enum": ["PROPOSED", "COMMITTED"]
           },
           "metrics": {
             "$ref": "#/components/schemas/SolverMetrics"
@@ -1208,17 +1113,11 @@
       },
       "ErrorResponse": {
         "type": "object",
-        "required": [
-          "error"
-        ],
+        "required": ["error"],
         "properties": {
           "error": {
             "type": "object",
-            "required": [
-              "code",
-              "message",
-              "timestamp"
-            ],
+            "required": ["code", "message", "timestamp"],
             "properties": {
               "code": {
                 "type": "string",

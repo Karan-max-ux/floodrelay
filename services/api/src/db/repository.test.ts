@@ -201,11 +201,28 @@ describe('PostgisRepository SQL Construction & Spatial Operations', () => {
     const executedQueries: string[] = [];
     const mockClient = createMockClient((sql) => {
       executedQueries.push(sql);
-      if (sql.includes('SELECT') && sql.includes('FROM assignments') && sql.includes('FOR UPDATE')) {
+      if (
+        sql.includes('SELECT') &&
+        sql.includes('FROM assignments') &&
+        sql.includes('FOR UPDATE')
+      ) {
         return [{ id: 'assign_run_42', status: 'PROPOSED', scenario_id: 'scen_1' }];
       }
-      if (sql.includes('SELECT') && sql.includes('FROM assignment_stops') && sql.includes('assignment_id = $1')) {
-        return [{ id: 'stop_1', resource_id: 'res_1', type: 'PICKUP', target_id: 'req_1', stop_number: 1, is_frozen: false }];
+      if (
+        sql.includes('SELECT') &&
+        sql.includes('FROM assignment_stops') &&
+        sql.includes('assignment_id = $1')
+      ) {
+        return [
+          {
+            id: 'stop_1',
+            resource_id: 'res_1',
+            type: 'PICKUP',
+            target_id: 'req_1',
+            stop_number: 1,
+            is_frozen: false,
+          },
+        ];
       }
       if (sql.includes('SELECT') && sql.includes('FROM requests') && sql.includes('FOR UPDATE')) {
         return [{ id: 'req_1', status: 'PENDING' }];
@@ -222,62 +239,68 @@ describe('PostgisRepository SQL Construction & Spatial Operations', () => {
     expect(committed).toBe(true);
     expect(executedQueries.some((q) => q === 'BEGIN')).toBe(true);
     expect(executedQueries.some((q) => q.includes("status = 'COMMITTED'"))).toBe(true);
-    expect(executedQueries.some((q) => q.includes('UPDATE assignment_stops SET is_frozen = TRUE'))).toBe(true);
+    expect(
+      executedQueries.some((q) => q.includes('UPDATE assignment_stops SET is_frozen = TRUE')),
+    ).toBe(true);
     expect(executedQueries.some((q) => q.includes("status = 'ASSIGNED'"))).toBe(true);
     expect(executedQueries.some((q) => q.includes('INSERT INTO audit_events'))).toBe(true);
     expect(executedQueries.some((q) => q === 'COMMIT')).toBe(true);
   });
 });
 
-  it('uses parameterized $N placeholders for limit and offset in listRequests and findNearbyRequests', async () => {
-    let capturedListSql = '';
-    let capturedListVals: unknown[] = [];
-    let capturedNearbySql = '';
-    let capturedNearbyVals: unknown[] = [];
+it('uses parameterized $N placeholders for limit and offset in listRequests and findNearbyRequests', async () => {
+  let capturedListSql = '';
+  let capturedListVals: unknown[] = [];
+  let capturedNearbySql = '';
+  let capturedNearbyVals: unknown[] = [];
 
-    const mockClient = createMockClient((sql, values) => {
-      if (sql.includes('ORDER BY created_at DESC')) {
-        capturedListSql = sql;
-        capturedListVals = values;
-        return [];
-      }
-      if (sql.includes('ORDER BY "distanceMeters" ASC')) {
-        capturedNearbySql = sql;
-        capturedNearbyVals = values;
-        return [];
-      }
+  const mockClient = createMockClient((sql, values) => {
+    if (sql.includes('ORDER BY created_at DESC')) {
+      capturedListSql = sql;
+      capturedListVals = values;
       return [];
-    });
-
-    const repo = new PostgisRepository(mockClient);
-
-    // Test listRequests with limit and offset
-    await repo.listRequests({ limit: 25, offset: 50 });
-    expect(capturedListSql).toContain('LIMIT $1 OFFSET $2');
-    expect(capturedListVals).toEqual([25, 50]);
-
-    // Test findNearbyRequests with limit and offset
-    await repo.findNearbyRequests(28.69, 77.23, 1000, { limit: 15, offset: 30 });
-    expect(capturedNearbySql).toContain('LIMIT $4 OFFSET $5');
-    expect(capturedNearbyVals.slice(3)).toEqual([15, 30]);
+    }
+    if (sql.includes('ORDER BY "distanceMeters" ASC')) {
+      capturedNearbySql = sql;
+      capturedNearbyVals = values;
+      return [];
+    }
+    return [];
   });
 
-  it('rejects hostile offset values in listRequests and findNearbyRequests', async () => {
-    const mockClient = createMockClient(() => []);
-    const repo = new PostgisRepository(mockClient);
+  const repo = new PostgisRepository(mockClient);
 
-    // Negative offset
-    await expect(repo.listRequests({ offset: -5 })).rejects.toThrow('Invalid query offset');
-    await expect(repo.findNearbyRequests(28.69, 77.23, 1000, { offset: -1 })).rejects.toThrow('Invalid query offset');
+  // Test listRequests with limit and offset
+  await repo.listRequests({ limit: 25, offset: 50 });
+  expect(capturedListSql).toContain('LIMIT $1 OFFSET $2');
+  expect(capturedListVals).toEqual([25, 50]);
 
-    // Hostile offset beyond MAX_QUERY_OFFSET (10000)
-    await expect(repo.listRequests({ offset: 10001 })).rejects.toThrow('Invalid query offset');
-    await expect(repo.findNearbyRequests(28.69, 77.23, 1000, { offset: 50000 })).rejects.toThrow('Invalid query offset');
+  // Test findNearbyRequests with limit and offset
+  await repo.findNearbyRequests(28.69, 77.23, 1000, { limit: 15, offset: 30 });
+  expect(capturedNearbySql).toContain('LIMIT $4 OFFSET $5');
+  expect(capturedNearbyVals.slice(3)).toEqual([15, 30]);
+});
 
-    // NaN / Infinite offset
-    await expect(repo.listRequests({ offset: Infinity })).rejects.toThrow('Invalid query offset');
-    await expect(repo.listRequests({ offset: NaN })).rejects.toThrow('Invalid query offset');
-  });
+it('rejects hostile offset values in listRequests and findNearbyRequests', async () => {
+  const mockClient = createMockClient(() => []);
+  const repo = new PostgisRepository(mockClient);
+
+  // Negative offset
+  await expect(repo.listRequests({ offset: -5 })).rejects.toThrow('Invalid query offset');
+  await expect(repo.findNearbyRequests(28.69, 77.23, 1000, { offset: -1 })).rejects.toThrow(
+    'Invalid query offset',
+  );
+
+  // Hostile offset beyond MAX_QUERY_OFFSET (10000)
+  await expect(repo.listRequests({ offset: 10001 })).rejects.toThrow('Invalid query offset');
+  await expect(repo.findNearbyRequests(28.69, 77.23, 1000, { offset: 50000 })).rejects.toThrow(
+    'Invalid query offset',
+  );
+
+  // NaN / Infinite offset
+  await expect(repo.listRequests({ offset: Infinity })).rejects.toThrow('Invalid query offset');
+  await expect(repo.listRequests({ offset: NaN })).rejects.toThrow('Invalid query offset');
+});
 
 describe('Scenario Loader & Simulation Provenance', () => {
   it('preserves SIMULATED source label on all rows when loading a simulated scenario', async () => {

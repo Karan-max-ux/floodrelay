@@ -80,7 +80,8 @@ export class AssignmentService {
       const err = new Error(
         `Algorithm "${input.algorithm}" does not support preserving frozen routes. Committed frozen stops exist in scenario "${input.scenarioId}". Please use "cluster-allocation" for incremental replanning with frozen stops, or explicitly specify preserveFrozen: false to ignore existing frozen routes.`,
       );
-      (err as unknown as { code: string; statusCode: number }).code = 'UNSUPPORTED_ALGORITHM_OPTION';
+      (err as unknown as { code: string; statusCode: number }).code =
+        'UNSUPPORTED_ALGORITHM_OPTION';
       (err as unknown as { code: string; statusCode: number }).statusCode = 400;
       throw err;
     }

@@ -173,8 +173,7 @@ export function createAssignmentsRouter(assignmentService: AssignmentService): R
         } catch (domainErr: unknown) {
           const code = (domainErr as { code?: string }).code || 'COMMIT_FAILED';
           const statusCode =
-            (domainErr as { statusCode?: number }).statusCode ||
-            (code === 'NOT_FOUND' ? 404 : 409);
+            (domainErr as { statusCode?: number }).statusCode || (code === 'NOT_FOUND' ? 404 : 409);
           res.status(statusCode).json({
             error: {
               code,

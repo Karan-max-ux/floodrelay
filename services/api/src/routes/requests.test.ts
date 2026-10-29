@@ -53,7 +53,9 @@ class InMemoryDbMock implements Queryable {
       if (idempotency_key) {
         for (const existing of this.requests.values()) {
           if (existing.idempotency_key === idempotency_key) {
-            const err = new Error('duplicate key value violates unique constraint "requests_idempotency_key_key"');
+            const err = new Error(
+              'duplicate key value violates unique constraint "requests_idempotency_key_key"',
+            );
             (err as unknown as { code: string }).code = '23505';
             throw err;
           }

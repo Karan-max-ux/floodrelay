@@ -28,7 +28,9 @@ describe.runIf(hasDatabase)('PostGIS Live Database Integration Tests', () => {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      await client.query('TRUNCATE TABLE route_stops, assignments, requests, resources, shelters, audit_events CASCADE;');
+      await client.query(
+        'TRUNCATE TABLE route_stops, assignments, requests, resources, shelters, audit_events CASCADE;',
+      );
       await client.query('COMMIT');
     } catch {
       await client.query('ROLLBACK');
@@ -88,13 +90,13 @@ describe.runIf(hasDatabase)('PostGIS Live Database Integration Tests', () => {
 
   describe('2. Spatial Nearby Query (ST_DWithin)', () => {
     it('correctly retrieves requests within spatial radius and excludes those outside', async () => {
-      const originLat = 28.7000;
-      const originLng = 77.2000;
+      const originLat = 28.7;
+      const originLng = 77.2;
 
       await repo.insertRequest({
         id: 'req_nearby',
-        lat: 28.7010,
-        lng: 77.2010,
+        lat: 28.701,
+        lng: 77.201,
         peopleCount: 3,
         urgency: 'HIGH',
         source: 'REPORTED',
@@ -103,8 +105,8 @@ describe.runIf(hasDatabase)('PostGIS Live Database Integration Tests', () => {
 
       await repo.insertRequest({
         id: 'req_distant',
-        lat: 28.7500,
-        lng: 77.2500,
+        lat: 28.75,
+        lng: 77.25,
         peopleCount: 3,
         urgency: 'HIGH',
         source: 'REPORTED',

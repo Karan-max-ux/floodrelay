@@ -39,12 +39,24 @@ describe('Database Schema & Migration Integrity', () => {
     const downFile002 = path.join(migrationsDir, '002_idempotency_request_hash.down.sql');
     expect(fs.existsSync(upFile002)).toBe(true);
     expect(fs.existsSync(downFile002)).toBe(true);
-    expect(fs.readFileSync(upFile002, 'utf-8')).toMatch(/ALTER TABLE requests[\s\S]*ADD COLUMN[\s\S]*idempotency_request_hash/i);
-    expect(fs.readFileSync(upFile002, 'utf-8')).toMatch(/ALTER TABLE resources ALTER COLUMN source DROP DEFAULT/i);
-    expect(fs.readFileSync(upFile002, 'utf-8')).toMatch(/ALTER TABLE shelters ALTER COLUMN source DROP DEFAULT/i);
-    expect(fs.readFileSync(downFile002, 'utf-8')).toMatch(/ALTER TABLE resources ALTER COLUMN source SET DEFAULT/i);
-    expect(fs.readFileSync(downFile002, 'utf-8')).toMatch(/ALTER TABLE shelters ALTER COLUMN source SET DEFAULT/i);
-    expect(fs.readFileSync(downFile002, 'utf-8')).toMatch(/ALTER TABLE requests[\s\S]*DROP COLUMN[\s\S]*idempotency_request_hash/i);
+    expect(fs.readFileSync(upFile002, 'utf-8')).toMatch(
+      /ALTER TABLE requests[\s\S]*ADD COLUMN[\s\S]*idempotency_request_hash/i,
+    );
+    expect(fs.readFileSync(upFile002, 'utf-8')).toMatch(
+      /ALTER TABLE resources ALTER COLUMN source DROP DEFAULT/i,
+    );
+    expect(fs.readFileSync(upFile002, 'utf-8')).toMatch(
+      /ALTER TABLE shelters ALTER COLUMN source DROP DEFAULT/i,
+    );
+    expect(fs.readFileSync(downFile002, 'utf-8')).toMatch(
+      /ALTER TABLE resources ALTER COLUMN source SET DEFAULT/i,
+    );
+    expect(fs.readFileSync(downFile002, 'utf-8')).toMatch(
+      /ALTER TABLE shelters ALTER COLUMN source SET DEFAULT/i,
+    );
+    expect(fs.readFileSync(downFile002, 'utf-8')).toMatch(
+      /ALTER TABLE requests[\s\S]*DROP COLUMN[\s\S]*idempotency_request_hash/i,
+    );
   });
 
   it('includes PostGIS extension and all required core tables in initial schema', () => {

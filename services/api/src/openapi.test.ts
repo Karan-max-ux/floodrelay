@@ -37,7 +37,18 @@ interface OpenApiDocument {
   openapi: string;
   info: { title: string; version: string; description: string };
   servers: Array<{ url: string; description?: string }>;
-  paths: Record<string, Record<string, { responses?: Record<string, { content?: { 'application/json'?: { schema?: SchemaObject } } }> }>>;
+  paths: Record<
+    string,
+    Record<
+      string,
+      {
+        responses?: Record<
+          string,
+          { content?: { 'application/json'?: { schema?: SchemaObject } } }
+        >;
+      }
+    >
+  >;
   components?: {
     schemas?: Record<string, SchemaObject>;
   };
@@ -327,7 +338,13 @@ describe('OpenAPI Specification Integrity & Anti-Drift Tests', () => {
 
     it('matches RequestStatus enum values with @floodrelay/shared', () => {
       const openApiStatus = spec.components?.schemas?.['RequestStatus']?.enum;
-      const expected: RequestStatus[] = ['PENDING', 'ASSIGNED', 'IN_TRANSIT', 'RESCUED', 'CANCELLED'];
+      const expected: RequestStatus[] = [
+        'PENDING',
+        'ASSIGNED',
+        'IN_TRANSIT',
+        'RESCUED',
+        'CANCELLED',
+      ];
       expect(openApiStatus).toEqual(expected);
     });
 
@@ -494,7 +511,11 @@ describe('OpenAPI Specification Integrity & Anti-Drift Tests', () => {
     const mockRequestService = {
       submitRequest: async (input: { idempotencyKey?: string | null }) => {
         if (input.idempotencyKey === 'reused_key') {
-          throw createDomainError('Idempotency key reused with different payload', 'IDEMPOTENCY_KEY_REUSED', 409);
+          throw createDomainError(
+            'Idempotency key reused with different payload',
+            'IDEMPOTENCY_KEY_REUSED',
+            409,
+          );
         }
         if (input.idempotencyKey === 'idempotent_key') {
           return {
@@ -557,7 +578,11 @@ describe('OpenAPI Specification Integrity & Anti-Drift Tests', () => {
           throw createDomainError('Assignment not found', 'NOT_FOUND', 404);
         }
         if (id === 'assign_committed') {
-          throw createDomainError('Cannot modify stops on committed plan', 'CANNOT_MODIFY_COMMITTED', 409);
+          throw createDomainError(
+            'Cannot modify stops on committed plan',
+            'CANNOT_MODIFY_COMMITTED',
+            409,
+          );
         }
         return mockRouteStop;
       },

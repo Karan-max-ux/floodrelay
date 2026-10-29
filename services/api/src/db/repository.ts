@@ -250,7 +250,11 @@ export class PostgisRepository {
 
     let offsetClause = '';
     if (filter?.offset !== undefined) {
-      if (!Number.isFinite(filter.offset) || filter.offset < 0 || filter.offset > MAX_QUERY_OFFSET) {
+      if (
+        !Number.isFinite(filter.offset) ||
+        filter.offset < 0 ||
+        filter.offset > MAX_QUERY_OFFSET
+      ) {
         throw new Error(
           `Invalid query offset: must be a finite integer between 0 and ${MAX_QUERY_OFFSET} (received: ${filter.offset})`,
         );
@@ -340,7 +344,11 @@ export class PostgisRepository {
 
     let offsetClause = '';
     if (options?.offset !== undefined) {
-      if (!Number.isFinite(options.offset) || options.offset < 0 || options.offset > MAX_QUERY_OFFSET) {
+      if (
+        !Number.isFinite(options.offset) ||
+        options.offset < 0 ||
+        options.offset > MAX_QUERY_OFFSET
+      ) {
         throw new Error(
           `Invalid query offset: must be a finite integer between 0 and ${MAX_QUERY_OFFSET} (received: ${options.offset})`,
         );
@@ -774,8 +782,7 @@ export class PostgisRepository {
     operatorId: string,
     notes?: string,
   ): Promise<boolean> {
-    const isPool =
-      typeof (this.client as unknown as { connect?: unknown }).connect === 'function';
+    const isPool = typeof (this.client as unknown as { connect?: unknown }).connect === 'function';
     const client: Queryable = isPool
       ? await (this.client as unknown as { connect: () => Promise<Queryable> }).connect()
       : this.client;
@@ -935,15 +942,14 @@ export class PostgisRepository {
       }
 
       // 6. Freeze all route stops in the committed plan
-      await client.query(
-        'UPDATE assignment_stops SET is_frozen = TRUE WHERE assignment_id = $1;',
-        [assignmentId],
-      );
+      await client.query('UPDATE assignment_stops SET is_frozen = TRUE WHERE assignment_id = $1;', [
+        assignmentId,
+      ]);
 
       // 7. Update all served requests to ASSIGNED status
       if (pickupTargetIds.length > 0) {
         await client.query(
-          'UPDATE requests SET status = \'ASSIGNED\', updated_at = NOW() WHERE id = ANY($1::text[]);',
+          "UPDATE requests SET status = 'ASSIGNED', updated_at = NOW() WHERE id = ANY($1::text[]);",
           [pickupTargetIds],
         );
       }
