@@ -227,6 +227,9 @@ describe('PostgisRepository SQL Construction & Spatial Operations', () => {
       if (sql.includes('SELECT') && sql.includes('FROM requests') && sql.includes('FOR UPDATE')) {
         return [{ id: 'req_1', status: 'PENDING' }];
       }
+      if (sql.includes('SELECT') && sql.includes('FROM resources') && sql.includes('FOR UPDATE')) {
+        return [{ id: 'res_1', status: 'AVAILABLE' }];
+      }
       if (sql.includes('FROM assignment_stops s') && sql.includes('JOIN assignments a')) {
         return [];
       }
@@ -238,6 +241,9 @@ describe('PostgisRepository SQL Construction & Spatial Operations', () => {
 
     expect(committed).toBe(true);
     expect(executedQueries.some((q) => q === 'BEGIN')).toBe(true);
+    expect(
+      executedQueries.some((q) => q.includes('FROM resources') && q.includes('FOR UPDATE')),
+    ).toBe(true);
     expect(executedQueries.some((q) => q.includes("status = 'COMMITTED'"))).toBe(true);
     expect(
       executedQueries.some((q) => q.includes('UPDATE assignment_stops SET is_frozen = TRUE')),

@@ -482,7 +482,8 @@ export class PostgisRepository {
         id, name, type, capacity, speed_km_h as "speedKmH",
         ST_Y(location::geometry) as lat,
         ST_X(location::geometry) as lng,
-        status, depot_id as "depotId"
+        status, depot_id as "depotId",
+        source
       FROM resources
       WHERE id = $1;
     `;
@@ -526,7 +527,8 @@ export class PostgisRepository {
         id, name, type, capacity, speed_km_h as "speedKmH",
         ST_Y(location::geometry) as lat,
         ST_X(location::geometry) as lng,
-        status, depot_id as "depotId"
+        status, depot_id as "depotId",
+        source
       FROM resources
       ${whereClause}
       ORDER BY id ASC;
@@ -543,6 +545,7 @@ export class PostgisRepository {
       lng: Number(row.lng),
       status: row.status,
       depotId: row.depotId ?? undefined,
+      source: (row.source as 'SIMULATED' | 'REAL') ?? undefined,
     }));
   }
 
@@ -596,7 +599,8 @@ export class PostgisRepository {
       SELECT
         id, name, capacity, current_occupancy as "currentOccupancy",
         ST_Y(location::geometry) as lat,
-        ST_X(location::geometry) as lng
+        ST_X(location::geometry) as lng,
+        source
       FROM shelters
       WHERE id = $1;
     `;
@@ -620,7 +624,8 @@ export class PostgisRepository {
       SELECT
         id, name, capacity, current_occupancy as "currentOccupancy",
         ST_Y(location::geometry) as lat,
-        ST_X(location::geometry) as lng
+        ST_X(location::geometry) as lng,
+        source
       FROM shelters
       ${activeCondition}
       ORDER BY id ASC;
@@ -632,7 +637,8 @@ export class PostgisRepository {
       lat: Number(row.lat),
       lng: Number(row.lng),
       capacity: Number(row.capacity),
-      currentOccupancy: Number(row.currentOccupancy),
+      currentOccupancy: row.currentOccupancy !== null ? Number(row.currentOccupancy) : undefined,
+      source: (row.source as 'SIMULATED' | 'REAL') ?? undefined,
     }));
   }
 
@@ -782,7 +788,8 @@ export class PostgisRepository {
     operatorId: string,
     notes?: string,
   ): Promise<boolean> {
-    const isPool = typeof (this.client as unknown as { connect?: unknown }).connect === 'function';
+    const isPool =
+      typeof (this.client as unknown as { totalCount?: unknown }).totalCount === 'number';
     const client: Queryable = isPool
       ? await (this.client as unknown as { connect: () => Promise<Queryable> }).connect()
       : this.client;
@@ -834,13 +841,15 @@ export class PostgisRepository {
       const planStops = stopsResult.rows;
 
       // 3. Lock and validate every request in PICKUP stops: must still be PENDING
-      const pickupTargetIds = planStops
-        .filter((s) => s.type === 'PICKUP' && s.target_id)
-        .map((s) => s.target_id);
+      const pickupTargetIds = Array.from(
+        new Set(
+          planStops.filter((s) => s.type === 'PICKUP' && s.target_id).map((s) => s.target_id),
+        ),
+      ).sort();
 
       if (pickupTargetIds.length > 0) {
         const reqResult = await client.query<{ id: string; status: string }>(
-          'SELECT id, status FROM requests WHERE id = ANY($1::text[]) FOR UPDATE;',
+          'SELECT id, status FROM requests WHERE id = ANY($1::text[]) ORDER BY id ASC FOR UPDATE;',
           [pickupTargetIds],
         );
         const lockedRequests = new Map(reqResult.rows.map((r) => [r.id, r.status]));
@@ -865,13 +874,27 @@ export class PostgisRepository {
         }
       }
 
-      // 4. Validate resources: no resource in the plan may already have stops in another
-      // COMMITTED or DISPATCHED assignment unless this plan was built with those frozen stops.
-      // Check mechanism: For every resource in this plan that has active stops in another
-      // committed/dispatched assignment, verify every frozen stop of that resource from the
-      // other assignment is present as a frozen stop in this plan (matching type and target_id).
-      const resourceIds = Array.from(new Set(planStops.map((s) => s.resource_id)));
+      // 4. Lock all referenced resource rows using PostgreSQL SELECT ... FOR UPDATE in deterministic order
+      const resourceIds = Array.from(new Set(planStops.map((s) => s.resource_id))).sort();
       if (resourceIds.length > 0) {
+        const resResult = await client.query<{ id: string; status: string }>(
+          'SELECT id, status FROM resources WHERE id = ANY($1::text[]) ORDER BY id ASC FOR UPDATE;',
+          [resourceIds],
+        );
+        const lockedResources = new Map(resResult.rows.map((r) => [r.id, r.status]));
+
+        for (const resId of resourceIds) {
+          if (!lockedResources.has(resId)) {
+            const err = new Error(`Resource "${resId}" referenced in assignment does not exist`);
+            (err as unknown as { code: string; statusCode: number }).code = 'RESOURCE_NOT_FOUND';
+            (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+            throw err;
+          }
+        }
+
+        // Recheck resource conflicts after acquiring locks:
+        // No resource in the plan may already have stops in another COMMITTED or DISPATCHED assignment
+        // unless this plan was built incorporating those frozen stops.
         const otherStopsResult = await client.query<{
           id: string;
           resource_id: string;

@@ -171,6 +171,21 @@ class InMemoryAssignmentDbMock implements Queryable {
       };
     }
 
+    if (sql.includes('FROM resources') && sql.includes('WHERE id = ANY')) {
+      const ids = vals[0] as string[];
+      const rows = ids
+        .map((id) => this.resources.get(id))
+        .filter((r): r is DbResource => Boolean(r))
+        .map((r) => ({ id: r.id, status: r.status }));
+      return {
+        rows: rows as unknown as R[],
+        command: 'SELECT',
+        rowCount: rows.length,
+        oid: 0,
+        fields: [],
+      };
+    }
+
     // 2. SELECT FROM resources
     if (sql.includes('FROM resources')) {
       const rows: Record<string, unknown>[] = [];
@@ -186,6 +201,7 @@ class InMemoryAssignmentDbMock implements Queryable {
           lng: match ? parseFloat(match[1]!) : 0,
           status: res.status,
           depotId: res.depot_id,
+          source: res.source,
         });
       }
       return {
@@ -209,6 +225,7 @@ class InMemoryAssignmentDbMock implements Queryable {
           currentOccupancy: sh.current_occupancy,
           lat: match ? parseFloat(match[2]!) : 0,
           lng: match ? parseFloat(match[1]!) : 0,
+          source: sh.source,
         });
       }
       return {
@@ -939,6 +956,77 @@ describe('Assignment Endpoints Integration Tests', () => {
         .send({ operatorId: 'op_2' });
       expect(commit2.status).toBe(409);
       expect(commit2.body.error.code).toBe('REQUEST_ALREADY_ASSIGNED');
+    });
+
+    it('two different proposals using the same resource for different requests cannot both be committed', async () => {
+      // 1. Manually stage two proposals sharing resource boat_01 for different requests
+      const plan1Id = 'plan_shared_res_1';
+      const plan2Id = 'plan_shared_res_2';
+
+      dbMock.assignments.set(plan1Id, {
+        id: plan1Id,
+        scenario_id: 'test-scenario',
+        status: 'PROPOSED',
+        metrics: null,
+        unserved: null,
+        committed_at: null,
+        committed_by: null,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+      dbMock.stops.set('stop_p1_1', {
+        id: 'stop_p1_1',
+        assignment_id: plan1Id,
+        resource_id: 'boat_01',
+        stop_number: 1,
+        type: 'PICKUP',
+        target_id: 'req_01',
+        location: 'POINT(77.230 28.695)',
+        passengers_picked_up: 3,
+        passengers_dropped_off: 0,
+        estimated_arrival_minutes: 10,
+        is_frozen: false,
+        created_at: new Date(),
+      });
+
+      dbMock.assignments.set(plan2Id, {
+        id: plan2Id,
+        scenario_id: 'test-scenario',
+        status: 'PROPOSED',
+        metrics: null,
+        unserved: null,
+        committed_at: null,
+        committed_by: null,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+      dbMock.stops.set('stop_p2_1', {
+        id: 'stop_p2_1',
+        assignment_id: plan2Id,
+        resource_id: 'boat_01',
+        stop_number: 1,
+        type: 'PICKUP',
+        target_id: 'req_02',
+        location: 'POINT(77.232 28.696)',
+        passengers_picked_up: 2,
+        passengers_dropped_off: 0,
+        estimated_arrival_minutes: 15,
+        is_frozen: false,
+        created_at: new Date(),
+      });
+
+      // Commit first proposal -> succeeds
+      const commit1 = await request(app)
+        .post(`/assignments/${plan1Id}/commit`)
+        .send({ operatorId: 'op_1' });
+      expect(commit1.status).toBe(200);
+
+      // Commit second proposal using same resource boat_01 -> must fail with 409 RESOURCE_ALREADY_COMMITTED
+      const commit2 = await request(app)
+        .post(`/assignments/${plan2Id}/commit`)
+        .send({ operatorId: 'op_2' });
+      expect(commit2.status).toBe(409);
+      expect(commit2.body.error.code).toBe('RESOURCE_ALREADY_COMMITTED');
     });
   });
 });
