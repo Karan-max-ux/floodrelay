@@ -86,8 +86,12 @@ export class RequestService {
       createdAt,
       source: input.source ?? 'REPORTED',
       status: 'PENDING',
+      verificationStatus: input.verificationStatus ?? 'UNVERIFIED',
       medicalNeeds: input.medicalNeeds ?? false,
       notes: input.notes,
+      idempotencyKey: input.idempotencyKey ?? null,
+      isFlaggedDuplicate,
+      duplicateOfId,
     };
 
     // 4. Store in database

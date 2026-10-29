@@ -23,10 +23,19 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["status", "timestamp"],
+                  "required": [
+                    "status",
+                    "timestamp"
+                  ],
                   "properties": {
-                    "status": { "type": "string", "example": "ok" },
-                    "timestamp": { "type": "string", "format": "date-time" }
+                    "status": {
+                      "type": "string",
+                      "example": "ok"
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
                   }
                 }
               }
@@ -68,32 +77,56 @@
           }
         },
         "responses": {
-          "201": {
-            "description": "Rescue request created successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": ["success", "data"],
-                  "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "data": { "$ref": "#/components/schemas/RescueRequestResponse" }
-                  }
-                }
-              }
-            }
-          },
           "200": {
             "description": "Idempotent replay: request was previously processed with this idempotency key",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["success", "idempotent", "data"],
+                  "required": [
+                    "success",
+                    "idempotent",
+                    "data"
+                  ],
                   "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "idempotent": { "type": "boolean", "example": true },
-                    "data": { "$ref": "#/components/schemas/RescueRequestResponse" }
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "idempotent": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/RescueRequestResponse"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Rescue request created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/RescueRequestResponse"
+                    },
+                    "idempotent": {
+                      "type": "boolean",
+                      "example": false
+                    }
                   }
                 }
               }
@@ -103,7 +136,19 @@
             "description": "Validation error (out-of-bounds coordinates, non-positive people count, invalid urgency)",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency key reused with different request payload (IDEMPOTENCY_KEY_REUSED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           }
@@ -116,48 +161,84 @@
           {
             "name": "status",
             "in": "query",
-            "schema": { "$ref": "#/components/schemas/RequestStatus" }
+            "schema": {
+              "$ref": "#/components/schemas/RequestStatus"
+            }
           },
           {
             "name": "urgency",
             "in": "query",
-            "schema": { "$ref": "#/components/schemas/UrgencyLevel" }
+            "schema": {
+              "$ref": "#/components/schemas/UrgencyLevel"
+            }
           },
           {
             "name": "verificationStatus",
             "in": "query",
-            "schema": { "$ref": "#/components/schemas/VerificationStatus" }
+            "schema": {
+              "$ref": "#/components/schemas/VerificationStatus"
+            }
           },
-          { "name": "isFlaggedDuplicate", "in": "query", "schema": { "type": "boolean" } },
+          {
+            "name": "isFlaggedDuplicate",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
           {
             "name": "minLat",
             "in": "query",
-            "schema": { "type": "number", "minimum": -90, "maximum": 90 }
+            "schema": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            }
           },
           {
             "name": "maxLat",
             "in": "query",
-            "schema": { "type": "number", "minimum": -90, "maximum": 90 }
+            "schema": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            }
           },
           {
             "name": "minLng",
             "in": "query",
-            "schema": { "type": "number", "minimum": -180, "maximum": 180 }
+            "schema": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            }
           },
           {
             "name": "maxLng",
             "in": "query",
-            "schema": { "type": "number", "minimum": -180, "maximum": 180 }
+            "schema": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            }
           },
           {
             "name": "limit",
             "in": "query",
-            "schema": { "type": "integer", "default": 50, "maximum": 200 }
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 200
+            }
           },
           {
             "name": "offset",
             "in": "query",
-            "schema": { "type": "integer", "default": 0, "minimum": 0 }
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            }
           }
         ],
         "responses": {
@@ -167,13 +248,25 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["success", "count", "data"],
+                  "required": [
+                    "success",
+                    "count",
+                    "data"
+                  ],
                   "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "count": { "type": "integer", "example": 5 },
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "count": {
+                      "type": "integer",
+                      "example": 5
+                    },
                     "data": {
                       "type": "array",
-                      "items": { "$ref": "#/components/schemas/RescueRequestResponse" }
+                      "items": {
+                        "$ref": "#/components/schemas/RescueRequestResponse"
+                      }
                     }
                   }
                 }
@@ -184,7 +277,9 @@
             "description": "Invalid query parameters",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           }
@@ -200,7 +295,9 @@
             "name": "id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -210,10 +307,18 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["success", "data"],
+                  "required": [
+                    "success",
+                    "data"
+                  ],
                   "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "data": { "$ref": "#/components/schemas/RescueRequestResponse" }
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/RescueRequestResponse"
+                    }
                   }
                 }
               }
@@ -223,7 +328,9 @@
             "description": "Rescue request not found",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           }
@@ -251,10 +358,18 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["success", "data"],
+                  "required": [
+                    "success",
+                    "data"
+                  ],
                   "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "data": { "$ref": "#/components/schemas/AssignmentDetailResponse" }
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AssignmentDetailResponse"
+                    }
                   }
                 }
               }
@@ -264,7 +379,9 @@
             "description": "Invalid proposal options",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           }
@@ -279,22 +396,38 @@
           {
             "name": "status",
             "in": "query",
-            "schema": { "type": "string", "enum": ["PROPOSED", "COMMITTED"] }
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PROPOSED",
+                "COMMITTED"
+              ]
+            }
           },
           {
             "name": "scenarioId",
             "in": "query",
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "limit",
             "in": "query",
-            "schema": { "type": "integer", "default": 20, "maximum": 100 }
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "maximum": 100
+            }
           },
           {
             "name": "offset",
             "in": "query",
-            "schema": { "type": "integer", "default": 0, "minimum": 0 }
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            }
           }
         ],
         "responses": {
@@ -304,13 +437,25 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["success", "count", "data"],
+                  "required": [
+                    "success",
+                    "count",
+                    "data"
+                  ],
                   "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "count": { "type": "integer", "example": 2 },
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "count": {
+                      "type": "integer",
+                      "example": 2
+                    },
                     "data": {
                       "type": "array",
-                      "items": { "$ref": "#/components/schemas/DbAssignmentSummary" }
+                      "items": {
+                        "$ref": "#/components/schemas/DbAssignmentSummary"
+                      }
                     }
                   }
                 }
@@ -321,7 +466,9 @@
             "description": "Invalid query parameters",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           }
@@ -337,7 +484,9 @@
             "name": "id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -347,10 +496,18 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["success", "data"],
+                  "required": [
+                    "success",
+                    "data"
+                  ],
                   "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "data": { "$ref": "#/components/schemas/AssignmentDetailResponse" }
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AssignmentDetailResponse"
+                    }
                   }
                 }
               }
@@ -360,7 +517,9 @@
             "description": "Assignment plan not found",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           }
@@ -376,7 +535,9 @@
             "name": "id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -396,11 +557,22 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["success", "message", "data"],
+                  "required": [
+                    "success",
+                    "message",
+                    "data"
+                  ],
                   "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "message": { "type": "string" },
-                    "data": { "$ref": "#/components/schemas/AssignmentDetailResponse" }
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AssignmentDetailResponse"
+                    }
                   }
                 }
               }
@@ -410,7 +582,9 @@
             "description": "Missing operatorId or invalid body",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           },
@@ -418,7 +592,9 @@
             "description": "Assignment plan not found",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           },
@@ -426,7 +602,9 @@
             "description": "Plan is already committed (ALREADY_COMMITTED)",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           }
@@ -442,13 +620,17 @@
             "name": "id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "stopId",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -468,10 +650,18 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["success", "data"],
+                  "required": [
+                    "success",
+                    "data"
+                  ],
                   "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "data": { "$ref": "#/components/schemas/RouteStop" }
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/RouteStop"
+                    }
                   }
                 }
               }
@@ -481,7 +671,9 @@
             "description": "Invalid stop modification parameters",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           },
@@ -489,7 +681,9 @@
             "description": "Assignment or stop not found",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           },
@@ -497,7 +691,9 @@
             "description": "Cannot modify stops on a committed assignment plan (CANNOT_MODIFY_COMMITTED)",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           }
@@ -509,29 +705,74 @@
     "schemas": {
       "UrgencyLevel": {
         "type": "string",
-        "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+        "enum": [
+          "LOW",
+          "MEDIUM",
+          "HIGH",
+          "CRITICAL"
+        ]
       },
       "RequestStatus": {
         "type": "string",
-        "enum": ["PENDING", "ASSIGNED", "IN_TRANSIT", "RESCUED", "CANCELLED"]
+        "enum": [
+          "PENDING",
+          "ASSIGNED",
+          "IN_TRANSIT",
+          "RESCUED",
+          "CANCELLED"
+        ]
       },
       "VerificationStatus": {
         "type": "string",
-        "enum": ["UNVERIFIED", "VERIFIED", "REJECTED"]
+        "enum": [
+          "UNVERIFIED",
+          "VERIFIED",
+          "REJECTED"
+        ]
       },
       "StopType": {
         "type": "string",
-        "enum": ["PICKUP", "DROPOFF", "DEPOT"]
+        "enum": [
+          "PICKUP",
+          "DROPOFF",
+          "DEPOT"
+        ]
       },
       "CreateRescueRequest": {
         "type": "object",
-        "required": ["lat", "lng", "peopleCount", "urgency"],
+        "required": [
+          "lat",
+          "lng",
+          "peopleCount",
+          "urgency"
+        ],
         "properties": {
-          "lat": { "type": "number", "minimum": -90, "maximum": 90, "example": 28.695 },
-          "lng": { "type": "number", "minimum": -180, "maximum": 180, "example": 77.23 },
-          "peopleCount": { "type": "integer", "minimum": 1, "maximum": 100, "example": 4 },
-          "urgency": { "$ref": "#/components/schemas/UrgencyLevel" },
-          "medicalNeeds": { "type": "boolean", "default": false, "example": false },
+          "lat": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90,
+            "example": 28.695
+          },
+          "lng": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180,
+            "example": 77.23
+          },
+          "peopleCount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "example": 4
+          },
+          "urgency": {
+            "$ref": "#/components/schemas/UrgencyLevel"
+          },
+          "medicalNeeds": {
+            "type": "boolean",
+            "default": false,
+            "example": false
+          },
           "notes": {
             "type": "string",
             "maxLength": 1000,
@@ -544,7 +785,14 @@
             "nullable": true,
             "example": "client_retry_uuid_123"
           },
-          "source": { "type": "string", "enum": ["SIMULATED", "REPORTED"], "default": "REPORTED" }
+          "source": {
+            "type": "string",
+            "enum": [
+              "SIMULATED",
+              "REPORTED"
+            ],
+            "default": "REPORTED"
+          }
         }
       },
       "RescueRequestResponse": {
@@ -563,41 +811,106 @@
           "createdAt"
         ],
         "properties": {
-          "id": { "type": "string", "example": "req_172983719" },
-          "lat": { "type": "number", "example": 28.695 },
-          "lng": { "type": "number", "example": 77.23 },
-          "peopleCount": { "type": "integer", "example": 4 },
-          "urgency": { "$ref": "#/components/schemas/UrgencyLevel" },
-          "source": { "type": "string", "enum": ["SIMULATED", "REPORTED"] },
-          "status": { "$ref": "#/components/schemas/RequestStatus" },
-          "verificationStatus": { "$ref": "#/components/schemas/VerificationStatus" },
-          "medicalNeeds": { "type": "boolean", "example": false },
-          "notes": { "type": "string", "nullable": true },
-          "idempotencyKey": { "type": "string", "nullable": true },
-          "isFlaggedDuplicate": { "type": "boolean", "example": false },
-          "duplicateOfId": { "type": "string", "nullable": true },
-          "createdAt": { "type": "string", "format": "date-time" }
+          "id": {
+            "type": "string",
+            "example": "req_172983719"
+          },
+          "lat": {
+            "type": "number",
+            "example": 28.695
+          },
+          "lng": {
+            "type": "number",
+            "example": 77.23
+          },
+          "peopleCount": {
+            "type": "integer",
+            "example": 4
+          },
+          "urgency": {
+            "$ref": "#/components/schemas/UrgencyLevel"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "SIMULATED",
+              "REPORTED"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/RequestStatus"
+          },
+          "verificationStatus": {
+            "$ref": "#/components/schemas/VerificationStatus"
+          },
+          "medicalNeeds": {
+            "type": "boolean",
+            "example": false
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "isFlaggedDuplicate": {
+            "type": "boolean",
+            "example": false
+          },
+          "duplicateOfId": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "ProposeAssignmentRequest": {
         "type": "object",
         "properties": {
-          "scenarioId": { "type": "string", "default": "scenario-delhi-yamuna-demo" },
+          "scenarioId": {
+            "type": "string",
+            "default": "scenario-delhi-yamuna-demo"
+          },
           "algorithm": {
             "type": "string",
-            "enum": ["cluster-allocation", "nearest-first", "savings"],
+            "enum": [
+              "cluster-allocation",
+              "nearest-first",
+              "savings"
+            ],
             "default": "cluster-allocation"
           },
-          "includeUnverified": { "type": "boolean", "default": false },
-          "preserveFrozen": { "type": "boolean", "default": true },
-          "maxShiftMinutes": { "type": "integer", "minimum": 1, "maximum": 1440, "default": 480 }
+          "includeUnverified": {
+            "type": "boolean",
+            "default": false
+          },
+          "preserveFrozen": {
+            "type": "boolean",
+            "default": true
+          },
+          "maxShiftMinutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1440,
+            "default": 480
+          }
         }
       },
       "CommitAssignmentRequest": {
         "type": "object",
-        "required": ["operatorId"],
+        "required": [
+          "operatorId"
+        ],
         "properties": {
-          "operatorId": { "type": "string", "example": "operator_karan" },
+          "operatorId": {
+            "type": "string",
+            "example": "operator_karan"
+          },
           "notes": {
             "type": "string",
             "maxLength": 1000,
@@ -608,9 +921,16 @@
       "ModifyStopRequest": {
         "type": "object",
         "properties": {
-          "isFrozen": { "type": "boolean" },
-          "stopNumber": { "type": "integer", "minimum": 1 },
-          "resourceId": { "type": "string" }
+          "isFrozen": {
+            "type": "boolean"
+          },
+          "stopNumber": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "resourceId": {
+            "type": "string"
+          }
         }
       },
       "RouteStop": {
@@ -626,15 +946,41 @@
           "estimatedArrivalMinutes"
         ],
         "properties": {
-          "stopNumber": { "type": "integer", "example": 1 },
-          "type": { "$ref": "#/components/schemas/StopType" },
-          "targetId": { "type": "string", "example": "req_123" },
-          "lat": { "type": "number", "example": 28.695 },
-          "lng": { "type": "number", "example": 77.23 },
-          "passengersPickedUp": { "type": "integer", "example": 3 },
-          "passengersDroppedOff": { "type": "integer", "example": 0 },
-          "estimatedArrivalMinutes": { "type": "number", "example": 14.5 },
-          "isFrozen": { "type": "boolean", "example": false }
+          "stopNumber": {
+            "type": "integer",
+            "example": 1
+          },
+          "type": {
+            "$ref": "#/components/schemas/StopType"
+          },
+          "targetId": {
+            "type": "string",
+            "example": "req_123"
+          },
+          "lat": {
+            "type": "number",
+            "example": 28.695
+          },
+          "lng": {
+            "type": "number",
+            "example": 77.23
+          },
+          "passengersPickedUp": {
+            "type": "integer",
+            "example": 3
+          },
+          "passengersDroppedOff": {
+            "type": "integer",
+            "example": 0
+          },
+          "estimatedArrivalMinutes": {
+            "type": "number",
+            "example": 14.5
+          },
+          "isFrozen": {
+            "type": "boolean",
+            "example": false
+          }
         }
       },
       "ResourceRoute": {
@@ -647,16 +993,29 @@
           "servedRequestIds"
         ],
         "properties": {
-          "resourceId": { "type": "string", "example": "boat_01" },
+          "resourceId": {
+            "type": "string",
+            "example": "boat_01"
+          },
           "stops": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/RouteStop" }
+            "items": {
+              "$ref": "#/components/schemas/RouteStop"
+            }
           },
-          "totalTravelDistanceKm": { "type": "number", "example": 8.4 },
-          "totalDurationMinutes": { "type": "number", "example": 45.2 },
+          "totalTravelDistanceKm": {
+            "type": "number",
+            "example": 8.4
+          },
+          "totalDurationMinutes": {
+            "type": "number",
+            "example": 45.2
+          },
           "servedRequestIds": {
             "type": "array",
-            "items": { "type": "string" }
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -673,11 +1032,22 @@
       },
       "UnservedRequest": {
         "type": "object",
-        "required": ["requestId", "reason"],
+        "required": [
+          "requestId",
+          "reason"
+        ],
         "properties": {
-          "requestId": { "type": "string", "example": "req_88" },
-          "reason": { "$ref": "#/components/schemas/UnservedReason" },
-          "details": { "type": "string", "example": "No available resources" }
+          "requestId": {
+            "type": "string",
+            "example": "req_88"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/UnservedReason"
+          },
+          "details": {
+            "type": "string",
+            "example": "No available resources"
+          }
         }
       },
       "SolverMetrics": {
@@ -692,71 +1062,179 @@
           "unservedRequestsCount"
         ],
         "properties": {
-          "coveragePercent": { "type": "number", "example": 85.5 },
-          "totalTravelTimeMinutes": { "type": "number", "example": 120.4 },
-          "totalTravelDistanceKm": { "type": "number", "example": 32.1 },
-          "highPriorityWaitTimeMinutes": { "type": "number", "example": 22.0 },
-          "solveDurationMs": { "type": "number", "example": 14 },
-          "servedRequestsCount": { "type": "integer", "example": 10 },
-          "unservedRequestsCount": { "type": "integer", "example": 2 }
+          "coveragePercent": {
+            "type": "number",
+            "example": 85.5
+          },
+          "totalTravelTimeMinutes": {
+            "type": "number",
+            "example": 120.4
+          },
+          "totalTravelDistanceKm": {
+            "type": "number",
+            "example": 32.1
+          },
+          "highPriorityWaitTimeMinutes": {
+            "type": "number",
+            "example": 22
+          },
+          "solveDurationMs": {
+            "type": "number",
+            "example": 14
+          },
+          "servedRequestsCount": {
+            "type": "integer",
+            "example": 10
+          },
+          "unservedRequestsCount": {
+            "type": "integer",
+            "example": 2
+          }
         }
       },
       "AssignmentDetailResponse": {
         "type": "object",
-        "required": ["id", "status", "metrics", "unserved", "routes", "createdAt", "updatedAt"],
+        "required": [
+          "id",
+          "status",
+          "metrics",
+          "unserved",
+          "routes",
+          "createdAt",
+          "updatedAt"
+        ],
         "properties": {
-          "id": { "type": "string", "example": "assign_172983800_abc" },
+          "id": {
+            "type": "string",
+            "example": "assign_172983800_abc"
+          },
           "scenarioId": {
             "type": "string",
             "nullable": true,
             "example": "scenario-delhi-yamuna-demo"
           },
-          "status": { "type": "string", "enum": ["PROPOSED", "COMMITTED"] },
-          "committedAt": { "type": "string", "format": "date-time", "nullable": true },
-          "committedBy": { "type": "string", "nullable": true, "example": "operator_karan" },
-          "metrics": { "$ref": "#/components/schemas/SolverMetrics" },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PROPOSED",
+              "COMMITTED"
+            ]
+          },
+          "committedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "committedBy": {
+            "type": "string",
+            "nullable": true,
+            "example": "operator_karan"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/SolverMetrics"
+          },
           "unserved": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/UnservedRequest" }
+            "items": {
+              "$ref": "#/components/schemas/UnservedRequest"
+            }
           },
           "routes": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/ResourceRoute" }
+            "items": {
+              "$ref": "#/components/schemas/ResourceRoute"
+            }
           },
-          "createdAt": { "type": "string", "format": "date-time" },
-          "updatedAt": { "type": "string", "format": "date-time" }
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "DbAssignmentSummary": {
         "type": "object",
-        "required": ["id", "status", "created_at", "updated_at"],
+        "required": [
+          "id",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "scenario_id": { "type": "string", "nullable": true },
-          "status": { "type": "string", "enum": ["PROPOSED", "COMMITTED"] },
-          "metrics": { "$ref": "#/components/schemas/SolverMetrics" },
+          "id": {
+            "type": "string"
+          },
+          "scenario_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PROPOSED",
+              "COMMITTED"
+            ]
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/SolverMetrics"
+          },
           "unserved": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/UnservedRequest" }
+            "items": {
+              "$ref": "#/components/schemas/UnservedRequest"
+            }
           },
-          "committed_at": { "type": "string", "format": "date-time", "nullable": true },
-          "committed_by": { "type": "string", "nullable": true },
-          "created_at": { "type": "string", "format": "date-time" },
-          "updated_at": { "type": "string", "format": "date-time" }
+          "committed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "committed_by": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "ErrorResponse": {
         "type": "object",
-        "required": ["error"],
+        "required": [
+          "error"
+        ],
         "properties": {
           "error": {
             "type": "object",
-            "required": ["code", "message", "timestamp"],
+            "required": [
+              "code",
+              "message",
+              "timestamp"
+            ],
             "properties": {
-              "code": { "type": "string", "example": "VALIDATION_ERROR" },
-              "message": { "type": "string", "example": "Invalid parameters" },
-              "details": { "type": "object" },
-              "timestamp": { "type": "string", "format": "date-time" }
+              "code": {
+                "type": "string",
+                "example": "VALIDATION_ERROR"
+              },
+              "message": {
+                "type": "string",
+                "example": "Invalid parameters"
+              },
+              "details": {
+                "type": "object"
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time"
+              }
             }
           }
         }

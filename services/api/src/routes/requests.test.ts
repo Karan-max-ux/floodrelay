@@ -238,8 +238,8 @@ describe('Request Intake API (POST /requests)', () => {
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
     expect(res.body.idempotent).toBe(false);
-    expect(res.body.isFlaggedDuplicate).toBe(false);
-    expect(res.body.duplicateOfId).toBeNull();
+    expect(res.body.data.isFlaggedDuplicate).toBe(false);
+    expect(res.body.data.duplicateOfId).toBeNull();
 
     const data: RescueRequest = res.body.data;
     expect(data.id).toMatch(/^req-/);
@@ -381,7 +381,7 @@ describe('Request Intake API (POST /requests)', () => {
         notes: 'House #12 flooded',
       });
       expect(primaryRes.status).toBe(201);
-      expect(primaryRes.body.isFlaggedDuplicate).toBe(false);
+      expect(primaryRes.body.data.isFlaggedDuplicate).toBe(false);
       const primaryId = primaryRes.body.data.id;
 
       // 2. Second request submitted 30 meters away with 5 people (+1 difference)
@@ -394,8 +394,8 @@ describe('Request Intake API (POST /requests)', () => {
       });
 
       expect(duplicateRes.status).toBe(201);
-      expect(duplicateRes.body.isFlaggedDuplicate).toBe(true);
-      expect(duplicateRes.body.duplicateOfId).toBe(primaryId);
+      expect(duplicateRes.body.data.isFlaggedDuplicate).toBe(true);
+      expect(duplicateRes.body.data.duplicateOfId).toBe(primaryId);
 
       // CRITICAL: Ensure the duplicate request was NOT discarded or dropped
       const duplicateId = duplicateRes.body.data.id;
@@ -421,8 +421,8 @@ describe('Request Intake API (POST /requests)', () => {
       });
 
       expect(distantRes.status).toBe(201);
-      expect(distantRes.body.isFlaggedDuplicate).toBe(false);
-      expect(distantRes.body.duplicateOfId).toBeNull();
+      expect(distantRes.body.data.isFlaggedDuplicate).toBe(false);
+      expect(distantRes.body.data.duplicateOfId).toBeNull();
     });
 
     it('does not flag duplicate if passenger count differs significantly (> +/- 2 people)', async () => {
@@ -442,8 +442,8 @@ describe('Request Intake API (POST /requests)', () => {
       });
 
       expect(groupRes.status).toBe(201);
-      expect(groupRes.body.isFlaggedDuplicate).toBe(false);
-      expect(groupRes.body.duplicateOfId).toBeNull();
+      expect(groupRes.body.data.isFlaggedDuplicate).toBe(false);
+      expect(groupRes.body.data.duplicateOfId).toBeNull();
     });
   });
 

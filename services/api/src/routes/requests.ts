@@ -52,9 +52,12 @@ export function createRequestsRouter(requestService: RequestService): Router {
         res.status(200).json({
           success: true,
           idempotent: true,
-          isFlaggedDuplicate: false,
-          duplicateOfId: null,
-          data: result.request,
+          data: {
+            ...result.request,
+            verificationStatus: result.request.verificationStatus ?? 'UNVERIFIED',
+            isFlaggedDuplicate: false,
+            duplicateOfId: null,
+          },
         });
         return;
       }
@@ -62,9 +65,12 @@ export function createRequestsRouter(requestService: RequestService): Router {
       res.status(201).json({
         success: true,
         idempotent: false,
-        isFlaggedDuplicate: result.isFlaggedDuplicate,
-        duplicateOfId: result.duplicateOfId,
-        data: result.request,
+        data: {
+          ...result.request,
+          verificationStatus: result.request.verificationStatus ?? 'UNVERIFIED',
+          isFlaggedDuplicate: result.isFlaggedDuplicate,
+          duplicateOfId: result.duplicateOfId,
+        },
       });
     } catch (err) {
       next(err);

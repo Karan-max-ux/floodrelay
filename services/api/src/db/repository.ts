@@ -139,8 +139,12 @@ export class PostgisRepository {
         urgency,
         source,
         status,
+        verification_status as "verificationStatus",
         medical_needs as "medicalNeeds",
         notes,
+        idempotency_key as "idempotencyKey",
+        is_flagged_duplicate as "isFlaggedDuplicate",
+        duplicate_of_id as "duplicateOfId",
         created_at as "createdAt"
       FROM requests
       WHERE id = $1;
@@ -158,8 +162,12 @@ export class PostgisRepository {
       urgency: row.urgency,
       source: row.source,
       status: row.status,
+      verificationStatus: row.verificationStatus ?? 'UNVERIFIED',
       medicalNeeds: Boolean(row.medicalNeeds),
       notes: row.notes ?? undefined,
+      idempotencyKey: row.idempotencyKey ?? null,
+      isFlaggedDuplicate: Boolean(row.isFlaggedDuplicate),
+      duplicateOfId: row.duplicateOfId ?? null,
       createdAt:
         row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
     };
@@ -260,8 +268,12 @@ export class PostgisRepository {
         urgency,
         source,
         status,
+        verification_status as "verificationStatus",
         medical_needs as "medicalNeeds",
         notes,
+        idempotency_key as "idempotencyKey",
+        is_flagged_duplicate as "isFlaggedDuplicate",
+        duplicate_of_id as "duplicateOfId",
         created_at as "createdAt"
       FROM requests
       ${whereClause}
@@ -278,8 +290,12 @@ export class PostgisRepository {
       urgency: row.urgency,
       source: row.source,
       status: row.status,
+      verificationStatus: row.verificationStatus ?? 'UNVERIFIED',
       medicalNeeds: Boolean(row.medicalNeeds),
       notes: row.notes ?? undefined,
+      idempotencyKey: row.idempotencyKey ?? null,
+      isFlaggedDuplicate: Boolean(row.isFlaggedDuplicate),
+      duplicateOfId: row.duplicateOfId ?? null,
       createdAt:
         row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
     }));

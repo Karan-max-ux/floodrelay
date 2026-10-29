@@ -157,8 +157,12 @@ export function dbToRescueRequest(row: DbRequest): RescueRequest {
       row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
     source: row.source,
     status: row.status,
+    verificationStatus: row.verification_status,
     medicalNeeds: row.medical_needs,
     notes: row.notes ?? undefined,
+    idempotencyKey: row.idempotency_key ?? null,
+    isFlaggedDuplicate: row.is_flagged_duplicate ?? false,
+    duplicateOfId: row.duplicate_of_id ?? null,
   };
 }
 

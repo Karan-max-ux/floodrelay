@@ -15,6 +15,7 @@ export interface BoundingBox {
 export type UrgencyLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type RequestSource = 'SIMULATED' | 'REPORTED';
 export type RequestStatus = 'PENDING' | 'ASSIGNED' | 'IN_TRANSIT' | 'RESCUED' | 'CANCELLED';
+export type VerificationStatus = 'UNVERIFIED' | 'VERIFIED' | 'REJECTED';
 
 export interface RescueRequest {
   id: string;
@@ -25,8 +26,12 @@ export interface RescueRequest {
   createdAt: string;
   source: RequestSource;
   status?: RequestStatus;
+  verificationStatus?: VerificationStatus;
   medicalNeeds?: boolean;
   notes?: string;
+  isFlaggedDuplicate?: boolean;
+  duplicateOfId?: string | null;
+  idempotencyKey?: string | null;
 }
 
 // Rescue resources (vehicles, boats, etc.)
