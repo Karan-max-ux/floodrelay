@@ -83,6 +83,12 @@ The repository contains seeded synthetic scenarios for testing and benchmark eva
   - Large: 500 requests / 30 resources / 5 shelters
 - Evaluation harness: Run `npx tsx scenarios/evaluate.ts` to evaluate allocation solvers across reproducible synthetic scenarios (solvers evaluated: Nearest-First (Greedy), Urgency-batched savings + 2-opt, and Cluster-Allocation).
 
+**Evaluation trade-offs & data notice:**
+
+- Solvers balance competing objectives: minimizing total route travel duration vs. minimizing wait times for critical, high-urgency rescues. A lower total travel time does not automatically indicate superior dispatch quality, as greedily minimizing local distance can delay critical rescues.
+- Relative solver performance varies with scenario scale and seed set. For current benchmark numbers across scenario scales, run `npx tsx scenarios/evaluate.ts`.
+- All scenario data (requests, resource locations, safe shelters) is purely synthetic and simulated. Travel times are estimates calculated using assumed placeholder speeds and detour factors rather than live traffic or empirical disaster telemetry. See [docs/limitations.md](docs/limitations.md) and [docs/evaluation.md](docs/evaluation.md).
+
 ## How we work
 
 All changes go through pull requests against the protected `main` branch with teammate approval.

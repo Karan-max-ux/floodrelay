@@ -196,8 +196,8 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Phase 2 Task 5: OpenAPI 3.1 specification and automated zero-drift test suite.
-- **Next up:** Phase 3: Frontend (Citizen request form, Operator map and assignment view).
+- **Last completed:** Phase 2 Task 5: OpenAPI 3.1 specification and automated zero-drift test suite (incorporating Phase 1 review fixes from main).
+- **Next up:** Address review findings on PR #12, then proceed to Phase 3: Frontend.
 - **Phase 0:** 100% complete.
 - **Phase 1:** Complete (algorithmic baselines: Nearest-First and Urgency-batched savings + 2-opt; Cluster-Allocation heuristic).
 - **Phase 2:** 100% complete (5 of 5 tasks complete ✅).
