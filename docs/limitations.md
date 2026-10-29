@@ -33,6 +33,18 @@ This file documents honest limitations of the system. Keep it updated as the pro
   - **No citizen contact details collected:** The intake schema collects coordinates, group size, urgency, and medical needs, but no contact details are collected so operators cannot call a requester.
   - **PII in free text notes:** `notes` is free text that may contain personal data and has no retention rule or automated redaction policy.
 
+- **Resource-level locking and concurrency constraints:**
+  The platform enforces row-level locking on assignments, requests, and resources in deterministic ascending order (`SELECT ... FOR UPDATE`) within PostgreSQL transactions. While this prevents concurrent commits of conflicting proposals on the same resource, it introduces lock contention under high concurrent commit volume on the same resource fleet. Furthermore, this concurrency model relies on single-database ACID guarantees; in a multi-region or distributed database topology without centralized transaction coordination, distributed locking would be required.
+
+- **Frozen-stop continuation and dynamic replanning constraints:**
+  Committed stops are frozen (`is_frozen = true`) and preserved at the head of vehicle routes during replanning. Only `cluster-allocation` supports incremental replanning around frozen stops; baseline algorithms (`nearest-first` and `savings`) reject requests containing committed frozen stops with HTTP 400. Once committed, frozen stops cannot be reshuffled by the solver. If field conditions require aborting a frozen stop (e.g. road becomes impassable), an operator must explicitly modify the stop or cancel the assignment.
+
+- **Transaction rollback verification:**
+  Atomicity across assignment commitment, stop freezing, request assignment, and audit logging is enforced through PostgreSQL transactions. Live PostGIS integration tests verify that late statement failures (e.g. during audit-event insertion) cause complete rollback of all intermediate writes, leaving assignments, requests, and stops in their original uncommitted state.
+
+- **Simulation provenance and mixed scenarios:**
+  The platform distinguishes between real operational entities (`REPORTED` requests, `REAL` resources/shelters) and synthetic test entities (`SIMULATED`). Scenarios combining both are explicitly classified as `MIXED` with entity counts detailed in synthetic metadata notes. Geographic bounding boxes and region metadata are dynamically derived from actual coordinates rather than hardcoded, with valid bounds clamped to coordinate limits [-90, 90] and [-180, 180].
+
 - **Assignment lifecycle state transitions:**
   `DISPATCHED`, `COMPLETED` and `CANCELLED` assignment states exist in the schema and OpenAPI enumeration but have no transitions yet. Currently, only transitions between `PROPOSED` and `COMMITTED` are implemented.
 

@@ -1,8 +1,8 @@
 # Flood Rescue Resource Allocation Platform — Progress
 
-**Last updated:** 2026-10-29
+**Last updated:** 2026-10-30
 
-**Current focus:** Phase 2 Review Findings Addressed & Verified ✅ — Database and API Core (Ready for Phase 3: Frontend)
+**Current focus:** Phase 2 Review Fixes Implemented & Under Review 🟡 — Concurrency Locking, Rollback Verification, Provenance Classification (Pending PR #14 Merge)
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -142,7 +142,7 @@ Incoming rescue requests
 | OR-Tools baseline                                                                 | —     | ⬜     | — (not implemented; algorithmic baselines are Nearest-First and Urgency-batched savings + 2-opt)                                                                                                                   |
 | Results-table script                                                              | —     | ✅     | `packages/solver/src/evaluation/benchmark.test.ts` (`evaluates all solvers across random seeds and generates a results table`), verified via `scenarios/evaluate.ts`                                               |
 
-### Phase 2 — API and database
+### Phase 2 — API and database (Under Review 🟡)
 
 | Task                                                    | Owner | Status | Proving test(s)                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ------------------------------------------------------- | ----- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -200,7 +200,7 @@ Incoming rescue requests
 - **Next up:** Phase 3: Frontend (Next.js App Router, React Leaflet operator map and citizen intake UI).
 - **Phase 0:** 100% complete.
 - **Phase 1:** Complete (algorithmic baselines: Nearest-First and Urgency-batched savings + 2-opt; Cluster-Allocation heuristic).
-- **Phase 2:** 100% complete (5 of 5 tasks complete ✅).
+- **Phase 2:** Under Review 🟡 (Pending PR #14 merge — review fixes implemented: deterministic resource row-level locking, late-stage transaction rollback verification with PostgreSQL triggers, explicit provenance classification for real/simulated/mixed scenarios, coordinate-derived regional metadata, and CI integration test enforcement with REQUIRE_DB=1).
 - Everything in Phase 3 and beyond: not started.
 
 ---
@@ -235,6 +235,7 @@ Incoming rescue requests
 | Request intake validation and duplicate detection          | Zod coordinate bounds, DB idempotency keys, spatial-temporal duplicate flagging (<=100m, <=2h, +-2 people) without dropping records, unverified submissions retained (ADR-14)                                                              |
 | Operator-committed assignments and stop-freezing lifecycle | Solver only proposes; operator action commits, freezes stops, marks requests ASSIGNED, subsequent replans preserve frozen stops (ADR-15)                                                                                                   |
 | OpenAPI 3.1 specification and anti-drift testing           | OpenAPI 3.1 spec served at /openapi.json and validated via automated route-introspection tests against Express handlers (ADR-16)                                                                                                           |
+| Deterministic resource locking and rollback verification   | Row-level SELECT FOR UPDATE in ascending order on resources, late statement rollback verification, explicit provenance (ADR-18)                                                                                                            |
 
 ---
 

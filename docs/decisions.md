@@ -172,19 +172,19 @@ When recording a new decision, copy this template and fill it in:
 - **Alternatives considered:**
   - Autonomous dispatch: Solver immediately commits and dispatches resources without operator review. (Rejected: unsafe in volatile flood disasters where ground truth overrides model assumptions).
   - Mutable committed plans: Allow unconstrained editing of committed stops without audit trail or freeze enforcement. (Rejected: creates fleet confusion and dispatch churn).
-- **Consequence:** Clear lifecycle separation between solver proposals and human operator commits, with full audit logging (`ASSIGNMENT_PROPOSED`, `ASSIGNMENT_COMMITTED`, `ASSIGNMENT_STOP_MODIFIED`) and stop-freezing guarantees during dynamic replanning.
+- **Consequence:** Clear lifecycle separation between solver proposals and human operator commits, with full audit logging (`ASSIGNMENT_PROPOSED`, `ASSIGNMENT_COMMITTED`, `ASSIGNMENT_STOP_MODIFIED`) and stop-freezing invariants during dynamic replanning.
 
 ---
 
 ### ADR-16: OpenAPI 3.1 specification and automated anti-drift validation
 
 - **Date:** 2026-10-28
-- **Decision:** Document all platform endpoints using OpenAPI 3.1 (`docs/openapi.json` and served over HTTP at `GET /openapi.json`), backed by an automated test suite (`services/api/src/openapi.test.ts`) that introspects Express routes and enforces bidirectional zero-drift between code and specification.
-- **Context:** API specifications frequently diverge from actual code as endpoints evolve, breaking downstream frontend interfaces and client integrations. An automated anti-drift test guarantees that every registered Express endpoint has matching documentation, and conversely, no stale or non-existent endpoints remain in the specification.
+- **Decision:** Document all platform endpoints using OpenAPI 3.1 (`docs/openapi.json` and served over HTTP at `GET /openapi.json`), backed by an automated test suite (`services/api/src/openapi.test.ts`) that introspects Express routes and validates bidirectional alignment between registered endpoints and specification.
+- **Context:** API specifications frequently diverge from actual code as endpoints evolve, breaking downstream frontend interfaces and client integrations. An automated test validates that registered Express endpoints have matching documentation, helping detect undocumented routes or stale endpoints.
 - **Alternatives considered:**
   - Manual unverified documentation: Rejected because manual docs drift within days of development.
   - Runtime decorator generators (e.g. tsoa, routing-controllers): Adds invasive decorators, extra compilation steps, and unnecessary runtime reflection overhead.
-- **Consequence:** OpenAPI document is guaranteed 100% accurate, automatically validated in CI/tests, and served live from the backend API for client discovery and UI generation.
+- **Consequence:** OpenAPI document is kept aligned with code, automatically validated in CI/tests, and served live from the backend API for client discovery and UI generation.
 
 ---
 
@@ -197,3 +197,15 @@ When recording a new decision, copy this template and fill it in:
   - Silently disregard frozen stops: Rejected because committed rescue units would have their active tasks dropped or reassigned, violating dispatch integrity.
   - Artificially prepend frozen stops to baseline routes without re-optimizing: Rejected because greedy and savings heuristics cannot guarantee capacity or shift limit compliance when prepended with arbitrary prior routes.
 - **Consequence:** Clear algorithm capability contracts: `cluster-allocation` supports incremental operations with frozen stops; `nearest-first` and `savings` serve as pure initial baselines.
+
+---
+
+### ADR-18: Deterministic resource-level locking and transactional rollback verification
+
+- **Date:** 2026-10-30
+- **Decision:** In `commitAssignment()`, acquire exclusive PostgreSQL row locks (`SELECT ... FOR UPDATE`) on the assignment row, all referenced request rows (in ascending ID order), and all referenced resource rows (in ascending ID order) within a single database transaction. Recheck for resource assignment conflicts after locks are acquired before applying status transitions. Wrap the entire workflow—assignment status update, stop freezing, request assignment, and audit event insertion—in a PostgreSQL transaction that performs full rollback on any intermediate failure.
+- **Context:** Concurrent operator proposals may allocate the same rescue resource or request. Without deterministic row-level locking on resources, concurrent commits of different proposals using the same resource could commit simultaneously, causing double-allocation. Ordering lock acquisitions lexicographically minimizes transaction deadlocks.
+- **Alternatives considered:**
+  - Optimistic concurrency control (version column): Adds retry loops and requires client-side conflict resolution.
+  - Table-level locking: Serializes all assignment operations across the system, creating extreme contention.
+- **Consequence:** Two proposals using the same resource for different requests cannot commit concurrently; one commits while the other fails deterministically with HTTP 409 `RESOURCE_ALREADY_COMMITTED`. Transaction rollback is verified against live PostGIS ensuring partial database writes revert cleanly on late statement failure.
