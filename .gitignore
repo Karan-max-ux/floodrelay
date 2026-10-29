@@ -60,4 +60,5 @@ Desktop.ini
 # === Local change tracking logs (keep local only) ===
 changes*.md
 change*.md
+pr_description.md
 commit*.md
