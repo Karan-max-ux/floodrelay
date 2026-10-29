@@ -29,6 +29,7 @@ export interface DbRequest {
   medical_needs: boolean;
   notes: string | null;
   idempotency_key: string | null;
+  idempotency_request_hash: string | null;
   duplicate_of_id: string | null;
   is_flagged_duplicate: boolean;
   created_at: Date;

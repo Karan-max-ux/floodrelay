@@ -42,6 +42,7 @@ export interface NearbyRequestFilter {
 export interface RequestCreateOptions {
   verificationStatus?: VerificationStatus;
   idempotencyKey?: string | null;
+  idempotencyRequestHash?: string | null;
   duplicateOfId?: string | null;
   isFlaggedDuplicate?: boolean;
 }
@@ -56,6 +57,7 @@ export class PostgisRepository {
   async insertRequest(req: RescueRequest, options?: RequestCreateOptions): Promise<DbRequest> {
     const verificationStatus = options?.verificationStatus ?? 'UNVERIFIED';
     const idempotencyKey = options?.idempotencyKey ?? null;
+    const idempotencyRequestHash = options?.idempotencyRequestHash ?? null;
     const duplicateOfId = options?.duplicateOfId ?? null;
     const isFlaggedDuplicate = options?.isFlaggedDuplicate ?? false;
     const medicalNeeds = req.medicalNeeds ?? false;
@@ -67,11 +69,11 @@ export class PostgisRepository {
       INSERT INTO requests (
         id, location, people_count, urgency, source, status,
         verification_status, medical_needs, notes, idempotency_key,
-        duplicate_of_id, is_flagged_duplicate, created_at, updated_at
+        idempotency_request_hash, duplicate_of_id, is_flagged_duplicate, created_at, updated_at
       ) VALUES (
         $1,
         ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography,
-        $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW()
+        $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW()
       )
       ON CONFLICT (id) DO UPDATE SET
         location = EXCLUDED.location,
@@ -94,6 +96,7 @@ export class PostgisRepository {
         medical_needs,
         notes,
         idempotency_key,
+        idempotency_request_hash,
         duplicate_of_id,
         is_flagged_duplicate,
         created_at,
@@ -113,6 +116,7 @@ export class PostgisRepository {
       medicalNeeds,
       notes,
       idempotencyKey,
+      idempotencyRequestHash,
       duplicateOfId,
       isFlaggedDuplicate,
       createdAt,
@@ -161,7 +165,9 @@ export class PostgisRepository {
     };
   }
 
-  async getRequestByIdempotencyKey(idempotencyKey: string): Promise<RescueRequest | null> {
+  async getRequestByIdempotencyKey(
+    idempotencyKey: string,
+  ): Promise<(RescueRequest & { idempotencyRequestHash?: string | null }) | null> {
     const sql = `
       SELECT
         id,
@@ -173,6 +179,7 @@ export class PostgisRepository {
         status,
         medical_needs as "medicalNeeds",
         notes,
+        idempotency_request_hash as "idempotencyRequestHash",
         created_at as "createdAt"
       FROM requests
       WHERE idempotency_key = $1;
@@ -192,6 +199,7 @@ export class PostgisRepository {
       status: row.status,
       medicalNeeds: Boolean(row.medicalNeeds),
       notes: row.notes ?? undefined,
+      idempotencyRequestHash: (row.idempotencyRequestHash as string) ?? null,
       createdAt:
         row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
     };

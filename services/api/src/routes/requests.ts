@@ -29,7 +29,24 @@ export function createRequestsRouter(requestService: RequestService): Router {
         return;
       }
 
-      const result = await requestService.submitRequest(parsed.data);
+      let result;
+      try {
+        result = await requestService.submitRequest(parsed.data);
+      } catch (domainErr: unknown) {
+        const code = (domainErr as { code?: string }).code;
+        const statusCode = (domainErr as { statusCode?: number }).statusCode;
+        if (code && statusCode) {
+          res.status(statusCode).json({
+            error: {
+              code,
+              message: (domainErr as Error).message,
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+        throw domainErr;
+      }
 
       if (result.idempotent) {
         res.status(200).json({

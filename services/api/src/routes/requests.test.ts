@@ -44,10 +44,21 @@ class InMemoryDbMock implements Queryable {
       const verification_status = vals[7] as string;
       const medical_needs = vals[8] as boolean;
       const notes = vals[9] as string | null;
-      const idempotency_key = vals[10] as string | null;
-      const duplicate_of_id = vals[11] as string | null;
-      const is_flagged_duplicate = vals[12] as boolean;
-      const created_at = (vals[13] as Date) || new Date();
+      const idempotency_key = (vals[10] as string) || null;
+      const idempotency_request_hash = (vals[11] as string) || null;
+      const duplicate_of_id = (vals[12] as string) || null;
+      const is_flagged_duplicate = Boolean(vals[13]);
+      const created_at = (vals[14] as Date) || new Date();
+
+      if (idempotency_key) {
+        for (const existing of this.requests.values()) {
+          if (existing.idempotency_key === idempotency_key) {
+            const err = new Error('duplicate key value violates unique constraint "requests_idempotency_key_key"');
+            (err as unknown as { code: string }).code = '23505';
+            throw err;
+          }
+        }
+      }
 
       const dbRow: DbRequest = {
         id,
@@ -60,6 +71,7 @@ class InMemoryDbMock implements Queryable {
         medical_needs,
         notes,
         idempotency_key,
+        idempotency_request_hash,
         duplicate_of_id,
         is_flagged_duplicate,
         created_at,
@@ -87,6 +99,7 @@ class InMemoryDbMock implements Queryable {
                 status: row.status,
                 medicalNeeds: row.medical_needs,
                 notes: row.notes,
+                idempotencyRequestHash: row.idempotency_request_hash,
                 createdAt: row.created_at,
               } as unknown as R,
             ],

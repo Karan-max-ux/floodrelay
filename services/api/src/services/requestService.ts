@@ -14,14 +14,38 @@ export interface CreateRequestResult {
   request: RescueRequest;
 }
 
+export function computeCanonicalRequestHash(input: CreateRequestInput): string {
+  const canonical = {
+    lat: Number(input.lat.toFixed(6)),
+    lng: Number(input.lng.toFixed(6)),
+    medicalNeeds: Boolean(input.medicalNeeds),
+    notes: input.notes?.trim() || null,
+    peopleCount: input.peopleCount,
+    source: input.source || 'REPORTED',
+    urgency: input.urgency,
+    verificationStatus: input.verificationStatus || 'UNVERIFIED',
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+}
+
 export class RequestService {
   constructor(private readonly repo: PostgisRepository) {}
 
   async submitRequest(input: CreateRequestInput): Promise<CreateRequestResult> {
+    const requestHash = input.idempotencyKey ? computeCanonicalRequestHash(input) : null;
+
     // 1. Idempotency check
-    if (input.idempotencyKey) {
+    if (input.idempotencyKey && requestHash) {
       const existing = await this.repo.getRequestByIdempotencyKey(input.idempotencyKey);
       if (existing) {
+        if (existing.idempotencyRequestHash && existing.idempotencyRequestHash !== requestHash) {
+          const err = new Error(
+            `Idempotency key "${input.idempotencyKey}" has already been used for a different request payload`,
+          );
+          (err as unknown as { code: string; statusCode: number }).code = 'IDEMPOTENCY_KEY_REUSED';
+          (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+          throw err;
+        }
         return {
           idempotent: true,
           isFlaggedDuplicate: false,
@@ -67,12 +91,44 @@ export class RequestService {
     };
 
     // 4. Store in database
-    await this.repo.insertRequest(request, {
-      verificationStatus: input.verificationStatus ?? 'UNVERIFIED',
-      idempotencyKey: input.idempotencyKey ?? null,
-      duplicateOfId,
-      isFlaggedDuplicate,
-    });
+    try {
+      await this.repo.insertRequest(request, {
+        verificationStatus: input.verificationStatus ?? 'UNVERIFIED',
+        idempotencyKey: input.idempotencyKey ?? null,
+        idempotencyRequestHash: requestHash,
+        duplicateOfId,
+        isFlaggedDuplicate,
+      });
+    } catch (insertErr: unknown) {
+      const errMessage = (insertErr as Error)?.message || '';
+      const errCode = (insertErr as { code?: string })?.code;
+      const isUniqueViolation =
+        errCode === '23505' ||
+        errMessage.includes('unique') ||
+        errMessage.includes('idempotency_key');
+
+      if (input.idempotencyKey && isUniqueViolation) {
+        const raced = await this.repo.getRequestByIdempotencyKey(input.idempotencyKey);
+        if (raced) {
+          if (raced.idempotencyRequestHash && raced.idempotencyRequestHash !== requestHash) {
+            const err = new Error(
+              `Idempotency key "${input.idempotencyKey}" has already been used for a different request payload`,
+            );
+            (err as unknown as { code: string; statusCode: number }).code =
+              'IDEMPOTENCY_KEY_REUSED';
+            (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+            throw err;
+          }
+          return {
+            idempotent: true,
+            isFlaggedDuplicate: false,
+            duplicateOfId: null,
+            request: raced,
+          };
+        }
+      }
+      throw insertErr;
+    }
 
     // 5. Audit event log
     await this.repo.insertAuditEvent({
