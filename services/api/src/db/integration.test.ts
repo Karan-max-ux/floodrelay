@@ -27,13 +27,12 @@ describe.runIf(hasDatabase)('PostGIS Live Database Integration Tests', () => {
   beforeEach(async () => {
     const client = await pool.connect();
     try {
-      await client.query('BEGIN');
-      await client.query(
-        'TRUNCATE TABLE route_stops, assignments, requests, resources, shelters, audit_events CASCADE;',
-      );
-      await client.query('COMMIT');
-    } catch {
-      await client.query('ROLLBACK');
+      await client.query('DELETE FROM assignment_stops;');
+      await client.query('DELETE FROM assignments;');
+      await client.query('DELETE FROM audit_events;');
+      await client.query('DELETE FROM requests;');
+      await client.query('DELETE FROM resources;');
+      await client.query('DELETE FROM shelters;');
     } finally {
       client.release();
     }
