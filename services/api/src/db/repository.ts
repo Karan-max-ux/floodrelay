@@ -401,7 +401,7 @@ export class PostgisRepository {
 
   async insertResource(
     res: RescueResource,
-    source: 'SIMULATED' | 'REAL' = 'REAL',
+    source: 'SIMULATED' | 'REAL',
     shiftMaxDurationMin = 480,
   ): Promise<DbResource> {
     const sql = `
@@ -526,7 +526,7 @@ export class PostgisRepository {
   // Shelters Data Access
   // ==========================================
 
-  async insertShelter(sh: Shelter, source: 'SIMULATED' | 'REAL' = 'REAL'): Promise<DbShelter> {
+  async insertShelter(sh: Shelter, source: 'SIMULATED' | 'REAL'): Promise<DbShelter> {
     const sql = `
       INSERT INTO shelters (
         id, name, location, capacity, current_occupancy, is_active, source, created_at, updated_at
