@@ -1,7 +1,9 @@
 import {
+  ALL_SOLVERS,
   evaluateSolversOnCase,
   formatMarkdownResultsTable,
   STANDARD_BENCHMARK_CASES,
+  STANDARD_SOLVERS,
 } from '@floodrelay/solver';
 
 console.log('================================================================================');
@@ -14,6 +16,11 @@ console.log('===================================================================
 // Parse CLI flags
 const args = process.argv.slice(2);
 const largeOnly = args.includes('--large-only');
+const smallOnly = args.includes('--small-only');
+const includeOrTools =
+  args.includes('--include-ortools') ||
+  args.includes('--with-ortools') ||
+  args.includes('--all-solvers');
 
 const seedIdx = args.indexOf('--seed');
 const seedArg = seedIdx !== -1 && args[seedIdx + 1] ? Number(args[seedIdx + 1]) : undefined;
@@ -23,9 +30,16 @@ const seedCountIdx =
 const seedCount =
   seedCountIdx !== -1 && args[seedCountIdx + 1] ? Number(args[seedCountIdx + 1]) : 20;
 
-const casesToRun = largeOnly
-  ? STANDARD_BENCHMARK_CASES.filter((c) => c.name.toLowerCase().includes('large'))
-  : STANDARD_BENCHMARK_CASES;
+let casesToRun = STANDARD_BENCHMARK_CASES;
+if (largeOnly) {
+  casesToRun = STANDARD_BENCHMARK_CASES.filter((c) => c.name.toLowerCase().includes('large'));
+} else if (smallOnly) {
+  casesToRun = STANDARD_BENCHMARK_CASES.filter((c) => c.name.toLowerCase().includes('small'));
+}
+
+const solvers = includeOrTools ? ALL_SOLVERS : STANDARD_SOLVERS;
+const solverNames = Object.keys(solvers).join(', ');
+console.log(`Active Solvers: ${solverNames}`);
 
 const allSummaries = [];
 
@@ -33,7 +47,7 @@ for (const benchCase of casesToRun) {
   const seedInfo =
     seedArg !== undefined ? `baseSeed = ${seedArg}, seeds = ${seedCount}` : `seeds = ${seedCount}`;
   console.log(`Evaluating: ${benchCase.name} (${seedInfo})...`);
-  const summaries = evaluateSolversOnCase(benchCase, seedCount, undefined, seedArg);
+  const summaries = evaluateSolversOnCase(benchCase, seedCount, solvers, seedArg);
   allSummaries.push(...summaries);
 }
 

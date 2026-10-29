@@ -1,6 +1,7 @@
 import type { Scenario, SolverPlan } from '@floodrelay/shared';
 import { solveNearestFirst } from '../baselines/nearestFirst.js';
 import { solveClarkeWrightBaseline } from '../baselines/clarkeWrightBaseline.js';
+import { solveOrToolsBaseline } from '../baselines/ortoolsBaseline.js';
 import { generateScenario } from '../generator.js';
 import { solveClusterAllocation } from '../heuristics/clusterAllocation.js';
 
@@ -40,6 +41,20 @@ export const STANDARD_BENCHMARK_CASES: readonly BenchmarkCase[] = [
 
 export type SolverFn = (scenario: Scenario) => SolverPlan;
 
+export const STANDARD_SOLVERS: Record<string, SolverFn> = {
+  'Nearest-First (Greedy)': solveNearestFirst,
+  'Cluster-Allocation': solveClusterAllocation,
+  'Urgency-batched savings + 2-opt': solveClarkeWrightBaseline,
+};
+
+export const ALL_SOLVERS: Record<string, SolverFn> = {
+  ...STANDARD_SOLVERS,
+  'Google OR-Tools': (scenario: Scenario) =>
+    solveOrToolsBaseline(scenario, {
+      timeLimitSeconds: scenario.requests.length > 200 ? 5 : 2,
+    }),
+};
+
 export interface SolverBenchmarkSummary {
   solverName: string;
   caseName: string;
@@ -70,11 +85,7 @@ function meanAndStdev(values: number[]): { mean: number; stdev: number } {
 export function evaluateSolversOnCase(
   benchCase: BenchmarkCase,
   seedCount = 20,
-  solvers: Record<string, SolverFn> = {
-    'Nearest-First (Greedy)': solveNearestFirst,
-    'Cluster-Allocation': solveClusterAllocation,
-    'Urgency-batched savings + 2-opt': solveClarkeWrightBaseline,
-  },
+  solvers: Record<string, SolverFn> = STANDARD_SOLVERS,
   baseSeed?: number,
 ): SolverBenchmarkSummary[] {
   const summaries: SolverBenchmarkSummary[] = [];
@@ -128,14 +139,14 @@ export function evaluateSolversOnCase(
 export function formatMarkdownResultsTable(summaries: SolverBenchmarkSummary[]): string {
   const header = [
     '| Scenario Size | Solver | Seeds | Coverage (%) | Travel Time (min) | High-Priority Wait (min) | Solve Time (ms) |',
-    '|---|---|---|---|---|---|---|',
+    '| :--- | :--- | :--- | :--- | :--- | :--- | :--- |',
   ];
 
   const rows = summaries.map((s) => {
     const cov = `${s.coverageMean} ± ${s.coverageSpread}`;
     const tt = `${s.travelTimeMean} ± ${s.travelTimeSpread}`;
     const hp = `${s.highPriorityWaitMean} ± ${s.highPriorityWaitSpread}`;
-    const st = `${s.solveTimeMsMean} ms (max ${s.solveTimeMsMax})`;
+    const st = `${s.solveTimeMsMean} (max: ${s.solveTimeMsMax})`;
     return `| ${s.caseName} | ${s.solverName} | ${s.seedsRun} | ${cov} | ${tt} | ${hp} | ${st} |`;
   });
 

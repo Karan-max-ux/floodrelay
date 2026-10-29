@@ -34,4 +34,5 @@ export * from './baselines/nearestFirst.js';
 export * from './clustering/dbscan.js';
 export * from './heuristics/clusterAllocation.js';
 export * from './baselines/clarkeWrightBaseline.js';
+export * from './baselines/ortoolsBaseline.js';
 export * from './evaluation/benchmark.js';
