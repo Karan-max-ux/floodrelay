@@ -201,6 +201,18 @@ describe('PostgisRepository SQL Construction & Spatial Operations', () => {
     const executedQueries: string[] = [];
     const mockClient = createMockClient((sql) => {
       executedQueries.push(sql);
+      if (sql.includes('SELECT') && sql.includes('FROM assignments') && sql.includes('FOR UPDATE')) {
+        return [{ id: 'assign_run_42', status: 'PROPOSED', scenario_id: 'scen_1' }];
+      }
+      if (sql.includes('SELECT') && sql.includes('FROM assignment_stops') && sql.includes('assignment_id = $1')) {
+        return [{ id: 'stop_1', resource_id: 'res_1', type: 'PICKUP', target_id: 'req_1', stop_number: 1, is_frozen: false }];
+      }
+      if (sql.includes('SELECT') && sql.includes('FROM requests') && sql.includes('FOR UPDATE')) {
+        return [{ id: 'req_1', status: 'PENDING' }];
+      }
+      if (sql.includes('FROM assignment_stops s') && sql.includes('JOIN assignments a')) {
+        return [];
+      }
       return [{ id: 'assign_run_42' }];
     });
 
@@ -208,14 +220,12 @@ describe('PostgisRepository SQL Construction & Spatial Operations', () => {
     const committed = await repo.commitAssignment('assign_run_42', 'operator_karan');
 
     expect(committed).toBe(true);
-    // Verifies assignment status update
-    expect(executedQueries[0]).toContain("status = 'COMMITTED'");
-    // Verifies route stops are frozen
-    expect(executedQueries[1]).toContain('UPDATE assignment_stops SET is_frozen = TRUE');
-    // Verifies served requests status is updated to ASSIGNED
-    expect(executedQueries[2]).toContain("status = 'ASSIGNED'");
-    // Verifies audit event insertion
-    expect(executedQueries[3]).toContain('INSERT INTO audit_events');
+    expect(executedQueries.some((q) => q === 'BEGIN')).toBe(true);
+    expect(executedQueries.some((q) => q.includes("status = 'COMMITTED'"))).toBe(true);
+    expect(executedQueries.some((q) => q.includes('UPDATE assignment_stops SET is_frozen = TRUE'))).toBe(true);
+    expect(executedQueries.some((q) => q.includes("status = 'ASSIGNED'"))).toBe(true);
+    expect(executedQueries.some((q) => q.includes('INSERT INTO audit_events'))).toBe(true);
+    expect(executedQueries.some((q) => q === 'COMMIT')).toBe(true);
   });
 });
 

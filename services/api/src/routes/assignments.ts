@@ -135,7 +135,18 @@ export function createAssignmentsRouter(assignmentService: AssignmentService): R
         }
 
         try {
-          await assignmentService.commitAssignment(id, parsed.data);
+          const committed = await assignmentService.commitAssignment(id, parsed.data);
+          if (!committed) {
+            res.status(409).json({
+              error: {
+                code: 'COMMIT_FAILED',
+                message: `Failed to commit assignment "${id}"`,
+                timestamp: new Date().toISOString(),
+              },
+            });
+            return;
+          }
+
           const updated = await assignmentService.getAssignment(id);
 
           res.status(200).json({
@@ -144,28 +155,18 @@ export function createAssignmentsRouter(assignmentService: AssignmentService): R
             data: updated,
           });
         } catch (domainErr: unknown) {
-          const code = (domainErr as { code?: string }).code;
-          if (code === 'NOT_FOUND') {
-            res.status(404).json({
-              error: {
-                code: 'NOT_FOUND',
-                message: (domainErr as Error).message,
-                timestamp: new Date().toISOString(),
-              },
-            });
-            return;
-          }
-          if (code === 'ALREADY_COMMITTED') {
-            res.status(409).json({
-              error: {
-                code: 'ALREADY_COMMITTED',
-                message: (domainErr as Error).message,
-                timestamp: new Date().toISOString(),
-              },
-            });
-            return;
-          }
-          throw domainErr;
+          const code = (domainErr as { code?: string }).code || 'COMMIT_FAILED';
+          const statusCode =
+            (domainErr as { statusCode?: number }).statusCode ||
+            (code === 'NOT_FOUND' ? 404 : 409);
+          res.status(statusCode).json({
+            error: {
+              code,
+              message: (domainErr as Error).message,
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
         }
       } catch (err) {
         next(err);

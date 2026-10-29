@@ -20,6 +20,16 @@ class InMemoryAssignmentDbMock implements Queryable {
   public assignments: Map<string, DbAssignment> = new Map();
   public stops: Map<string, DbAssignmentStop> = new Map();
   public auditEvents: unknown[] = [];
+  public failOnStatement?: string;
+
+  private snapshot?: {
+    requests: Map<string, DbRequest>;
+    resources: Map<string, DbResource>;
+    shelters: Map<string, DbShelter>;
+    assignments: Map<string, DbAssignment>;
+    stops: Map<string, DbAssignmentStop>;
+    auditEvents: unknown[];
+  };
 
   async query<R extends Record<string, unknown> = Record<string, unknown>>(
     sqlOrConfig: string | { text: string; values?: unknown[] },
@@ -27,6 +37,88 @@ class InMemoryAssignmentDbMock implements Queryable {
   ): Promise<{ rows: R[]; command: string; rowCount: number; oid: number; fields: [] }> {
     const sql = typeof sqlOrConfig === 'string' ? sqlOrConfig : sqlOrConfig.text;
     const vals = values ?? (sqlOrConfig as { values?: unknown[] }).values ?? [];
+
+    if (this.failOnStatement && sql.includes(this.failOnStatement)) {
+      throw new Error(`Injected failure on statement: ${this.failOnStatement}`);
+    }
+
+    if (sql.trim() === 'BEGIN') {
+      this.snapshot = {
+        requests: new Map(Array.from(this.requests.entries()).map(([k, v]) => [k, { ...v }])),
+        resources: new Map(Array.from(this.resources.entries()).map(([k, v]) => [k, { ...v }])),
+        shelters: new Map(Array.from(this.shelters.entries()).map(([k, v]) => [k, { ...v }])),
+        assignments: new Map(Array.from(this.assignments.entries()).map(([k, v]) => [k, { ...v }])),
+        stops: new Map(Array.from(this.stops.entries()).map(([k, v]) => [k, { ...v }])),
+        auditEvents: [...this.auditEvents],
+      };
+      return { rows: [], command: 'BEGIN', rowCount: 0, oid: 0, fields: [] };
+    }
+
+    if (sql.trim() === 'COMMIT') {
+      this.snapshot = undefined;
+      return { rows: [], command: 'COMMIT', rowCount: 0, oid: 0, fields: [] };
+    }
+
+    if (sql.trim() === 'ROLLBACK') {
+      if (this.snapshot) {
+        this.requests = this.snapshot.requests;
+        this.resources = this.snapshot.resources;
+        this.shelters = this.snapshot.shelters;
+        this.assignments = this.snapshot.assignments;
+        this.stops = this.snapshot.stops;
+        this.auditEvents = this.snapshot.auditEvents;
+        this.snapshot = undefined;
+      }
+      return { rows: [], command: 'ROLLBACK', rowCount: 0, oid: 0, fields: [] };
+    }
+
+    if (sql.includes('FROM assignments') && sql.includes('FOR UPDATE')) {
+      const id = vals[0] as string;
+      const assign = this.assignments.get(id);
+      if (!assign) {
+        return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+      }
+      return {
+        rows: [{ id: assign.id, status: assign.status, scenario_id: assign.scenario_id } as unknown as R],
+        command: 'SELECT',
+        rowCount: 1,
+        oid: 0,
+        fields: [],
+      };
+    }
+
+    if (sql.includes('FROM requests') && sql.includes('WHERE id = ANY')) {
+      const ids = vals[0] as string[];
+      const rows = ids
+        .map((id) => this.requests.get(id))
+        .filter((r): r is DbRequest => Boolean(r))
+        .map((r) => ({ id: r.id, status: r.status }));
+      return { rows: rows as unknown as R[], command: 'SELECT', rowCount: rows.length, oid: 0, fields: [] };
+    }
+
+    if (sql.includes('FROM assignment_stops s') && sql.includes('JOIN assignments a')) {
+      const excludeAssignmentId = vals[0] as string;
+      const resourceIds = (vals[1] as string[]) || [];
+      const rows: Record<string, unknown>[] = [];
+      for (const stop of this.stops.values()) {
+        if (stop.assignment_id === excludeAssignmentId) continue;
+        if (!resourceIds.includes(stop.resource_id)) continue;
+        const parentAssign = this.assignments.get(stop.assignment_id);
+        if (parentAssign && (parentAssign.status === 'COMMITTED' || parentAssign.status === 'DISPATCHED')) {
+          rows.push({
+            id: stop.id,
+            resource_id: stop.resource_id,
+            type: stop.type,
+            target_id: stop.target_id,
+            stop_number: stop.stop_number,
+            is_frozen: stop.is_frozen,
+            assignment_status: parentAssign.status,
+            other_assignment_id: parentAssign.id,
+          });
+        }
+      }
+      return { rows: rows as unknown as R[], command: 'SELECT', rowCount: rows.length, oid: 0, fields: [] };
+    }
 
     // 1. SELECT FROM requests
     if (sql.includes('FROM requests')) {
@@ -308,14 +400,24 @@ class InMemoryAssignmentDbMock implements Queryable {
 
     // 12. UPDATE requests SET status = 'ASSIGNED'
     if (sql.includes('UPDATE requests') && sql.includes("status = 'ASSIGNED'")) {
-      const assignId = vals[0] as string;
       let count = 0;
-      for (const stop of this.stops.values()) {
-        if (stop.assignment_id === assignId && stop.type === 'PICKUP') {
-          const req = this.requests.get(stop.target_id);
+      if (Array.isArray(vals[0])) {
+        for (const id of vals[0] as string[]) {
+          const req = this.requests.get(id);
           if (req) {
             req.status = 'ASSIGNED';
             count++;
+          }
+        }
+      } else {
+        const assignId = vals[0] as string;
+        for (const stop of this.stops.values()) {
+          if (stop.assignment_id === assignId && stop.type === 'PICKUP') {
+            const req = this.requests.get(stop.target_id);
+            if (req) {
+              req.status = 'ASSIGNED';
+              count++;
+            }
           }
         }
       }
@@ -696,6 +798,91 @@ describe('Assignment Endpoints Integration Tests', () => {
       // The stops from the committed plan should be preserved at the head of the route with isFrozen = true
       const frozenStops = routes[0].stops.filter((s: { isFrozen?: boolean }) => s.isFrozen);
       expect(frozenStops.length).toBeGreaterThan(0);
+    });
+  });
+  describe('Transaction Safety & Concurrency on commitAssignment', () => {
+    it('an injected failure on each statement leaves the database unchanged', async () => {
+      // 1. Failure on UPDATE assignment_stops
+      const proposeRes1 = await request(app).post('/assignments/propose').send({});
+      const assignId1 = proposeRes1.body.data.id;
+      dbMock.failOnStatement = 'UPDATE assignment_stops SET is_frozen = TRUE';
+
+      const resFail1 = await request(app)
+        .post(`/assignments/${assignId1}/commit`)
+        .send({ operatorId: 'op_test' });
+
+      expect(resFail1.status).toBe(409);
+      expect(dbMock.assignments.get(assignId1)?.status).toBe('PROPOSED');
+      const sampleStop = Array.from(dbMock.stops.values()).find((s) => s.assignment_id === assignId1);
+      expect(sampleStop?.is_frozen).toBe(false);
+
+      // 2. Failure on UPDATE requests
+      dbMock.failOnStatement = "UPDATE requests SET status = 'ASSIGNED'";
+      const resFail2 = await request(app)
+        .post(`/assignments/${assignId1}/commit`)
+        .send({ operatorId: 'op_test' });
+
+      expect(resFail2.status).toBe(409);
+      expect(dbMock.assignments.get(assignId1)?.status).toBe('PROPOSED');
+      expect(dbMock.requests.get('req_01')?.status).toBe('PENDING');
+
+      // 3. Failure on INSERT INTO audit_events
+      dbMock.failOnStatement = 'INSERT INTO audit_events';
+      const resFail3 = await request(app)
+        .post(`/assignments/${assignId1}/commit`)
+        .send({ operatorId: 'op_test' });
+
+      expect(resFail3.status).toBe(409);
+      expect(dbMock.assignments.get(assignId1)?.status).toBe('PROPOSED');
+
+      // Clean up failure injection
+      dbMock.failOnStatement = undefined;
+      // Now commit should succeed completely
+      const successRes = await request(app)
+        .post(`/assignments/${assignId1}/commit`)
+        .send({ operatorId: 'op_test' });
+      expect(successRes.status).toBe(200);
+      expect(dbMock.assignments.get(assignId1)?.status).toBe('COMMITTED');
+      expect(dbMock.requests.get('req_01')?.status).toBe('ASSIGNED');
+    });
+
+    it('two concurrent commits of the same assignment give one 200 and one 409', async () => {
+      const proposeRes = await request(app).post('/assignments/propose').send({});
+      const assignId = proposeRes.body.data.id;
+
+      const [res1, res2] = await Promise.all([
+        request(app).post(`/assignments/${assignId}/commit`).send({ operatorId: 'op_1' }),
+        request(app).post(`/assignments/${assignId}/commit`).send({ operatorId: 'op_2' }),
+      ]);
+
+      const statuses = [res1.status, res2.status].sort();
+      expect(statuses).toEqual([200, 409]);
+
+      const conflictRes = res1.status === 409 ? res1 : res2;
+      expect(conflictRes.body.error.code).toBe('ALREADY_COMMITTED');
+    });
+
+    it('two different proposals containing the same request cannot both be committed', async () => {
+      // Both proposals will include the same initial pending requests (e.g. req_1)
+      const prop1 = await request(app).post('/assignments/propose').send({});
+      const prop2 = await request(app).post('/assignments/propose').send({});
+
+      const id1 = prop1.body.data.id;
+      const id2 = prop2.body.data.id;
+      expect(id1).not.toBe(id2);
+
+      // Commit first proposal -> succeeds
+      const commit1 = await request(app)
+        .post(`/assignments/${id1}/commit`)
+        .send({ operatorId: 'op_1' });
+      expect(commit1.status).toBe(200);
+
+      // Attempt to commit second proposal containing the now-ASSIGNED requests -> must fail with 409
+      const commit2 = await request(app)
+        .post(`/assignments/${id2}/commit`)
+        .send({ operatorId: 'op_2' });
+      expect(commit2.status).toBe(409);
+      expect(commit2.body.error.code).toBe('REQUEST_ALREADY_ASSIGNED');
     });
   });
 });

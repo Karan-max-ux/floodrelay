@@ -212,32 +212,7 @@ export class AssignmentService {
    * Freezes all stops in the plan and marks served requests as ASSIGNED.
    */
   async commitAssignment(id: string, input: CommitAssignmentInput): Promise<boolean> {
-    const record = await this.repository.getAssignmentWithStops(id);
-    if (!record) {
-      const err = new Error(`Assignment "${id}" not found`);
-      (err as unknown as { code: string }).code = 'NOT_FOUND';
-      throw err;
-    }
-
-    if (record.assignment.status === 'COMMITTED') {
-      const err = new Error(`Assignment "${id}" is already committed`);
-      (err as unknown as { code: string }).code = 'ALREADY_COMMITTED';
-      throw err;
-    }
-
-    const committed = await this.repository.commitAssignment(id, input.operatorId);
-
-    if (input.notes) {
-      await this.repository.insertAuditEvent({
-        entityType: 'ASSIGNMENT',
-        entityId: id,
-        eventType: 'OPERATOR_NOTE_ADDED',
-        actor: input.operatorId,
-        payload: { notes: input.notes },
-      });
-    }
-
-    return committed;
+    return this.repository.commitAssignment(id, input.operatorId, input.notes);
   }
 
   /**

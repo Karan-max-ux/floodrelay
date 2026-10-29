@@ -712,49 +712,225 @@ export class PostgisRepository {
     };
   }
 
-  async commitAssignment(assignmentId: string, operatorId: string): Promise<boolean> {
-    const updateSql = `
-      UPDATE assignments
-      SET status = 'COMMITTED',
-          committed_at = NOW(),
-          committed_by = $2,
-          updated_at = NOW()
-      WHERE id = $1 AND status = 'PROPOSED';
-    `;
-    const result = await this.client.query(updateSql, [assignmentId, operatorId]);
-    if ((result.rowCount ?? 0) === 0) {
-      return false;
-    }
+  async commitAssignment(
+    assignmentId: string,
+    operatorId: string,
+    notes?: string,
+  ): Promise<boolean> {
+    const isPool =
+      typeof (this.client as unknown as { connect?: unknown }).connect === 'function';
+    const client: Queryable = isPool
+      ? await (this.client as unknown as { connect: () => Promise<Queryable> }).connect()
+      : this.client;
 
-    // Freeze all route stops in the committed plan
-    await this.client.query(
-      `UPDATE assignment_stops SET is_frozen = TRUE WHERE assignment_id = $1;`,
-      [assignmentId],
-    );
+    try {
+      await client.query('BEGIN');
 
-    // Update all served requests to ASSIGNED status so they are marked as handled
-    await this.client.query(
-      `
-      UPDATE requests
-      SET status = 'ASSIGNED', updated_at = NOW()
-      WHERE id IN (
-        SELECT target_id FROM assignment_stops
-        WHERE assignment_id = $1 AND type = 'PICKUP'
+      // 1. Lock the assignment row with SELECT ... FOR UPDATE
+      const assignResult = await client.query<{
+        id: string;
+        status: string;
+        scenario_id: string;
+      }>('SELECT id, status, scenario_id FROM assignments WHERE id = $1 FOR UPDATE;', [
+        assignmentId,
+      ]);
+
+      const assignRow = assignResult.rows[0];
+      if (!assignRow) {
+        const err = new Error(`Assignment with id "${assignmentId}" not found`);
+        (err as unknown as { code: string; statusCode: number }).code = 'NOT_FOUND';
+        (err as unknown as { code: string; statusCode: number }).statusCode = 404;
+        throw err;
+      }
+
+      if (assignRow.status !== 'PROPOSED') {
+        const err = new Error(
+          `Assignment "${assignmentId}" is not in PROPOSED status (current status: ${assignRow.status})`,
+        );
+        (err as unknown as { code: string; statusCode: number }).code = 'ALREADY_COMMITTED';
+        (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+        throw err;
+      }
+
+      // 2. Fetch all stops belonging to this proposed assignment
+      const stopsResult = await client.query<{
+        id: string;
+        resource_id: string;
+        type: string;
+        target_id: string;
+        stop_number: number;
+        is_frozen: boolean;
+      }>(
+        `SELECT id, resource_id, type, target_id, stop_number, is_frozen
+         FROM assignment_stops
+         WHERE assignment_id = $1
+         ORDER BY resource_id ASC, stop_number ASC;`,
+        [assignmentId],
       );
-      `,
-      [assignmentId],
-    );
+      const planStops = stopsResult.rows;
 
-    // Audit event log
-    await this.insertAuditEvent({
-      entityType: 'ASSIGNMENT',
-      entityId: assignmentId,
-      eventType: 'ASSIGNMENT_COMMITTED',
-      actor: operatorId,
-      payload: { assignmentId, committedAt: new Date().toISOString() },
-    });
+      // 3. Lock and validate every request in PICKUP stops: must still be PENDING
+      const pickupTargetIds = planStops
+        .filter((s) => s.type === 'PICKUP' && s.target_id)
+        .map((s) => s.target_id);
 
-    return true;
+      if (pickupTargetIds.length > 0) {
+        const reqResult = await client.query<{ id: string; status: string }>(
+          'SELECT id, status FROM requests WHERE id = ANY($1::text[]) FOR UPDATE;',
+          [pickupTargetIds],
+        );
+        const lockedRequests = new Map(reqResult.rows.map((r) => [r.id, r.status]));
+
+        for (const reqId of pickupTargetIds) {
+          const reqStatus = lockedRequests.get(reqId);
+          if (!reqStatus) {
+            const err = new Error(`Request "${reqId}" referenced in pickup stop does not exist`);
+            (err as unknown as { code: string; statusCode: number }).code = 'REQUEST_NOT_FOUND';
+            (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+            throw err;
+          }
+          if (reqStatus !== 'PENDING') {
+            const err = new Error(
+              `Request "${reqId}" is no longer in PENDING status (current status: ${reqStatus})`,
+            );
+            (err as unknown as { code: string; statusCode: number }).code =
+              'REQUEST_ALREADY_ASSIGNED';
+            (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+            throw err;
+          }
+        }
+      }
+
+      // 4. Validate resources: no resource in the plan may already have stops in another
+      // COMMITTED or DISPATCHED assignment unless this plan was built with those frozen stops.
+      // Check mechanism: For every resource in this plan that has active stops in another
+      // committed/dispatched assignment, verify every frozen stop of that resource from the
+      // other assignment is present as a frozen stop in this plan (matching type and target_id).
+      const resourceIds = Array.from(new Set(planStops.map((s) => s.resource_id)));
+      if (resourceIds.length > 0) {
+        const otherStopsResult = await client.query<{
+          id: string;
+          resource_id: string;
+          type: string;
+          target_id: string;
+          stop_number: number;
+          is_frozen: boolean;
+          assignment_status: string;
+          other_assignment_id: string;
+        }>(
+          `SELECT s.id, s.resource_id, s.type, s.target_id, s.stop_number, s.is_frozen,
+                  a.status as assignment_status, a.id as other_assignment_id
+           FROM assignment_stops s
+           JOIN assignments a ON s.assignment_id = a.id
+           WHERE a.status IN ('COMMITTED', 'DISPATCHED')
+             AND a.id != $1
+             AND s.resource_id = ANY($2::text[])
+           ORDER BY s.resource_id ASC, s.stop_number ASC;`,
+          [assignmentId, resourceIds],
+        );
+
+        if (otherStopsResult.rows.length > 0) {
+          const otherStopsByRes = new Map<string, typeof otherStopsResult.rows>();
+          for (const stop of otherStopsResult.rows) {
+            if (!otherStopsByRes.has(stop.resource_id)) {
+              otherStopsByRes.set(stop.resource_id, []);
+            }
+            otherStopsByRes.get(stop.resource_id)!.push(stop);
+          }
+
+          for (const [resId, otherStops] of otherStopsByRes.entries()) {
+            const thisResFrozenStops = planStops.filter(
+              (s) => s.resource_id === resId && Boolean(s.is_frozen),
+            );
+            for (const otherStop of otherStops) {
+              const matched = thisResFrozenStops.some(
+                (s) => s.type === otherStop.type && s.target_id === otherStop.target_id,
+              );
+              if (!matched) {
+                const err = new Error(
+                  `Resource "${resId}" has active stops in another committed/dispatched assignment "${otherStop.other_assignment_id}" that were not incorporated as frozen stops in this plan`,
+                );
+                (err as unknown as { code: string; statusCode: number }).code =
+                  'RESOURCE_ALREADY_COMMITTED';
+                (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+                throw err;
+              }
+            }
+          }
+        }
+      }
+
+      // 5. Update assignment status to COMMITTED
+      const updateAssignResult = await client.query(
+        `UPDATE assignments
+         SET status = 'COMMITTED',
+             committed_at = NOW(),
+             committed_by = $2,
+             updated_at = NOW()
+         WHERE id = $1 AND status = 'PROPOSED';`,
+        [assignmentId, operatorId],
+      );
+      if ((updateAssignResult.rowCount ?? 0) === 0) {
+        const err = new Error(`Failed to commit assignment "${assignmentId}"`);
+        (err as unknown as { code: string; statusCode: number }).code = 'ALREADY_COMMITTED';
+        (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+        throw err;
+      }
+
+      // 6. Freeze all route stops in the committed plan
+      await client.query(
+        'UPDATE assignment_stops SET is_frozen = TRUE WHERE assignment_id = $1;',
+        [assignmentId],
+      );
+
+      // 7. Update all served requests to ASSIGNED status
+      if (pickupTargetIds.length > 0) {
+        await client.query(
+          'UPDATE requests SET status = \'ASSIGNED\', updated_at = NOW() WHERE id = ANY($1::text[]);',
+          [pickupTargetIds],
+        );
+      }
+
+      // 8. Insert ASSIGNMENT_COMMITTED audit event
+      await client.query(
+        `INSERT INTO audit_events (
+           entity_type, entity_id, event_type, actor, payload, created_at
+         ) VALUES (
+           'ASSIGNMENT', $1, 'ASSIGNMENT_COMMITTED', $2, $3, NOW()
+         );`,
+        [
+          assignmentId,
+          operatorId,
+          JSON.stringify({ assignmentId, committedAt: new Date().toISOString() }),
+        ],
+      );
+
+      // 9. Insert OPERATOR_NOTE_ADDED audit event if operator notes were provided
+      if (notes) {
+        await client.query(
+          `INSERT INTO audit_events (
+             entity_type, entity_id, event_type, actor, payload, created_at
+           ) VALUES (
+             'ASSIGNMENT', $1, 'OPERATOR_NOTE_ADDED', $2, $3, NOW()
+           );`,
+          [assignmentId, operatorId, JSON.stringify({ notes })],
+        );
+      }
+
+      await client.query('COMMIT');
+      return true;
+    } catch (err) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        // ignore rollback error
+      }
+      throw err;
+    } finally {
+      if (isPool && typeof (client as unknown as { release?: unknown }).release === 'function') {
+        (client as unknown as { release: () => void }).release();
+      }
+    }
   }
 
   async listAssignments(filter?: {
