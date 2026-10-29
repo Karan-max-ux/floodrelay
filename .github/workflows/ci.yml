@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, feature/openapi-spec]
+    branches: [main]
   pull_request:
-    branches: [main, feature/openapi-spec]
+    branches: [main]
 
 jobs:
   lint-and-test:
@@ -27,6 +27,7 @@ jobs:
 
     env:
       DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/floodrelay_test
+      REQUIRE_DB: '1'
 
     steps:
       - name: Checkout
