@@ -2,13 +2,31 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/openapi-spec]
   pull_request:
-    branches: [main]
+    branches: [main, feature/openapi-spec]
 
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_DB: floodrelay_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/floodrelay_test
 
     steps:
       - name: Checkout
@@ -28,6 +46,15 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Run migrations up
+        run: npm --workspace=@floodrelay/api run migrate
+
+      - name: Test migrations down (rollback)
+        run: npm --workspace=@floodrelay/api run migrate:down
+
+      - name: Re-apply migrations up for integration tests
+        run: npm --workspace=@floodrelay/api run migrate
 
       - name: Test
         run: npm test
