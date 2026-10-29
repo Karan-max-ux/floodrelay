@@ -196,7 +196,7 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Phase 1 review fixes: invariant tests for all solvers, ASSUMED_* constants documented in limitations, simulated scenario labelling, standard benchmark scenario sizes, evaluation CLI disclaimers, and Phase 1 test traceability in progress.md.
+- **Last completed:** Return-leg shift-limit fix across all solvers, distinct unserved reasons (`SHIFT_LIMIT_REACHED` vs `GROUP_LARGER_THAN_ANY_VEHICLE`), exhaustive sanity test against brute-force optimum, and constraint parity documentation.
 - **Next up:** Complete the single open baseline task (⬜), then proceed to Phase 2.
 - **Phase 0:** 100% complete.
 - **Phase 1:** In progress (7 of 8 tasks complete ✅; 1 task open ⬜).
