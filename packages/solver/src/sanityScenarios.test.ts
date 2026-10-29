@@ -1,6 +1,7 @@
 import type { Scenario } from '@floodrelay/shared';
 import { describe, expect, it } from 'vitest';
 import { solveClarkeWrightBaseline, solveClusterAllocation, solveNearestFirst } from './index.js';
+import { StraightLineTravelTimeProvider } from './routing/travelTime.js';
 
 describe('Sanity Scenarios', () => {
   it('straight line scenario: Urgency-batched savings + 2-opt total travel time is <= nearest-first', () => {
@@ -305,5 +306,136 @@ describe('Sanity Scenarios', () => {
 
     // Clarke-Wright constructs a round-trip tour serving both clusters within shift limit
     expect(cwPlan.routes[0]?.servedRequestIds).toHaveLength(6);
+  });
+  it('exhaustive sanity test: no solver reports travel time below brute-force optimum', () => {
+    const provider = new StraightLineTravelTimeProvider();
+
+    const tinyScenario: Scenario = {
+      id: 'tiny-exhaustive-sanity',
+      metadata: {
+        id: 'tiny-exhaustive-sanity',
+        name: 'Tiny Exhaustive Sanity',
+        region: 'Delhi',
+        createdAt: '2026-10-15T12:00:00Z',
+        bounds: { minLat: 28.5, maxLat: 28.65, minLng: 77.1, maxLng: 77.25 },
+      },
+      requests: [
+        {
+          id: 'req-1',
+          lat: 28.52,
+          lng: 77.12,
+          peopleCount: 2,
+          urgency: 'HIGH',
+          createdAt: '2026-10-15T12:00:00Z',
+          source: 'SIMULATED',
+        },
+        {
+          id: 'req-2',
+          lat: 28.56,
+          lng: 77.18,
+          peopleCount: 1,
+          urgency: 'MEDIUM',
+          createdAt: '2026-10-15T12:00:00Z',
+          source: 'SIMULATED',
+        },
+        {
+          id: 'req-3',
+          lat: 28.61,
+          lng: 77.15,
+          peopleCount: 3,
+          urgency: 'LOW',
+          createdAt: '2026-10-15T12:00:00Z',
+          source: 'SIMULATED',
+        },
+        {
+          id: 'req-4',
+          lat: 28.58,
+          lng: 77.22,
+          peopleCount: 2,
+          urgency: 'CRITICAL',
+          createdAt: '2026-10-15T12:00:00Z',
+          source: 'SIMULATED',
+        },
+        {
+          id: 'req-5',
+          lat: 28.54,
+          lng: 77.14,
+          peopleCount: 2,
+          urgency: 'HIGH',
+          createdAt: '2026-10-15T12:00:00Z',
+          source: 'SIMULATED',
+        },
+      ],
+      resources: [
+        {
+          id: 'res-1',
+          name: 'Rescue Alpha',
+          type: 'HIGH_WATER_VEHICLE',
+          capacity: 20, // ample capacity for all 10 passengers
+          speedKmH: 30,
+          lat: 28.5,
+          lng: 77.1,
+          status: 'AVAILABLE',
+        },
+      ],
+      shelters: [
+        {
+          id: 'shelter-main',
+          name: 'Main Safe Shelter',
+          lat: 28.5,
+          lng: 77.1,
+          capacity: 100,
+        },
+      ],
+    };
+
+    function getPermutations<T>(items: T[]): T[][] {
+      if (items.length <= 1) return [items];
+      const result: T[][] = [];
+      for (let i = 0; i < items.length; i++) {
+        const current = items[i]!;
+        const remaining = [...items.slice(0, i), ...items.slice(i + 1)];
+        for (const p of getPermutations(remaining)) {
+          result.push([current, ...p]);
+        }
+      }
+      return result;
+    }
+
+    const reqs = tinyScenario.requests;
+    const perms = getPermutations(reqs);
+    const resource = tinyScenario.resources[0]!;
+    const shelter = tinyScenario.shelters[0]!;
+
+    let optimalDuration = Number.POSITIVE_INFINITY;
+    for (const order of perms) {
+      let time = 0;
+      let loc = { lat: resource.lat, lng: resource.lng };
+      for (const r of order) {
+        time += provider.getTravelEstimate(loc, r, resource.speedKmH).durationMinutes;
+        loc = { lat: r.lat, lng: r.lng };
+      }
+      time += provider.getTravelEstimate(loc, shelter, resource.speedKmH).durationMinutes;
+      if (time < optimalDuration) {
+        optimalDuration = time;
+      }
+    }
+
+    const nfPlan = solveNearestFirst(tinyScenario);
+    const cwPlan = solveClarkeWrightBaseline(tinyScenario);
+    const caPlan = solveClusterAllocation(tinyScenario);
+
+    console.log(
+      `[Exhaustive Sanity] Brute-force optimum: ${optimalDuration.toFixed(2)} min | NF: ${nfPlan.metrics.totalTravelTimeMinutes.toFixed(2)} min | CW: ${cwPlan.metrics.totalTravelTimeMinutes.toFixed(2)} min | CA: ${caPlan.metrics.totalTravelTimeMinutes.toFixed(2)} min`,
+    );
+
+    expect(nfPlan.metrics.coveragePercent).toBe(100);
+    expect(cwPlan.metrics.coveragePercent).toBe(100);
+    expect(caPlan.metrics.coveragePercent).toBe(100);
+
+    // No solver can report a travel time below the exhaustive theoretical optimum
+    expect(nfPlan.metrics.totalTravelTimeMinutes).toBeGreaterThanOrEqual(optimalDuration - 1e-4);
+    expect(cwPlan.metrics.totalTravelTimeMinutes).toBeGreaterThanOrEqual(optimalDuration - 1e-4);
+    expect(caPlan.metrics.totalTravelTimeMinutes).toBeGreaterThanOrEqual(optimalDuration - 1e-4);
   });
 });

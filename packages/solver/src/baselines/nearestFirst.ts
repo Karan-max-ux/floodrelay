@@ -88,8 +88,16 @@ export function solveNearestFirst(scenario: Scenario, options?: NearestFirstOpti
         const req = unservedRequests.get(nearestReqId)!;
         const estimate = provider.getTravelEstimate(currentLocation, req, resource.speedKmH);
 
-        // Check if travel would exceed shift limit
-        if (currentMinutes + estimate.durationMinutes > maxShiftMinutes) {
+        let minShelterDuration = Number.POSITIVE_INFINITY;
+        for (const sh of shelters) {
+          const shelterEst = provider.getTravelEstimate(req, sh, resource.speedKmH);
+          if (shelterEst.durationMinutes < minShelterDuration) {
+            minShelterDuration = shelterEst.durationMinutes;
+          }
+        }
+
+        // Check if travel to pickup + return to nearest shelter would exceed shift limit
+        if (currentMinutes + estimate.durationMinutes + minShelterDuration > maxShiftMinutes) {
           break;
         }
 

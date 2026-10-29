@@ -164,7 +164,15 @@ export function solveClusterAllocation(
           const estimate = provider.getTravelEstimate(state.currentLocation, req, res.speedKmH);
           const arrival = state.currentMinutes + estimate.durationMinutes;
 
-          if (arrival < earliestArrival && arrival < maxShiftMinutes) {
+          let minShelterToReq = Number.POSITIVE_INFINITY;
+          for (const sh of shelters) {
+            const d = provider.getTravelEstimate(req, sh, res.speedKmH).durationMinutes;
+            if (d < minShelterToReq) {
+              minShelterToReq = d;
+            }
+          }
+
+          if (arrival < earliestArrival && arrival + minShelterToReq <= maxShiftMinutes) {
             earliestArrival = arrival;
             bestResId = res.id;
             bestEstimate = estimate;
@@ -203,7 +211,15 @@ export function solveClusterAllocation(
             const arrival =
               state.currentMinutes + shelterEst.durationMinutes + reqEst.durationMinutes;
 
-            if (arrival < earliestArrival && arrival < maxShiftMinutes) {
+            let minShelterToReq = Number.POSITIVE_INFINITY;
+            for (const sh of shelters) {
+              const d = provider.getTravelEstimate(req, sh, res.speedKmH).durationMinutes;
+              if (d < minShelterToReq) {
+                minShelterToReq = d;
+              }
+            }
+
+            if (arrival < earliestArrival && arrival + minShelterToReq <= maxShiftMinutes) {
               earliestArrival = arrival;
               bestResId = res.id;
             }
