@@ -65,15 +65,30 @@ export class AssignmentService {
     // 3. Fetch safe shelters
     const shelters = await this.repository.listShelters({ activeOnly: true });
 
-    // 4. Retrieve existing frozen routes if requested
+    // 4. Retrieve existing frozen routes if requested, and validate algorithm capability
     let existingFrozenRoutes: ResourceRoute[] | undefined;
-    if (input.preserveFrozen) {
-      const latestCommitted = await this.repository.getLatestCommittedAssignment(input.scenarioId);
-      if (latestCommitted && latestCommitted.stops.length > 0) {
-        existingFrozenRoutes = this.reconstructRoutesFromStops(
-          latestCommitted.stops.filter((s) => s.is_frozen),
-        );
-      }
+    const latestCommitted = await this.repository.getLatestCommittedAssignment(input.scenarioId);
+    const hasCommittedFrozenStops = Boolean(
+      latestCommitted && latestCommitted.stops.some((s) => s.is_frozen),
+    );
+
+    if (
+      hasCommittedFrozenStops &&
+      (input.algorithm === 'nearest-first' || input.algorithm === 'savings') &&
+      input.preserveFrozen !== false
+    ) {
+      const err = new Error(
+        `Algorithm "${input.algorithm}" does not support preserving frozen routes. Committed frozen stops exist in scenario "${input.scenarioId}". Please use "cluster-allocation" for incremental replanning with frozen stops, or explicitly specify preserveFrozen: false to ignore existing frozen routes.`,
+      );
+      (err as unknown as { code: string; statusCode: number }).code = 'UNSUPPORTED_ALGORITHM_OPTION';
+      (err as unknown as { code: string; statusCode: number }).statusCode = 400;
+      throw err;
+    }
+
+    if (input.preserveFrozen && latestCommitted && latestCommitted.stops.length > 0) {
+      existingFrozenRoutes = this.reconstructRoutesFromStops(
+        latestCommitted.stops.filter((s) => s.is_frozen),
+      );
     }
 
     // 5. Construct scenario for the solver

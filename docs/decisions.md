@@ -185,3 +185,15 @@ When recording a new decision, copy this template and fill it in:
   - Manual unverified documentation: Rejected because manual docs drift within days of development.
   - Runtime decorator generators (e.g. tsoa, routing-controllers): Adds invasive decorators, extra compilation steps, and unnecessary runtime reflection overhead.
 - **Consequence:** OpenAPI document is guaranteed 100% accurate, automatically validated in CI/tests, and served live from the backend API for client discovery and UI generation.
+
+---
+
+### ADR-17: Rejection of Frozen Route Preservation for Greedy and Savings Baselines
+
+- **Date:** 2026-10-29
+- **Decision:** Reject attempts to propose assignments using the `nearest-first` or `savings` baseline algorithms with HTTP 400 (`UNSUPPORTED_ALGORITHM_OPTION`) whenever committed frozen stops exist in the active scenario, or when `preserveFrozen: true` is explicitly requested. Operators requiring incremental replanning around committed stops must use `cluster-allocation` or explicitly pass `preserveFrozen: false` to recalculate entirely from scratch.
+- **Context:** The Nearest-First greedy heuristic and Clarke-Wright savings baseline construct route networks ab initio and do not model fixed initial partial routes or committed frozen waypoints. Allowing these baseline solvers to run while committed stops exist would either silently ignore the frozen stops (leading to disjoint dispatches and conflicting vehicle assignments) or fail downstream constraints. Explicit rejection provides unambiguous feedback to operators.
+- **Alternatives considered:**
+  - Silently disregard frozen stops: Rejected because committed rescue units would have their active tasks dropped or reassigned, violating dispatch integrity.
+  - Artificially prepend frozen stops to baseline routes without re-optimizing: Rejected because greedy and savings heuristics cannot guarantee capacity or shift limit compliance when prepended with arbitrary prior routes.
+- **Consequence:** Clear algorithm capability contracts: `cluster-allocation` supports incremental operations with frozen stops; `nearest-first` and `savings` serve as pure initial baselines.

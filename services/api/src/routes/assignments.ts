@@ -28,11 +28,27 @@ export function createAssignmentsRouter(assignmentService: AssignmentService): R
           return;
         }
 
-        const plan = await assignmentService.proposeAssignment(parsed.data);
-        res.status(201).json({
-          success: true,
-          data: plan,
-        });
+        try {
+          const plan = await assignmentService.proposeAssignment(parsed.data);
+          res.status(201).json({
+            success: true,
+            data: plan,
+          });
+        } catch (domainErr: unknown) {
+          const code = (domainErr as { code?: string }).code;
+          const statusCode = (domainErr as { statusCode?: number }).statusCode;
+          if (code && statusCode) {
+            res.status(statusCode).json({
+              error: {
+                code,
+                message: (domainErr as Error).message,
+                timestamp: new Date().toISOString(),
+              },
+            });
+            return;
+          }
+          throw domainErr;
+        }
       } catch (err) {
         next(err);
       }

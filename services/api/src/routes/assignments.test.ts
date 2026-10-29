@@ -580,6 +580,40 @@ describe('Assignment Endpoints Integration Tests', () => {
       expect(resSavings.body.data.status).toBe('PROPOSED');
     });
 
+    it('rejects nearest-first or savings with 400 when committed frozen stops exist or preserveFrozen: true is set', async () => {
+      // 1. Propose and commit an initial plan so committed frozen stops exist
+      const firstPropose = await request(app).post('/assignments/propose').send({
+        scenarioId: 'test-frozen-check',
+      });
+      const firstId = firstPropose.body.data.id;
+      await request(app).post(`/assignments/${firstId}/commit`).send({ operatorId: 'op_1' });
+
+      // 2. Attempt to propose with nearest-first while frozen stops exist -> 400
+      const nfRes = await request(app).post('/assignments/propose').send({
+        scenarioId: 'test-frozen-check',
+        algorithm: 'nearest-first',
+      });
+      expect(nfRes.status).toBe(400);
+      expect(nfRes.body.error.code).toBe('UNSUPPORTED_ALGORITHM_OPTION');
+      expect(nfRes.body.error.message).toContain('does not support preserving frozen routes');
+
+      // 3. Attempt to propose with savings while frozen stops exist -> 400
+      const savingsRes = await request(app).post('/assignments/propose').send({
+        scenarioId: 'test-frozen-check',
+        algorithm: 'savings',
+      });
+      expect(savingsRes.status).toBe(400);
+      expect(savingsRes.body.error.code).toBe('UNSUPPORTED_ALGORITHM_OPTION');
+
+      // 4. Passing preserveFrozen: false explicitly allows running baseline from scratch
+      const scratchRes = await request(app).post('/assignments/propose').send({
+        scenarioId: 'test-frozen-check',
+        algorithm: 'nearest-first',
+        preserveFrozen: false,
+      });
+      expect(scratchRes.status).toBe(201);
+    });
+
     it('rejects invalid algorithm option with 400 Bad Request', async () => {
       const res = await request(app)
         .post('/assignments/propose')
