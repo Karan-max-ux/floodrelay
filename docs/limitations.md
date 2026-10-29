@@ -20,6 +20,22 @@ This file documents honest limitations of the system. Keep it updated as the pro
   - `ASSUMED_BOAT_SPEED_MIN_KMH` (20 km/h) and `ASSUMED_BOAT_SPEED_MAX_KMH` (30 km/h): Synthetic speed range for boat resources in scenario generator (placeholder, not measured).
   - `ASSUMED_TRUCK_SPEED_MIN_KMH` (35 km/h) and `ASSUMED_TRUCK_SPEED_MAX_KMH` (50 km/h): Synthetic speed range for high-water truck resources in scenario generator (placeholder, not measured).
 
+- **Duplicate detection heuristic constants (uncalibrated placeholders):**
+  The request intake pipeline applies spatial-temporal proximity heuristics to flag likely duplicate citizen reports without dropping unverified requests:
+  - `ASSUMED_DUPLICATE_RADIUS_METERS` (100 meters): Maximum geographic radius threshold to evaluate whether two rescue reports refer to the same physical incident (placeholder, not measured).
+  - `ASSUMED_DUPLICATE_TIME_WINDOW_MS` (7,200,000 ms / 2 hours): Temporal time window within which subsequent reports within the duplicate radius are evaluated for duplicate flagging (placeholder, not measured).
+  - `ASSUMED_DUPLICATE_PEOPLE_DELTA` (±2 people): Permissible group size delta between reports to accommodate citizen estimation uncertainty while matching duplicates (placeholder, not measured).
+
+- **Security, authentication, and authorization:**
+  The platform provides no authentication or authorization; `x-operator-id` is caller-supplied and spoofable, and the API must not be exposed publicly without an authenticating reverse proxy or API gateway enforcing perimeter security.
+
+- **Privacy, communications, and data retention:**
+  - **No citizen contact details collected:** The intake schema collects coordinates, group size, urgency, and medical needs, but no contact details are collected so operators cannot call a requester.
+  - **PII in free text notes:** `notes` is free text that may contain personal data and has no retention rule or automated redaction policy.
+
+- **Assignment lifecycle state transitions:**
+  `DISPATCHED`, `COMPLETED` and `CANCELLED` assignment states exist in the schema and OpenAPI enumeration but have no transitions yet. Currently, only transitions between `PROPOSED` and `COMMITTED` are implemented.
+
 - **Baseline trade-offs and travel time characteristics:**
   In synthetic benchmark evaluations, relative travel time between Nearest-First (Greedy) and Urgency-batched savings + 2-opt varies with scenario scale: in the Large suite, Nearest-First exhibits lower total travel time than Urgency-batched savings + 2-opt, whereas in Small and Medium suites it does not. Both baselines calculate travel time identically (geodesic distance with detour factor, intermediate shelter drop-offs upon reaching vehicle capacity). This difference is an inherent algorithmic trade-off, not a calculation bug:
   - Nearest-First is designed to minimize immediate step distance and ignores request urgency, forming hyper-local tours intended to achieve low travel duration at the expense of higher wait times for critical requests.
