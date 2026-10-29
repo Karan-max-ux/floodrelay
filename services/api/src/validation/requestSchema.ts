@@ -44,7 +44,7 @@ export const ListRequestsFilterSchema = z.object({
   urgency: UrgencyLevelSchema.optional(),
   source: RequestSourceSchema.optional(),
   limit: z.coerce.number().int().positive().max(500).optional().default(50),
-  offset: z.coerce.number().int().nonnegative().optional().default(0),
+  offset: z.coerce.number().int().nonnegative().max(10000, "Offset cannot exceed 10000").optional().default(0),
 });
 
 export type ListRequestsFilter = z.infer<typeof ListRequestsFilterSchema>;

@@ -28,7 +28,11 @@ export interface Queryable {
   ): Promise<pg.QueryResult<R>>;
 }
 
+export const MAX_QUERY_OFFSET = 10000;
+export const MAX_QUERY_LIMIT = 500;
+
 export interface NearbyRequestFilter {
+  offset?: number;
   excludeId?: string;
   since?: Date;
   status?: RequestStatus;
@@ -221,8 +225,23 @@ export class PostgisRepository {
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    const limitClause = filter?.limit ? `LIMIT ${filter.limit}` : '';
-    const offsetClause = filter?.offset ? `OFFSET ${filter.offset}` : '';
+    let limitClause = '';
+    if (filter?.limit !== undefined) {
+      const limit = Math.max(1, Math.min(Math.floor(filter.limit), MAX_QUERY_LIMIT));
+      values.push(limit);
+      limitClause = `LIMIT $${values.length}`;
+    }
+
+    let offsetClause = '';
+    if (filter?.offset !== undefined) {
+      if (!Number.isFinite(filter.offset) || filter.offset < 0 || filter.offset > MAX_QUERY_OFFSET) {
+        throw new Error(
+          `Invalid query offset: must be a finite integer between 0 and ${MAX_QUERY_OFFSET} (received: ${filter.offset})`,
+        );
+      }
+      values.push(Math.floor(filter.offset));
+      offsetClause = `OFFSET $${values.length}`;
+    }
 
     const sql = `
       SELECT
@@ -290,7 +309,21 @@ export class PostgisRepository {
       conditions.push(`status = $${values.length}`);
     }
 
-    const limit = options?.limit ?? 50;
+    const rawLimit = options?.limit ?? 50;
+    const limit = Math.max(1, Math.min(Math.floor(rawLimit), MAX_QUERY_LIMIT));
+    values.push(limit);
+    const limitClause = `LIMIT $${values.length}`;
+
+    let offsetClause = '';
+    if (options?.offset !== undefined) {
+      if (!Number.isFinite(options.offset) || options.offset < 0 || options.offset > MAX_QUERY_OFFSET) {
+        throw new Error(
+          `Invalid query offset: must be a finite integer between 0 and ${MAX_QUERY_OFFSET} (received: ${options.offset})`,
+        );
+      }
+      values.push(Math.floor(options.offset));
+      offsetClause = `OFFSET $${values.length}`;
+    }
 
     const sql = `
       SELECT
@@ -310,7 +343,7 @@ export class PostgisRepository {
       FROM requests
       WHERE ${conditions.join(' AND ')}
       ORDER BY "distanceMeters" ASC
-      LIMIT ${limit};
+      ${limitClause} ${offsetClause};
     `;
 
     const result = await this.client.query(sql, values);

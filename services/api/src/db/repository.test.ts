@@ -229,6 +229,56 @@ describe('PostgisRepository SQL Construction & Spatial Operations', () => {
   });
 });
 
+  it('uses parameterized $N placeholders for limit and offset in listRequests and findNearbyRequests', async () => {
+    let capturedListSql = '';
+    let capturedListVals: unknown[] = [];
+    let capturedNearbySql = '';
+    let capturedNearbyVals: unknown[] = [];
+
+    const mockClient = createMockClient((sql, values) => {
+      if (sql.includes('ORDER BY created_at DESC')) {
+        capturedListSql = sql;
+        capturedListVals = values;
+        return [];
+      }
+      if (sql.includes('ORDER BY "distanceMeters" ASC')) {
+        capturedNearbySql = sql;
+        capturedNearbyVals = values;
+        return [];
+      }
+      return [];
+    });
+
+    const repo = new PostgisRepository(mockClient);
+
+    // Test listRequests with limit and offset
+    await repo.listRequests({ limit: 25, offset: 50 });
+    expect(capturedListSql).toContain('LIMIT $1 OFFSET $2');
+    expect(capturedListVals).toEqual([25, 50]);
+
+    // Test findNearbyRequests with limit and offset
+    await repo.findNearbyRequests(28.69, 77.23, 1000, { limit: 15, offset: 30 });
+    expect(capturedNearbySql).toContain('LIMIT $4 OFFSET $5');
+    expect(capturedNearbyVals.slice(3)).toEqual([15, 30]);
+  });
+
+  it('rejects hostile offset values in listRequests and findNearbyRequests', async () => {
+    const mockClient = createMockClient(() => []);
+    const repo = new PostgisRepository(mockClient);
+
+    // Negative offset
+    await expect(repo.listRequests({ offset: -5 })).rejects.toThrow('Invalid query offset');
+    await expect(repo.findNearbyRequests(28.69, 77.23, 1000, { offset: -1 })).rejects.toThrow('Invalid query offset');
+
+    // Hostile offset beyond MAX_QUERY_OFFSET (10000)
+    await expect(repo.listRequests({ offset: 10001 })).rejects.toThrow('Invalid query offset');
+    await expect(repo.findNearbyRequests(28.69, 77.23, 1000, { offset: 50000 })).rejects.toThrow('Invalid query offset');
+
+    // NaN / Infinite offset
+    await expect(repo.listRequests({ offset: Infinity })).rejects.toThrow('Invalid query offset');
+    await expect(repo.listRequests({ offset: NaN })).rejects.toThrow('Invalid query offset');
+  });
+
 describe('Scenario Loader & Simulation Provenance', () => {
   it('preserves SIMULATED source label on all rows when loading a simulated scenario', async () => {
     const insertedRequests: unknown[][] = [];
