@@ -241,7 +241,7 @@ describe.runIf(hasDatabase)('PostGIS Live Database Integration Tests', () => {
       await expect(
         assignmentService.commitAssignment(plan.id, { operatorId: 'op_test' }),
       ).rejects.toMatchObject({
-        code: 'REQUEST_NOT_PENDING',
+        code: 'REQUEST_ALREADY_ASSIGNED',
         statusCode: 409,
       });
 
@@ -339,7 +339,7 @@ describe.runIf(hasDatabase)('PostGIS Live Database Integration Tests', () => {
       await expect(
         assignmentService.commitAssignment(plan2.id, { operatorId: 'op_2' }),
       ).rejects.toMatchObject({
-        code: 'REQUEST_NOT_PENDING',
+        code: 'REQUEST_ALREADY_ASSIGNED',
         statusCode: 409,
       });
     });
