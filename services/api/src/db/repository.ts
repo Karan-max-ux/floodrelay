@@ -840,12 +840,26 @@ export class PostgisRepository {
       );
       const planStops = stopsResult.rows;
 
-      // 3. Lock and validate every request in PICKUP stops: must still be PENDING
-      const pickupTargetIds = Array.from(
-        new Set(
-          planStops.filter((s) => s.type === 'PICKUP' && s.target_id).map((s) => s.target_id),
-        ),
-      ).sort();
+      // 3. Lock and validate every request in PICKUP stops:
+      // Newly planned requests must be PENDING. Legitimate frozen stops must reference requests in ASSIGNED status.
+      // A request must never appear in duplicate PICKUP stops within the same plan.
+      const seenPickupTargets = new Set<string>();
+      for (const stop of planStops) {
+        if (stop.type === 'PICKUP' && stop.target_id) {
+          if (seenPickupTargets.has(stop.target_id)) {
+            const err = new Error(
+              `Duplicate PICKUP stop for request "${stop.target_id}" in assignment plan`,
+            );
+            (err as unknown as { code: string; statusCode: number }).code =
+              'REQUEST_ALREADY_ASSIGNED';
+            (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+            throw err;
+          }
+          seenPickupTargets.add(stop.target_id);
+        }
+      }
+
+      const pickupTargetIds = Array.from(seenPickupTargets).sort();
 
       if (pickupTargetIds.length > 0) {
         const reqResult = await client.query<{ id: string; status: string }>(
@@ -854,22 +868,38 @@ export class PostgisRepository {
         );
         const lockedRequests = new Map(reqResult.rows.map((r) => [r.id, r.status]));
 
-        for (const reqId of pickupTargetIds) {
-          const reqStatus = lockedRequests.get(reqId);
-          if (!reqStatus) {
-            const err = new Error(`Request "${reqId}" referenced in pickup stop does not exist`);
-            (err as unknown as { code: string; statusCode: number }).code = 'REQUEST_NOT_FOUND';
-            (err as unknown as { code: string; statusCode: number }).statusCode = 409;
-            throw err;
-          }
-          if (reqStatus !== 'PENDING') {
-            const err = new Error(
-              `Request "${reqId}" is no longer in PENDING status (current status: ${reqStatus})`,
-            );
-            (err as unknown as { code: string; statusCode: number }).code =
-              'REQUEST_ALREADY_ASSIGNED';
-            (err as unknown as { code: string; statusCode: number }).statusCode = 409;
-            throw err;
+        for (const stop of planStops) {
+          if (stop.type === 'PICKUP' && stop.target_id) {
+            const reqId = stop.target_id;
+            const reqStatus = lockedRequests.get(reqId);
+            if (!reqStatus) {
+              const err = new Error(`Request "${reqId}" referenced in pickup stop does not exist`);
+              (err as unknown as { code: string; statusCode: number }).code = 'REQUEST_NOT_FOUND';
+              (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+              throw err;
+            }
+
+            if (stop.is_frozen) {
+              if (reqStatus !== 'ASSIGNED') {
+                const err = new Error(
+                  `Request "${reqId}" in frozen stop is in invalid status: ${reqStatus} (must be ASSIGNED)`,
+                );
+                (err as unknown as { code: string; statusCode: number }).code =
+                  'REQUEST_ALREADY_ASSIGNED';
+                (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+                throw err;
+              }
+            } else {
+              if (reqStatus !== 'PENDING') {
+                const err = new Error(
+                  `Request "${reqId}" is no longer in PENDING status (current status: ${reqStatus})`,
+                );
+                (err as unknown as { code: string; statusCode: number }).code =
+                  'REQUEST_ALREADY_ASSIGNED';
+                (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+                throw err;
+              }
+            }
           }
         }
       }
