@@ -946,32 +946,60 @@ export class PostgisRepository {
           [assignmentId, resourceIds],
         );
 
-        if (otherStopsResult.rows.length > 0) {
-          const otherStopsByRes = new Map<string, typeof otherStopsResult.rows>();
-          for (const stop of otherStopsResult.rows) {
-            if (!otherStopsByRes.has(stop.resource_id)) {
-              otherStopsByRes.set(stop.resource_id, []);
-            }
-            otherStopsByRes.get(stop.resource_id)!.push(stop);
+        const otherStopsByRes = new Map<string, typeof otherStopsResult.rows>();
+        for (const stop of otherStopsResult.rows) {
+          if (!otherStopsByRes.has(stop.resource_id)) {
+            otherStopsByRes.set(stop.resource_id, []);
+          }
+          otherStopsByRes.get(stop.resource_id)!.push(stop);
+        }
+
+        for (const resId of resourceIds) {
+          const thisResFrozenStops = planStops.filter(
+            (s) => s.resource_id === resId && Boolean(s.is_frozen),
+          );
+          const otherStops = otherStopsByRes.get(resId) || [];
+
+          // 1. If this resource has frozen stops but no prior commitment, reject
+          if (thisResFrozenStops.length > 0 && otherStops.length === 0) {
+            const err = new Error(
+              `Resource "${resId}" has frozen stops in proposed plan but has no prior committed assignment lineage`,
+            );
+            (err as unknown as { code: string; statusCode: number }).code =
+              'RESOURCE_ALREADY_COMMITTED';
+            (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+            throw err;
           }
 
-          for (const [resId, otherStops] of otherStopsByRes.entries()) {
-            const thisResFrozenStops = planStops.filter(
-              (s) => s.resource_id === resId && Boolean(s.is_frozen),
+          // 2. Every prior committed stop for this resource must be preserved in this plan
+          for (const otherStop of otherStops) {
+            const matched = thisResFrozenStops.some(
+              (s) => s.type === otherStop.type && s.target_id === otherStop.target_id,
             );
-            for (const otherStop of otherStops) {
-              const matched = thisResFrozenStops.some(
-                (s) => s.type === otherStop.type && s.target_id === otherStop.target_id,
+            if (!matched) {
+              const err = new Error(
+                `Resource "${resId}" has active stops in another committed/dispatched assignment "${otherStop.other_assignment_id}" that were not incorporated as frozen stops in this plan`,
               );
-              if (!matched) {
-                const err = new Error(
-                  `Resource "${resId}" has active stops in another committed/dispatched assignment "${otherStop.other_assignment_id}" that were not incorporated as frozen stops in this plan`,
-                );
-                (err as unknown as { code: string; statusCode: number }).code =
-                  'RESOURCE_ALREADY_COMMITTED';
-                (err as unknown as { code: string; statusCode: number }).statusCode = 409;
-                throw err;
-              }
+              (err as unknown as { code: string; statusCode: number }).code =
+                'RESOURCE_ALREADY_COMMITTED';
+              (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+              throw err;
+            }
+          }
+
+          // 3. Every frozen stop in this plan (PICKUP and DROPOFF) must match a prior committed stop for this resource
+          for (const frozenStop of thisResFrozenStops) {
+            const matched = otherStops.some(
+              (other) => other.type === frozenStop.type && other.target_id === frozenStop.target_id,
+            );
+            if (!matched) {
+              const err = new Error(
+                `Frozen ${frozenStop.type} stop with target "${frozenStop.target_id}" does not belong to resource "${resId}"'s prior committed assignment lineage`,
+              );
+              (err as unknown as { code: string; statusCode: number }).code =
+                'RESOURCE_ALREADY_COMMITTED';
+              (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+              throw err;
             }
           }
         }
