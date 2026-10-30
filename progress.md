@@ -198,9 +198,9 @@ Incoming rescue requests
 
 - **Last completed:** Addressed PR #12 review findings across all 11 items: transactional commitAssignment with SELECT FOR UPDATE row locking, algorithm rejection on committed frozen stops (ADR-17), parameterized queries with $N placeholders and offset bounds, migration 002 with request hash and explicit provenance, dependencies updated (Zod 4, root vitest, body limits), OpenAPI response contract alignment with live Supertest schema validation, expanded limitations documentation, PostGIS CI container with migration up/down verification, and live integration tests.
 - **Next up:** Phase 3: Frontend (Next.js App Router, React Leaflet operator map and citizen intake UI).
-- **Phase 0:** 100% complete.
+- **Phase 0:** Complete.
 - **Phase 1:** Complete (algorithmic baselines: Nearest-First and Urgency-batched savings + 2-opt; Cluster-Allocation heuristic).
-- **Phase 2:** Under Review 🟡 (Pending PR #14 merge — review fixes implemented: deterministic resource row-level locking, late-stage transaction rollback verification with PostgreSQL triggers, explicit provenance classification for real/simulated/mixed scenarios, coordinate-derived regional metadata, and CI integration test enforcement with REQUIRE_DB=1).
+- **Phase 2:** Under Review 🟡 (Pending PR #14 merge — review fixes implemented: deterministic resource row-level locking, late-stage transaction rollback verification with PostgreSQL triggers, explicit provenance classification for real/simulated/mixed scenarios, coordinate-derived regional metadata, and CI integration test enforcement with REQUIRE_DB=1; CI verification is pending final push).
 - Everything in Phase 3 and beyond: not started.
 
 ---

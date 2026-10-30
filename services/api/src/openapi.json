@@ -565,7 +565,7 @@
             }
           },
           "409": {
-            "description": "Plan is already committed (ALREADY_COMMITTED)",
+            "description": "Plan is already committed or resource/request conflict detected (ALREADY_COMMITTED, REQUEST_ALREADY_ASSIGNED, RESOURCE_ALREADY_COMMITTED)",
             "content": {
               "application/json": {
                 "schema": {
