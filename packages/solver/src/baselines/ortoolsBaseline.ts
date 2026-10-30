@@ -2,14 +2,16 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Scenario, SolverPlan } from '@floodrelay/shared';
+import type { ResourceRoute, Scenario, SolverPlan } from '@floodrelay/shared';
 import { calculatePlanMetrics } from '../metrics.js';
+import { assertValidSolverPlan } from '../planValidator.js';
 
 export interface OrToolsOptions {
   maxShiftMinutes?: number;
   timeLimitSeconds?: number;
   pythonPath?: string;
   scriptPath?: string;
+  existingFrozenRoutes?: ResourceRoute[];
 }
 
 /**
@@ -80,6 +82,31 @@ export function resolveSolverScriptPath(explicitPath?: string): string {
  */
 export function solveOrToolsBaseline(scenario: Scenario, options?: OrToolsOptions): SolverPlan {
   const startTime = Date.now();
+
+  // Reject unsupported frozen routes or pre-assigned requests (Task 2)
+  if (options?.existingFrozenRoutes && options.existingFrozenRoutes.length > 0) {
+    throw new Error(
+      'Google OR-Tools baseline is a static benchmark solver and does not support frozen stops or existing frozen routes. Use Cluster-Allocation for scenarios with committed frozen stops.',
+    );
+  }
+
+  if (
+    Array.isArray((scenario as { existingFrozenRoutes?: unknown[] }).existingFrozenRoutes) &&
+    (scenario as { existingFrozenRoutes?: unknown[] }).existingFrozenRoutes!.length > 0
+  ) {
+    throw new Error(
+      'Google OR-Tools baseline is a static benchmark solver and does not support frozen stops or existing frozen routes. Use Cluster-Allocation for scenarios with committed frozen stops.',
+    );
+  }
+
+  for (const req of scenario.requests) {
+    if (req.status && ['ASSIGNED', 'IN_TRANSIT', 'RESCUED'].includes(req.status)) {
+      throw new Error(
+        `Google OR-Tools baseline does not support pre-assigned/frozen requests (request '${req.id}' has status '${req.status}'). Use Cluster-Allocation for replanning with committed assignments.`,
+      );
+    }
+  }
+
   const pythonPath = resolvePythonPath(options?.pythonPath);
   const scriptPath = resolveSolverScriptPath(options?.scriptPath);
 
@@ -129,6 +156,9 @@ export function solveOrToolsBaseline(scenario: Scenario, options?: OrToolsOption
       { cause: err },
     );
   }
+
+  // Validate Python solver output independently against constraints and invariants
+  assertValidSolverPlan(scenario, rawPlan, { maxShiftMinutes: maxShift, allowFrozen: false });
 
   const durationMs = Date.now() - startTime;
   const metrics = calculatePlanMetrics(scenario, rawPlan, durationMs);

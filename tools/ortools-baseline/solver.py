@@ -3,6 +3,9 @@
 Formulates flood rescue dispatch as a multi-vehicle pickup and delivery problem (PDP)
 with capacity constraints, shift duration limits (enforcing the return leg to safe shelters),
 and urgency-prioritized penalties.
+Employs constraint programming and guided local search metaheuristics to find feasible,
+high-quality solutions within configurable search time limits (heuristic/metaheuristic baseline;
+does not prove global optimality on general VRP instances).
 """
 
 from __future__ import annotations
@@ -58,6 +61,21 @@ def solve(
     ]
 
     unserved_list: list[UnservedRequest] = []
+
+    # Check for unsupported frozen stops or existing frozen routes (Task 2)
+    if scenario.get("existingFrozenRoutes"):
+        raise ValueError(
+            "Google OR-Tools baseline is a static benchmark solver and does not "
+            "support frozen stops or existing frozen routes. Use Cluster-Allocation "
+            "for scenarios with committed frozen stops."
+        )
+    for req in requests:
+        if req.get("status") in ("ASSIGNED", "IN_TRANSIT", "RESCUED"):
+            raise ValueError(
+                f"Google OR-Tools baseline does not support pre-assigned/frozen requests "
+                f"(request '{req.get('id')}' has status '{req.get('status')}'). "
+                "Use Cluster-Allocation for replanning with committed assignments."
+            )
 
     # Edge case 1: No available resources or no safe shelters
     if not shelters or not available_resources:
@@ -203,11 +221,14 @@ def solve(
                 lat1, lng1 = get_node_coords(fn)
                 lat2, lng2 = get_node_coords(tn)
                 if lat1 == lat2 and lng1 == lng2:
+                    # Enforce strictly positive transit between a pickup and its own delivery if colocated
+                    if fn < N and tn == N + fn:
+                        return 1
                     return 0
                 _, dur_min = get_travel_estimate(
                     lat1, lng1, lat2, lng2, vehicle_speed
                 )
-                return int(round(dur_min * 100))
+                return max(1, int(round(dur_min * 100)))
 
             return transit_callback
 
@@ -400,17 +421,55 @@ def solve(
                     "servedRequestIds": route_served,
                 })
 
-    # Classify unserved candidate requests
+    # Classify unserved candidate requests with verified evidence (Task 4)
+    solver_status = routing.status()
+    timed_out = solver_status == pywrapcp.RoutingModel.ROUTING_FAIL_TIMEOUT
+
     for req in candidate_requests:
         if req["id"] not in served_ids:
-            unserved_list.append({
-                "requestId": req["id"],
-                "reason": "SHIFT_LIMIT_REACHED",
-                "details": (
-                    f"Request of {req['peopleCount']} passengers could not be assigned "
-                    "within resource capacity or shift limits"
-                ),
-            })
+            # Check if direct mission (start -> req -> nearest shelter) strictly exceeds max_shift_minutes
+            min_direct_duration = min(
+                (
+                    get_travel_estimate(
+                        float(r["lat"]),
+                        float(r["lng"]),
+                        float(req["lat"]),
+                        float(req["lng"]),
+                        float(r.get("speedKmH", 30.0)),
+                    )[1]
+                    + min(
+                        get_travel_estimate(
+                            float(req["lat"]),
+                            float(req["lng"]),
+                            float(sh["lat"]),
+                            float(sh["lng"]),
+                            float(r.get("speedKmH", 30.0)),
+                        )[1]
+                        for sh in shelters
+                    )
+                )
+                for r in available_resources
+            )
+
+            if min_direct_duration > max_shift_minutes:
+                unserved_list.append({
+                    "requestId": req["id"],
+                    "reason": "SHIFT_LIMIT_REACHED",
+                    "details": (
+                        f"Request requires at least {min_direct_duration:.1f} minutes for direct mission, "
+                        f"which exceeds the vehicle shift limit ({max_shift_minutes:.1f} min)"
+                    ),
+                })
+            else:
+                timeout_note = " (solver reached search time limit)" if timed_out else ""
+                unserved_list.append({
+                    "requestId": req["id"],
+                    "reason": "CAPACITY_EXCEEDED",
+                    "details": (
+                        f"Request of {req['peopleCount']} passengers could not be assigned within "
+                        f"vehicle capacity, shift duration, or search limits{timeout_note}"
+                    ),
+                })
 
     duration_ms = int((time.perf_counter() - start_time) * 1000)
     metrics = calculate_metrics(scenario, routes, unserved_list, duration_ms)

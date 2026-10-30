@@ -100,7 +100,7 @@ Incoming rescue requests
   - Solve time
   - Latency per event (p50 and p95)
   - Assignment churn (how many already-communicated assignments change per event)
-- **Baselines:** nearest-first greedy and Urgency-batched savings + 2-opt.
+- **Baselines:** Nearest-First (greedy), Urgency-batched savings + 2-opt, and Google OR-Tools (Pickup and Delivery Problem baseline).
 - At least 20 random seeds per scenario size, report mean and spread.
 - **Standard scenario sizes:**
   - Small: 20 requests / 4 resources / 2 shelters

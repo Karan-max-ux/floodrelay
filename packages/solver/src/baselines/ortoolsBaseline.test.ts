@@ -216,6 +216,45 @@ describe('solveOrToolsBaseline', () => {
     ).toThrow(/not found at/);
   });
 
+  it('rejects scenario with existingFrozenRoutes in options or scenario', () => {
+    expect(() =>
+      solveOrToolsBaseline(testScenario, {
+        existingFrozenRoutes: [
+          {
+            resourceId: 'res-boat-1',
+            stops: [],
+            totalTravelDistanceKm: 0,
+            totalDurationMinutes: 0,
+            servedRequestIds: [],
+          },
+        ],
+      }),
+    ).toThrow(/does not support frozen stops or existing frozen routes/);
+
+    const scenarioWithFrozen = {
+      ...testScenario,
+      existingFrozenRoutes: [{ resourceId: 'res-boat-1', stops: [] }],
+    };
+    expect(() => solveOrToolsBaseline(scenarioWithFrozen as unknown as Scenario)).toThrow(
+      /does not support frozen stops or existing frozen routes/,
+    );
+  });
+
+  it('rejects scenario with pre-assigned requests', () => {
+    const scenarioWithAssigned: Scenario = {
+      ...testScenario,
+      requests: [
+        {
+          ...testScenario.requests[0]!,
+          status: 'IN_TRANSIT',
+        },
+      ],
+    };
+    expect(() => solveOrToolsBaseline(scenarioWithAssigned)).toThrow(
+      /does not support pre-assigned\/frozen requests/,
+    );
+  });
+
   it('executes reliably on a generated scenario and satisfies invariants', () => {
     const scenario = generateScenario({
       seed: 42,

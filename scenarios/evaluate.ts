@@ -16,6 +16,7 @@ console.log('===================================================================
 // Parse CLI flags
 const args = process.argv.slice(2);
 const largeOnly = args.includes('--large-only');
+const mediumOnly = args.includes('--medium-only');
 const smallOnly = args.includes('--small-only');
 const includeOrTools =
   args.includes('--include-ortools') ||
@@ -33,6 +34,8 @@ const seedCount =
 let casesToRun = STANDARD_BENCHMARK_CASES;
 if (largeOnly) {
   casesToRun = STANDARD_BENCHMARK_CASES.filter((c) => c.name.toLowerCase().includes('large'));
+} else if (mediumOnly) {
+  casesToRun = STANDARD_BENCHMARK_CASES.filter((c) => c.name.toLowerCase().includes('medium'));
 } else if (smallOnly) {
   casesToRun = STANDARD_BENCHMARK_CASES.filter((c) => c.name.toLowerCase().includes('small'));
 }

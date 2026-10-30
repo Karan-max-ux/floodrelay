@@ -205,3 +205,74 @@ def test_cli_invocation(base_scenario: dict[str, Any]):
     assert plan["scenarioId"] == "test-scenario"
     assert plan["metrics"]["coveragePercent"] == 100.0
 
+
+def test_reject_existing_frozen_routes(base_scenario: dict[str, Any]):
+    scenario = dict(base_scenario)
+    scenario["existingFrozenRoutes"] = [{"resourceId": "res-boat-1", "stops": []}]
+    with pytest.raises(ValueError, match="does not support frozen stops or existing frozen routes"):
+        solve(scenario)
+
+
+def test_reject_preassigned_requests(base_scenario: dict[str, Any]):
+    scenario = dict(base_scenario)
+    scenario["requests"] = [
+        dict(scenario["requests"][0], status="ASSIGNED")
+    ]
+    with pytest.raises(ValueError, match="does not support pre-assigned/frozen requests"):
+        solve(scenario)
+
+
+def test_unserved_classification_shift_limit_vs_capacity():
+    """Verifies that direct mission exceeding shift limit gets SHIFT_LIMIT_REACHED,
+    while feasible direct missions omitted due to fleet capacity get CAPACITY_EXCEEDED."""
+    scenario = {
+        "id": "classification-test",
+        "requests": [
+            # Close request: direct mission takes ~10 min
+            {"id": "req-close", "lat": 28.51, "lng": 77.11, "peopleCount": 4, "urgency": "HIGH"},
+            # Far request: direct mission takes ~60 min (round trip)
+            {"id": "req-far", "lat": 28.65, "lng": 77.1, "peopleCount": 4, "urgency": "HIGH"},
+        ],
+        "resources": [
+            # Only 1 vehicle with capacity 4: can serve req-close, but cannot serve both
+            {"id": "res-1", "capacity": 4, "speedKmH": 30, "lat": 28.5, "lng": 77.1, "status": "AVAILABLE"}
+        ],
+        "shelters": [
+            {"id": "shelter-1", "lat": 28.5, "lng": 77.1, "capacity": 100}
+        ],
+    }
+
+    # Set shift limit to 40 min: req-close direct mission fits (~10 min), but req-far direct mission is >50 min.
+    # req-far cannot fit alone in 40 min -> SHIFT_LIMIT_REACHED.
+    plan = solve(scenario, max_shift_minutes=40.0, time_limit_seconds=2.0)
+    unserved_far = next((u for u in plan["unserved"] if u["requestId"] == "req-far"), None)
+    assert unserved_far is not None
+    assert unserved_far["reason"] == "SHIFT_LIMIT_REACHED"
+
+    # Now test CAPACITY_EXCEEDED:
+    # 3 requests of 4 people, vehicle capacity 4 (requires 3 distinct trips).
+    # Each round trip takes ~12.5 min.
+    # With max_shift_minutes = 30.0, vehicle can complete 2 trips (~25 min), but not 3 (~37.5 min).
+    # Direct mission for any individual request is ~12.5 min <= 30.0 min.
+    # Thus the omitted 3rd request is classified as CAPACITY_EXCEEDED (fleet capacity / multi-trip limit).
+    scenario_cap = {
+        "id": "capacity-exceeded-test",
+        "requests": [
+            {"id": "req-a", "lat": 28.52, "lng": 77.12, "peopleCount": 4, "urgency": "HIGH"},
+            {"id": "req-b", "lat": 28.52, "lng": 77.12, "peopleCount": 4, "urgency": "HIGH"},
+            {"id": "req-c", "lat": 28.52, "lng": 77.12, "peopleCount": 4, "urgency": "HIGH"},
+        ],
+        "resources": [
+            {"id": "res-1", "capacity": 4, "speedKmH": 30, "lat": 28.5, "lng": 77.1, "status": "AVAILABLE"}
+        ],
+        "shelters": [
+            {"id": "shelter-1", "lat": 28.5, "lng": 77.1, "capacity": 100}
+        ],
+    }
+    plan_cap = solve(scenario_cap, max_shift_minutes=30.0, time_limit_seconds=2.0)
+    assert len(plan_cap["routes"]) == 1
+    assert len(plan_cap["unserved"]) >= 1
+    for u in plan_cap["unserved"]:
+        assert u["reason"] == "CAPACITY_EXCEEDED"
+
+

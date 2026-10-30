@@ -147,3 +147,66 @@ def test_unavailable_resources_assigned_nothing():
     plan = solve(scenario, max_shift_minutes=480.0, time_limit_seconds=2.0)
     assert plan["routes"] == []
     assert len(plan["unserved"]) == 1
+
+
+def test_colocated_pickup_and_shelter_precedence():
+    """Verifies that when a pickup is colocated with a shelter, pickup strictly precedes dropoff."""
+    scenario: dict[str, Any] = {
+        "id": "colocated-test",
+        "requests": [
+            # Exactly same coordinates as shelter
+            {"id": "req-colocated", "lat": 28.5, "lng": 77.1, "peopleCount": 2, "urgency": "HIGH"}
+        ],
+        "resources": [
+            {"id": "res-1", "capacity": 6, "speedKmH": 30, "lat": 28.52, "lng": 77.12, "status": "AVAILABLE"}
+        ],
+        "shelters": [
+            {"id": "shelter-base", "lat": 28.5, "lng": 77.1, "capacity": 100}
+        ],
+    }
+
+    plan = solve(scenario, max_shift_minutes=480.0, time_limit_seconds=2.0)
+    assert len(plan["routes"]) == 1
+    route = plan["routes"][0]
+    assert len(route["stops"]) == 2
+
+    # Stop 1 must be PICKUP, Stop 2 must be DROPOFF
+    assert route["stops"][0]["type"] == "PICKUP"
+    assert route["stops"][0]["targetId"] == "req-colocated"
+    assert route["stops"][1]["type"] == "DROPOFF"
+    assert route["stops"][1]["targetId"] == "shelter-base"
+
+    # Precedence: arrival at dropoff must be >= arrival at pickup
+    arr_pickup = route["stops"][0]["estimatedArrivalMinutes"]
+    arr_dropoff = route["stops"][1]["estimatedArrivalMinutes"]
+    assert arr_dropoff >= arr_pickup
+
+
+def test_every_active_route_ends_at_shelter():
+    """Verifies that all active routes conclude at a shelter."""
+    scenario: dict[str, Any] = {
+        "id": "multi-route-shelter-end",
+        "requests": [
+            {"id": f"req-{i}", "lat": 28.51 + (i * 0.01), "lng": 77.11, "peopleCount": 2, "urgency": "HIGH"}
+            for i in range(4)
+        ],
+        "resources": [
+            {"id": "res-1", "capacity": 6, "speedKmH": 30, "lat": 28.5, "lng": 77.1, "status": "AVAILABLE"},
+            {"id": "res-2", "capacity": 6, "speedKmH": 30, "lat": 28.55, "lng": 77.15, "status": "AVAILABLE"},
+        ],
+        "shelters": [
+            {"id": "shelter-1", "lat": 28.5, "lng": 77.1, "capacity": 100},
+            {"id": "shelter-2", "lat": 28.56, "lng": 77.16, "capacity": 100},
+        ],
+    }
+
+    plan = solve(scenario, max_shift_minutes=480.0, time_limit_seconds=3.0)
+    assert len(plan["routes"]) > 0
+    shelter_ids = {s["id"] for s in scenario["shelters"]}
+
+    for route in plan["routes"]:
+        last_stop = route["stops"][-1]
+        assert last_stop["type"] == "DROPOFF"
+        assert last_stop["targetId"] in shelter_ids
+        assert last_stop["estimatedArrivalMinutes"] <= route["totalDurationMinutes"] + 0.05
+

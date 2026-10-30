@@ -11,6 +11,7 @@ The solver formulates flood rescue resource dispatch as a **Pickup and Delivery 
 - **Shift Limits and Return Legs:** Vehicle time dimension strictly bounds total mission duration (default 480 minutes / 8 hours), requiring all vehicles to conclude at a safe shelter drop-off before shift completion.
 - **Urgency Prioritization:** Disjunction penalty scaling (`CRITICAL` > `HIGH` > `MEDIUM` > `LOW`) and soft cumulative arrival bounds prioritize life-critical rescues.
 - **Distinct Unserved Reasons:** Categorizes unserved requests (`GROUP_LARGER_THAN_ANY_VEHICLE`, `SHIFT_LIMIT_REACHED`, `NO_REACHABLE_RESOURCE`, `CAPACITY_EXCEEDED`).
+- **Algorithmic Nature & Optimality:** The solver uses constraint programming and guided local search metaheuristics to find high-quality feasible solutions within configurable time limits. On NP-hard vehicle routing problems, it does not guarantee or prove global optimality under practical search limits.
 
 ## Installation
 
