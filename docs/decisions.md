@@ -140,6 +140,8 @@ When recording a new decision, copy this template and fill it in:
 
 ---
 
+---
+
 ### ADR-13: Database schema, PostGIS spatial indexing, and SQL migration strategy
 
 - **Date:** 2026-10-27
@@ -188,7 +190,20 @@ When recording a new decision, copy this template and fill it in:
 
 ---
 
-### ADR-17: Rejection of Frozen Route Preservation for Greedy and Savings Baselines
+### ADR-17: Google OR-Tools Python Baseline Formulation and Child-Process Integration
+
+- **Date:** 2026-10-23
+- **Decision:** Implement an optimization baseline using Google OR-Tools in Python (`ortools.constraint_solver.pywrapcp`), integrated with the TypeScript solver package via a child process (`child_process.spawnSync`).
+- **Context:** Phase 1 required an established optimization baseline to benchmark against our custom heuristics (Nearest-First, Urgency-batched savings + 2-opt, Cluster-Allocation). OR-Tools is an industry standard for Vehicle Routing Problems (VRP) and Pickup and Delivery Problems (PDP). Formulating rescue operations as a multi-vehicle PDP with capacity and time dimensions provides a formal mathematical optimization baseline using constraint programming and metaheuristic routing search to evaluate heuristic dispatch quality, high-priority wait times, and travel efficiency.
+- **Alternatives considered:**
+  - TypeScript LP/MIP solvers (e.g. javascript-lp-solver): Lack native routing dimension support, vehicle routing metaheuristics, and perform poorly on non-trivial VRP instances.
+  - Persistent Python microservice / REST server: Running a background HTTP daemon for baseline evaluation introduces unnecessary operational complexity, port conflicts, and dependency management for library-level solver tests.
+  - Shell string interpolation (`child_process.exec`): Vulnerable to command injection and platform discrepancies across Windows and Linux environments.
+- **Consequence:** Clean decoupling where the Python solver operates as a standalone CLI tool reading/writing JSON via stdin/stdout, while the TypeScript wrapper (`solveOrToolsBaseline`) provides a seamless synchronous interface conforming to `SolverFn` with zero native binding complexity. Requires Python 3.10+ with `ortools` installed in the development and CI environments.
+
+---
+
+### ADR-18: Rejection of Frozen Route Preservation for Greedy and Savings Baselines
 
 - **Date:** 2026-10-29
 - **Decision:** Reject attempts to propose assignments using the `nearest-first` or `savings` baseline algorithms with HTTP 400 (`UNSUPPORTED_ALGORITHM_OPTION`) whenever committed frozen stops exist in the active scenario, or when `preserveFrozen: true` is explicitly requested. Operators requiring incremental replanning around committed stops must use `cluster-allocation` or explicitly pass `preserveFrozen: false` to recalculate entirely from scratch.
@@ -200,7 +215,7 @@ When recording a new decision, copy this template and fill it in:
 
 ---
 
-### ADR-18: Deterministic resource-level locking and transactional rollback verification
+### ADR-19: Deterministic resource-level locking and transactional rollback verification
 
 - **Date:** 2026-10-30
 - **Decision:** In `commitAssignment()`, acquire exclusive PostgreSQL row locks (`SELECT ... FOR UPDATE`) on the assignment row, all referenced request rows (in ascending ID order), and all referenced resource rows (in ascending ID order) within a single database transaction. Recheck for resource assignment conflicts after locks are acquired before applying status transitions. Wrap the entire workflow—assignment status update, stop freezing, request assignment, and audit event insertion—in a PostgreSQL transaction that performs full rollback on any intermediate failure.

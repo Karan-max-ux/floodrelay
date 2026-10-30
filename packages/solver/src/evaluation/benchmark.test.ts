@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ALL_SOLVERS,
   evaluateSolversOnCase,
   formatMarkdownResultsTable,
   STANDARD_BENCHMARK_CASES,
 } from './benchmark.js';
 
 describe('Solver Evaluation Benchmark Harness', () => {
-  it('evaluates all solvers across random seeds and generates a results table', () => {
+  it('evaluates standard solvers across random seeds and generates a results table', () => {
     const smallCase = STANDARD_BENCHMARK_CASES[0]!;
     expect(smallCase).toBeDefined();
 
@@ -30,5 +31,14 @@ describe('Solver Evaluation Benchmark Harness', () => {
     expect(markdownTable).toContain('Nearest-First (Greedy)');
     expect(markdownTable).toContain('Cluster-Allocation');
     expect(markdownTable).toContain('Urgency-batched savings + 2-opt');
+  });
+
+  it('evaluates with Google OR-Tools when ALL_SOLVERS is provided', () => {
+    const smallCase = STANDARD_BENCHMARK_CASES[0]!;
+    const summaries = evaluateSolversOnCase(smallCase, 1, ALL_SOLVERS, 42);
+    expect(summaries).toHaveLength(4);
+    expect(summaries.map((s) => s.solverName)).toContain('Google OR-Tools');
+    const otSummary = summaries.find((s) => s.solverName === 'Google OR-Tools');
+    expect(otSummary?.coverageMean).toBeGreaterThan(0);
   });
 });

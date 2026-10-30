@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-10-30
 
-**Current focus:** Phase 2 Review Fixes Implemented & Under Review 🟡 — Concurrency Locking, Rollback Verification, Provenance Classification (Pending PR #14 Merge)
+**Current focus:** Phase 2 Review Fixes Implemented & Under Review 🟡 — Concurrency Locking, Rollback Verification, Provenance Classification (Pending PR Review)
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -100,7 +100,7 @@ Incoming rescue requests
   - Solve time
   - Latency per event (p50 and p95)
   - Assignment churn (how many already-communicated assignments change per event)
-- **Baselines:** nearest-first greedy and Urgency-batched savings + 2-opt.
+- **Baselines:** Nearest-First (greedy), Urgency-batched savings + 2-opt, and Google OR-Tools (Pickup and Delivery Problem baseline).
 - At least 20 random seeds per scenario size, report mean and spread.
 - **Standard scenario sizes:**
   - Small: 20 requests / 4 resources / 2 shelters
@@ -131,16 +131,16 @@ Incoming rescue requests
 
 ### Phase 1 — Solver core and evaluation harness
 
-| Task                                                                              | Owner | Status | Proving test(s)                                                                                                                                                                                                    |
-| --------------------------------------------------------------------------------- | ----- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Scenario format                                                                   | —     | ✅     | `packages/shared/src/scenario.test.ts` (`validates valid scenario correctly`, `rejects invalid coordinates`)                                                                                                       |
-| Seeded generator                                                                  | —     | ✅     | `packages/solver/src/generator.test.ts` (`same seed gives an identical scenario`, `different seeds give different scenarios`, `labels every single generated request as SIMULATED`)                                |
-| Metrics                                                                           | —     | ✅     | `packages/solver/src/metrics.test.ts` (`computes 50% coverage when 2 out of 4 requests are served`, `detects churn and frozen violations`)                                                                         |
-| Nearest-first baseline                                                            | —     | ✅     | `packages/solver/src/baselines/nearestFirst.test.ts` (`capacity is never exceeded`, `no request is assigned twice`, `unavailable resources get nothing`)                                                           |
-| Own DBSCAN                                                                        | —     | ✅     | `packages/solver/src/clustering/dbscan.test.ts` (`correctly partitions two distinct spatial clusters`, `DBSCAN keeps noise points as singleton demands`)                                                           |
-| First allocation heuristic with straight-line distances behind TravelTimeProvider | —     | ✅     | `packages/solver/src/heuristics/clusterAllocation.test.ts` (`allocates resources to clusters and prioritizes critical urgency requests`, `frozen stops are not moved by replanning`, `capacity is never exceeded`) |
-| OR-Tools baseline                                                                 | —     | ⬜     | — (not implemented; algorithmic baselines are Nearest-First and Urgency-batched savings + 2-opt)                                                                                                                   |
-| Results-table script                                                              | —     | ✅     | `packages/solver/src/evaluation/benchmark.test.ts` (`evaluates all solvers across random seeds and generates a results table`), verified via `scenarios/evaluate.ts`                                               |
+| Task                                                                              | Owner | Status | Proving test(s)                                                                                                                                                                                                                                                                                                                                      |
+| --------------------------------------------------------------------------------- | ----- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Scenario format                                                                   | —     | ✅     | `packages/shared/src/scenario.test.ts` (`validates valid scenario correctly`, `rejects invalid coordinates`)                                                                                                                                                                                                                                         |
+| Seeded generator                                                                  | —     | ✅     | `packages/solver/src/generator.test.ts` (`same seed gives an identical scenario`, `different seeds give different scenarios`, `labels every single generated request as SIMULATED`)                                                                                                                                                                  |
+| Metrics                                                                           | —     | ✅     | `packages/solver/src/metrics.test.ts` (`computes 50% coverage when 2 out of 4 requests are served`, `detects churn and frozen violations`)                                                                                                                                                                                                           |
+| Nearest-first baseline                                                            | —     | ✅     | `packages/solver/src/baselines/nearestFirst.test.ts` (`capacity is never exceeded`, `no request is assigned twice`, `unavailable resources get nothing`)                                                                                                                                                                                             |
+| Own DBSCAN                                                                        | —     | ✅     | `packages/solver/src/clustering/dbscan.test.ts` (`correctly partitions two distinct spatial clusters`, `DBSCAN keeps noise points as singleton demands`)                                                                                                                                                                                             |
+| First allocation heuristic with straight-line distances behind TravelTimeProvider | —     | ✅     | `packages/solver/src/heuristics/clusterAllocation.test.ts` (`allocates resources to clusters and prioritizes critical urgency requests`, `frozen stops are not moved by replanning`, `capacity is never exceeded`)                                                                                                                                   |
+| OR-Tools baseline                                                                 | —     | ✅     | `tools/ortools-baseline/tests/test_solver.py`, `tools/ortools-baseline/tests/test_constraints.py`, `packages/solver/src/baselines/ortoolsBaseline.test.ts` (`serves requests and respects capacity constraints`, `strictly enforces return leg to shelter within shift limit`, `executes reliably on a generated scenario and satisfies invariants`) |
+| Results-table script                                                              | —     | ✅     | `packages/solver/src/evaluation/benchmark.test.ts` (`evaluates all solvers across random seeds and generates a results table`), verified via `scenarios/evaluate.ts`                                                                                                                                                                                 |
 
 ### Phase 2 — API and database (Under Review 🟡)
 
@@ -196,11 +196,11 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Addressed PR #12 review findings across all 11 items: transactional commitAssignment with SELECT FOR UPDATE row locking, algorithm rejection on committed frozen stops (ADR-17), parameterized queries with $N placeholders and offset bounds, migration 002 with request hash and explicit provenance, dependencies updated (Zod 4, root vitest, body limits), OpenAPI response contract alignment with live Supertest schema validation, expanded limitations documentation, PostGIS CI container with migration up/down verification, and live integration tests.
+- **Last completed:** Google OR-Tools Python baseline implementation, child-process TypeScript integration, comprehensive test suite, benchmark harness integration, and Phase 2 review fixes (deterministic resource row-level locking, scoped transaction rollback verification with PostgreSQL triggers, explicit provenance classification, dynamic coordinate-derived regional metadata).
 - **Next up:** Phase 3: Frontend (Next.js App Router, React Leaflet operator map and citizen intake UI).
 - **Phase 0:** Complete.
-- **Phase 1:** Complete (algorithmic baselines: Nearest-First and Urgency-batched savings + 2-opt; Cluster-Allocation heuristic).
-- **Phase 2:** Under Review 🟡 (Pending PR #14 merge — review fixes implemented: deterministic resource row-level locking, late-stage transaction rollback verification with PostgreSQL triggers, explicit provenance classification for real/simulated/mixed scenarios, coordinate-derived regional metadata, and CI integration test enforcement with REQUIRE_DB=1; CI verification is pending final push).
+- **Phase 1:** Complete (8 of 8 tasks complete ✅).
+- **Phase 2:** Under Review 🟡 (Pending PR review — review fixes implemented: deterministic resource row-level locking, late-stage transaction rollback verification with PostgreSQL triggers, explicit provenance classification for real/simulated/mixed scenarios, coordinate-derived regional metadata, and CI integration test enforcement with REQUIRE_DB=1; CI verification is pending final push).
 - Everything in Phase 3 and beyond: not started.
 
 ---
@@ -235,7 +235,7 @@ Incoming rescue requests
 | Request intake validation and duplicate detection          | Zod coordinate bounds, DB idempotency keys, spatial-temporal duplicate flagging (<=100m, <=2h, +-2 people) without dropping records, unverified submissions retained (ADR-14)                                                              |
 | Operator-committed assignments and stop-freezing lifecycle | Solver only proposes; operator action commits, freezes stops, marks requests ASSIGNED, subsequent replans preserve frozen stops (ADR-15)                                                                                                   |
 | OpenAPI 3.1 specification and anti-drift testing           | OpenAPI 3.1 spec served at /openapi.json and validated via automated route-introspection tests against Express handlers (ADR-16)                                                                                                           |
-| Deterministic resource locking and rollback verification   | Row-level SELECT FOR UPDATE in ascending order on resources, late statement rollback verification, explicit provenance (ADR-18)                                                                                                            |
+| Deterministic resource locking and rollback verification   | Row-level SELECT FOR UPDATE in ascending order on resources, late statement rollback verification, explicit provenance (ADR-19)                                                                                                            |
 
 ---
 
