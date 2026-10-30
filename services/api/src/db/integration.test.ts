@@ -520,7 +520,39 @@ describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
       });
     });
 
-    it('prevents two different proposals using the same resource for different requests from committing concurrently', async () => {
+    it('proves identical lock acquisition ordering between JS .sort() and PostgreSQL COLLATE "C" across mixed-case, numbers, and underscores', async () => {
+      const ids = ['res_a', 'res_A', 'res_1', 'res_B', 'res_b', 'RES_1', 'res__', 'res-1'];
+      for (const id of ids) {
+        await repo.insertResource(
+          {
+            id,
+            name: `Resource ${id}`,
+            type: 'BOAT',
+            capacity: 5,
+            speedKmH: 25,
+            lat: 28.7,
+            lng: 77.2,
+            status: 'AVAILABLE',
+          },
+          'REAL',
+        );
+      }
+
+      const jsSorted = [...ids].sort();
+      const client = await pool.connect();
+      try {
+        const dbResult = await client.query<{ id: string }>(
+          'SELECT id FROM resources WHERE id = ANY($1::text[]) ORDER BY id COLLATE "C" ASC;',
+          [ids],
+        );
+        const dbSorted = dbResult.rows.map((r) => r.id);
+        expect(dbSorted).toEqual(jsSorted);
+      } finally {
+        client.release();
+      }
+    });
+
+    it('prevents two different proposals using the same resource for different requests from committing concurrently via genuine overlapping transactions', async () => {
       const resource: RescueResource = {
         id: 'res_shared_lock',
         name: 'Shared Rescue Boat',
@@ -655,64 +687,1720 @@ describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
         ],
       );
 
-      // Execute conflicting commits concurrently using independent database connections
-      const client1 = await pool.connect();
-      const client2 = await pool.connect();
-      const repo1 = new PostgisRepository(client1);
-      const repo2 = new PostgisRepository(client2);
+      // Execute conflicting commits concurrently with guaranteed overlap:
+      // Client A locks the resource row and commits plan A inside its open transaction.
+      // Client B calls repoB.commitAssignment(planBId) and blocks on Client A's lock.
+      // A monitor connection inspects pg_stat_activity to confirm Client B is blocked on 'Lock'.
+      // Then Client A commits, unblocking Client B which detects the conflict and rejects with 409.
+      const clientA = await pool.connect();
+      const clientB = await pool.connect();
+      const clientMonitor = await pool.connect();
+      const repoB = new PostgisRepository(clientB);
 
       try {
-        const results = await Promise.allSettled([
-          repo1.commitAssignment(planAId, 'operator_1'),
-          repo2.commitAssignment(planBId, 'operator_2'),
+        const pidResult = await clientB.query<{ pid: number }>('SELECT pg_backend_pid() as pid;');
+        const pidB = pidResult.rows[0]!.pid;
+
+        await clientA.query('BEGIN');
+        await clientA.query('SELECT id, status FROM resources WHERE id = $1 FOR UPDATE;', [
+          resource.id,
         ]);
 
-        const fulfilled = results.filter((r) => r.status === 'fulfilled');
-        const rejected = results.filter((r) => r.status === 'rejected');
+        // Commit plan A within Client A's open transaction
+        await clientA.query(
+          "UPDATE assignments SET status = 'COMMITTED', committed_at = NOW(), committed_by = $2, updated_at = NOW() WHERE id = $1;",
+          [planAId, 'operator_A'],
+        );
+        await clientA.query(
+          'UPDATE assignment_stops SET is_frozen = TRUE WHERE assignment_id = $1;',
+          [planAId],
+        );
+        await clientA.query(
+          "UPDATE requests SET status = 'ASSIGNED', updated_at = NOW() WHERE id = $1;",
+          [reqA.id],
+        );
+        await clientA.query(
+          "INSERT INTO audit_events (entity_type, entity_id, event_type, actor, payload, created_at) VALUES ('ASSIGNMENT', $1, 'ASSIGNMENT_COMMITTED', $2, $3, NOW());",
+          [planAId, 'operator_A', JSON.stringify({ assignmentId: planAId })],
+        );
 
-        expect(fulfilled.length).toBe(1);
-        expect(rejected.length).toBe(1);
+        // Client B tries to commit plan B and will block on Client A's row lock on resources
+        const commitBPromise = repoB.commitAssignment(planBId, 'operator_B');
 
-        const rejectedReason = (rejected[0] as PromiseRejectedResult).reason;
-        expect(rejectedReason.code).toBe('RESOURCE_ALREADY_COMMITTED');
-        expect(rejectedReason.statusCode).toBe(409);
+        // Poll pg_stat_activity with timeout to prove Client B is blocked on 'Lock'
+        const startTime = Date.now();
+        const maxWaitMs = 1500;
+        let isWaitingOnLock = false;
+        while (Date.now() - startTime < maxWaitMs) {
+          const act = await clientMonitor.query<{ wait_event_type: string | null }>(
+            'SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1;',
+            [pidB],
+          );
+          if (act.rows[0]?.wait_event_type === 'Lock') {
+            isWaitingOnLock = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
 
-        // Verify database contains NO conflicting committed assignments
+        expect(isWaitingOnLock).toBe(true);
+
+        // Release Client A by committing transaction
+        await clientA.query('COMMIT');
+
+        // Client B unblocks, rechecks conflicts, and must fail with 409 RESOURCE_ALREADY_COMMITTED
+        let bError: { code?: string; statusCode?: number } | null = null;
+        try {
+          await commitBPromise;
+        } catch (err) {
+          bError = err as { code?: string; statusCode?: number };
+        }
+
+        expect(bError).not.toBeNull();
+        expect(bError?.code).toBe('RESOURCE_ALREADY_COMMITTED');
+        expect(bError?.statusCode).toBe(409);
+
+        // Verify database state: exactly 1 committed assignment, no conflicting committed assignments
         const dbClient = await pool.connect();
         try {
           const committedAssignments = await dbClient.query<{ id: string }>(
             "SELECT id FROM assignments WHERE status = 'COMMITTED';",
           );
           expect(committedAssignments.rows.length).toBe(1);
-          const committedId = committedAssignments.rows[0]!.id;
-          expect([planAId, planBId]).toContain(committedId);
+          expect(committedAssignments.rows[0]!.id).toBe(planAId);
 
-          const uncommittedId = committedId === planAId ? planBId : planAId;
           const uncommitted = await dbClient.query<{ status: string }>(
             'SELECT status FROM assignments WHERE id = $1;',
-            [uncommittedId],
+            [planBId],
           );
           expect(uncommitted.rows[0]!.status).toBe('PROPOSED');
 
-          // Check that only the committed proposal's request was updated to ASSIGNED
           const reqRows = await dbClient.query<{ id: string; status: string }>(
             'SELECT id, status FROM requests ORDER BY id ASC;',
           );
           const reqStatusMap = new Map(reqRows.rows.map((r) => [r.id, r.status]));
-          if (committedId === planAId) {
-            expect(reqStatusMap.get('req_lock_a')).toBe('ASSIGNED');
-            expect(reqStatusMap.get('req_lock_b')).toBe('PENDING');
-          } else {
-            expect(reqStatusMap.get('req_lock_a')).toBe('PENDING');
-            expect(reqStatusMap.get('req_lock_b')).toBe('ASSIGNED');
-          }
+          expect(reqStatusMap.get('req_lock_a')).toBe('ASSIGNED');
+          expect(reqStatusMap.get('req_lock_b')).toBe('PENDING');
         } finally {
           dbClient.release();
         }
       } finally {
-        client1.release();
-        client2.release();
+        clientA.release();
+        clientB.release();
+        clientMonitor.release();
       }
+    }, 15000);
+
+    it('proves legitimate frozen-stop continuation of the same assignment is not rejected by post-lock recheck', async () => {
+      const resource: RescueResource = {
+        id: 'res_frozen_cont',
+        name: 'Continuation Boat',
+        type: 'BOAT',
+        capacity: 10,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const shelter: Shelter = {
+        id: 'sh_frozen_cont',
+        name: 'Continuation Shelter',
+        lat: 28.71,
+        lng: 77.21,
+        capacity: 100,
+      };
+      const req1: RescueRequest = {
+        id: 'req_frozen_cont_1',
+        lat: 28.704,
+        lng: 77.204,
+        peopleCount: 2,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+      const req2: RescueRequest = {
+        id: 'req_frozen_cont_2',
+        lat: 28.708,
+        lng: 77.208,
+        peopleCount: 3,
+        urgency: 'MEDIUM',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(resource, 'REAL');
+      await repo.insertShelter(shelter, 'REAL');
+      await repo.insertRequest(req1);
+      await repo.insertRequest(req2);
+
+      // 1. Initial assignment committed with stop for req1
+      const initialPlanId = 'plan_initial_committed';
+      await repo.insertAssignmentWithStops(
+        {
+          id: initialPlanId,
+          scenario_id: 'test-frozen-continuation',
+          status: 'PROPOSED',
+          metrics: null,
+          unserved: null,
+          committed_at: null,
+          committed_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: `stop_${initialPlanId}_1`,
+            assignment_id: initialPlanId,
+            resource_id: resource.id,
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: req1.id,
+            location: `POINT(${req1.lng} ${req1.lat})`,
+            passengers_picked_up: req1.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${initialPlanId}_2`,
+            assignment_id: initialPlanId,
+            resource_id: resource.id,
+            stop_number: 2,
+            type: 'DROPOFF',
+            target_id: shelter.id,
+            location: `POINT(${shelter.lng} ${shelter.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: req1.peopleCount,
+            estimated_arrival_minutes: 20,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+        ],
+      );
+
+      // Commit initial assignment (freezes its stops)
+      await repo.commitAssignment(initialPlanId, 'operator_init');
+
+      // 2. Replanned assignment continues with the same frozen stops and adds req2
+      const replanPlanId = 'plan_replan_continuation';
+      await repo.insertAssignmentWithStops(
+        {
+          id: replanPlanId,
+          scenario_id: 'test-frozen-continuation',
+          status: 'PROPOSED',
+          metrics: null,
+          unserved: null,
+          committed_at: null,
+          committed_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: `stop_${replanPlanId}_1`,
+            assignment_id: replanPlanId,
+            resource_id: resource.id,
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: req1.id,
+            location: `POINT(${req1.lng} ${req1.lat})`,
+            passengers_picked_up: req1.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: true, // Incorporated as frozen stop
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${replanPlanId}_2`,
+            assignment_id: replanPlanId,
+            resource_id: resource.id,
+            stop_number: 2,
+            type: 'DROPOFF',
+            target_id: shelter.id,
+            location: `POINT(${shelter.lng} ${shelter.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: req1.peopleCount,
+            estimated_arrival_minutes: 20,
+            is_frozen: true, // Incorporated as frozen stop
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${replanPlanId}_3`,
+            assignment_id: replanPlanId,
+            resource_id: resource.id,
+            stop_number: 3,
+            type: 'PICKUP',
+            target_id: req2.id,
+            location: `POINT(${req2.lng} ${req2.lat})`,
+            passengers_picked_up: req2.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 30,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${replanPlanId}_4`,
+            assignment_id: replanPlanId,
+            resource_id: resource.id,
+            stop_number: 4,
+            type: 'DROPOFF',
+            target_id: shelter.id,
+            location: `POINT(${shelter.lng} ${shelter.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: req2.peopleCount,
+            estimated_arrival_minutes: 40,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+        ],
+      );
+
+      // Committing the replanned assignment with legitimate frozen-stop continuation must succeed
+      const commitSuccess = await repo.commitAssignment(replanPlanId, 'operator_replan');
+      expect(commitSuccess).toBe(true);
+
+      // Verify req2 is now ASSIGNED and replan is COMMITTED
+      const dbClient = await pool.connect();
+      try {
+        const replanRow = await dbClient.query<{ status: string }>(
+          'SELECT status FROM assignments WHERE id = $1;',
+          [replanPlanId],
+        );
+        expect(replanRow.rows[0]!.status).toBe('COMMITTED');
+
+        const req2Row = await dbClient.query<{ status: string }>(
+          'SELECT status FROM requests WHERE id = $1;',
+          [req2.id],
+        );
+        expect(req2Row.rows[0]!.status).toBe('ASSIGNED');
+      } finally {
+        dbClient.release();
+      }
+    });
+
+    it('allows sequential multi-replan chaining across plan 1, plan 2, and plan 3 on the same resource', async () => {
+      const resource: RescueResource = {
+        id: 'res_chain_multi',
+        name: 'Multi-Replan Boat',
+        type: 'BOAT',
+        capacity: 10,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const shelter: Shelter = {
+        id: 'sh_chain_multi',
+        name: 'Chain Relief Shelter',
+        lat: 28.71,
+        lng: 77.21,
+        capacity: 100,
+      };
+      const req1: RescueRequest = {
+        id: 'req_chain_1',
+        lat: 28.702,
+        lng: 77.202,
+        peopleCount: 2,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+      const req2: RescueRequest = {
+        id: 'req_chain_2',
+        lat: 28.704,
+        lng: 77.204,
+        peopleCount: 2,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+      const req3: RescueRequest = {
+        id: 'req_chain_3',
+        lat: 28.706,
+        lng: 77.206,
+        peopleCount: 2,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(resource, 'REAL');
+      await repo.insertShelter(shelter, 'REAL');
+      await repo.insertRequest(req1);
+      await repo.insertRequest(req2);
+      await repo.insertRequest(req3);
+
+      // --- 1. Commit Plan 1 (servicing req1) ---
+      const plan1Id = 'plan_chain_1';
+      await repo.insertAssignmentWithStops(
+        {
+          id: plan1Id,
+          scenario_id: 'test-chain-multi',
+          status: 'PROPOSED',
+          metrics: null,
+          unserved: null,
+          committed_at: null,
+          committed_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: `stop_${plan1Id}_1`,
+            assignment_id: plan1Id,
+            resource_id: resource.id,
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: req1.id,
+            location: `POINT(${req1.lng} ${req1.lat})`,
+            passengers_picked_up: req1.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${plan1Id}_2`,
+            assignment_id: plan1Id,
+            resource_id: resource.id,
+            stop_number: 2,
+            type: 'DROPOFF',
+            target_id: shelter.id,
+            location: `POINT(${shelter.lng} ${shelter.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: req1.peopleCount,
+            estimated_arrival_minutes: 20,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+        ],
+      );
+      const commit1Success = await repo.commitAssignment(plan1Id, 'operator_1');
+      expect(commit1Success).toBe(true);
+
+      // --- 2. Replan and Commit Plan 2 (preserves Plan 1 frozen stops, adds req2) ---
+      const plan2Id = 'plan_chain_2';
+      await repo.insertAssignmentWithStops(
+        {
+          id: plan2Id,
+          scenario_id: 'test-chain-multi',
+          status: 'PROPOSED',
+          metrics: null,
+          unserved: null,
+          committed_at: null,
+          committed_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: `stop_${plan2Id}_1`,
+            assignment_id: plan2Id,
+            resource_id: resource.id,
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: req1.id,
+            location: `POINT(${req1.lng} ${req1.lat})`,
+            passengers_picked_up: req1.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: true,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${plan2Id}_2`,
+            assignment_id: plan2Id,
+            resource_id: resource.id,
+            stop_number: 2,
+            type: 'DROPOFF',
+            target_id: shelter.id,
+            location: `POINT(${shelter.lng} ${shelter.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: req1.peopleCount,
+            estimated_arrival_minutes: 20,
+            is_frozen: true,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${plan2Id}_3`,
+            assignment_id: plan2Id,
+            resource_id: resource.id,
+            stop_number: 3,
+            type: 'PICKUP',
+            target_id: req2.id,
+            location: `POINT(${req2.lng} ${req2.lat})`,
+            passengers_picked_up: req2.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 30,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${plan2Id}_4`,
+            assignment_id: plan2Id,
+            resource_id: resource.id,
+            stop_number: 4,
+            type: 'DROPOFF',
+            target_id: shelter.id,
+            location: `POINT(${shelter.lng} ${shelter.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: req2.peopleCount,
+            estimated_arrival_minutes: 40,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+        ],
+      );
+      const commit2Success = await repo.commitAssignment(plan2Id, 'operator_2');
+      expect(commit2Success).toBe(true);
+
+      // --- 3. Replan and Commit Plan 3 (preserves Plan 2 frozen stops, adds req3) ---
+      const plan3Id = 'plan_chain_3';
+      await repo.insertAssignmentWithStops(
+        {
+          id: plan3Id,
+          scenario_id: 'test-chain-multi',
+          status: 'PROPOSED',
+          metrics: null,
+          unserved: null,
+          committed_at: null,
+          committed_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: `stop_${plan3Id}_1`,
+            assignment_id: plan3Id,
+            resource_id: resource.id,
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: req1.id,
+            location: `POINT(${req1.lng} ${req1.lat})`,
+            passengers_picked_up: req1.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: true,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${plan3Id}_2`,
+            assignment_id: plan3Id,
+            resource_id: resource.id,
+            stop_number: 2,
+            type: 'DROPOFF',
+            target_id: shelter.id,
+            location: `POINT(${shelter.lng} ${shelter.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: req1.peopleCount,
+            estimated_arrival_minutes: 20,
+            is_frozen: true,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${plan3Id}_3`,
+            assignment_id: plan3Id,
+            resource_id: resource.id,
+            stop_number: 3,
+            type: 'PICKUP',
+            target_id: req2.id,
+            location: `POINT(${req2.lng} ${req2.lat})`,
+            passengers_picked_up: req2.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 30,
+            is_frozen: true,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${plan3Id}_4`,
+            assignment_id: plan3Id,
+            resource_id: resource.id,
+            stop_number: 4,
+            type: 'DROPOFF',
+            target_id: shelter.id,
+            location: `POINT(${shelter.lng} ${shelter.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: req2.peopleCount,
+            estimated_arrival_minutes: 40,
+            is_frozen: true,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${plan3Id}_5`,
+            assignment_id: plan3Id,
+            resource_id: resource.id,
+            stop_number: 5,
+            type: 'PICKUP',
+            target_id: req3.id,
+            location: `POINT(${req3.lng} ${req3.lat})`,
+            passengers_picked_up: req3.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 50,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${plan3Id}_6`,
+            assignment_id: plan3Id,
+            resource_id: resource.id,
+            stop_number: 6,
+            type: 'DROPOFF',
+            target_id: shelter.id,
+            location: `POINT(${shelter.lng} ${shelter.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: req3.peopleCount,
+            estimated_arrival_minutes: 60,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+        ],
+      );
+      const commit3Success = await repo.commitAssignment(plan3Id, 'operator_3');
+      expect(commit3Success).toBe(true);
+
+      // Verify all 3 requests are now ASSIGNED and plan 3 is COMMITTED
+      const dbClient = await pool.connect();
+      try {
+        const plan3Row = await dbClient.query<{ status: string }>(
+          'SELECT status FROM assignments WHERE id = $1;',
+          [plan3Id],
+        );
+        expect(plan3Row.rows[0]!.status).toBe('COMMITTED');
+
+        // Confirm earlier plans' requests (req1, req2) and current request (req3) remain ASSIGNED
+        const reqRows = await dbClient.query<{ id: string; status: string }>(
+          'SELECT id, status FROM requests WHERE id = ANY($1::text[]);',
+          [[req1.id, req2.id, req3.id]],
+        );
+        expect(reqRows.rows.length).toBe(3);
+        for (const row of reqRows.rows) {
+          expect(row.status).toBe('ASSIGNED');
+        }
+
+        // Verify plan 3 stops:
+        // 1. No duplicate stops in plan 3: 6 unique stop IDs, sequential stop numbers 1..6
+        const stopsResult = await dbClient.query<{
+          id: string;
+          stop_number: number;
+          type: string;
+          target_id: string;
+          is_frozen: boolean;
+        }>(
+          'SELECT id, stop_number, type, target_id, is_frozen FROM assignment_stops WHERE assignment_id = $1 ORDER BY stop_number ASC;',
+          [plan3Id],
+        );
+        expect(stopsResult.rows.length).toBe(6);
+        const stopNumbers = stopsResult.rows.map((s) => s.stop_number);
+        expect(stopNumbers).toEqual([1, 2, 3, 4, 5, 6]);
+        const stopIds = new Set(stopsResult.rows.map((s) => s.id));
+        expect(stopIds.size).toBe(6);
+
+        // 2. Before commit, plan 3 stops were all frozen except new ones (stops 1-4 were frozen, stops 5-6 were unfrozen)
+        // Post-commit, commitAssignment sets is_frozen = TRUE on all stops of the committed assignment
+        for (const stop of stopsResult.rows) {
+          expect(stop.is_frozen).toBe(true);
+        }
+      } finally {
+        dbClient.release();
+      }
+    });
+
+    it('rejects committing an assignment where a frozen pickup references a request in CANCELLED status', async () => {
+      const resource: RescueResource = {
+        id: 'res_neg_cancelled',
+        name: 'Rescue Unit Cancelled Test',
+        type: 'BOAT',
+        capacity: 6,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const shelter: Shelter = {
+        id: 'sh_neg_cancelled',
+        name: 'Relief Shelter C',
+        lat: 28.71,
+        lng: 77.21,
+        capacity: 100,
+      };
+      const reqCancelled: RescueRequest = {
+        id: 'req_neg_cancelled',
+        lat: 28.705,
+        lng: 77.205,
+        peopleCount: 2,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'CANCELLED',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(resource, 'REAL');
+      await repo.insertShelter(shelter, 'REAL');
+      await repo.insertRequest(reqCancelled);
+
+      const planId = 'plan_neg_cancelled';
+      await repo.insertAssignmentWithStops(
+        {
+          id: planId,
+          scenario_id: 'test-neg-frozen',
+          status: 'PROPOSED',
+          metrics: null,
+          unserved: null,
+          committed_at: null,
+          committed_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: `stop_${planId}_1`,
+            assignment_id: planId,
+            resource_id: resource.id,
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: reqCancelled.id,
+            location: `POINT(${reqCancelled.lng} ${reqCancelled.lat})`,
+            passengers_picked_up: reqCancelled.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: true,
+            created_at: new Date(),
+          },
+        ],
+      );
+
+      let commitErr: { code?: string; statusCode?: number } | null = null;
+      try {
+        await repo.commitAssignment(planId, 'operator_test');
+      } catch (err) {
+        commitErr = err as { code?: string; statusCode?: number };
+      }
+
+      expect(commitErr).not.toBeNull();
+      expect(commitErr?.code).toBe('REQUEST_ALREADY_ASSIGNED');
+      expect(commitErr?.statusCode).toBe(409);
+      expect((commitErr as Error).message).toContain(
+        'in frozen stop is in invalid status: CANCELLED',
+      );
+    });
+
+    it('rejects committing an assignment where a new non-frozen pickup references an already ASSIGNED request', async () => {
+      const resource: RescueResource = {
+        id: 'res_neg_assigned',
+        name: 'Rescue Unit Assigned Test',
+        type: 'BOAT',
+        capacity: 6,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const shelter: Shelter = {
+        id: 'sh_neg_assigned',
+        name: 'Relief Shelter A',
+        lat: 28.71,
+        lng: 77.21,
+        capacity: 100,
+      };
+      const reqAssigned: RescueRequest = {
+        id: 'req_neg_assigned',
+        lat: 28.705,
+        lng: 77.205,
+        peopleCount: 2,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'ASSIGNED',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(resource, 'REAL');
+      await repo.insertShelter(shelter, 'REAL');
+      await repo.insertRequest(reqAssigned);
+
+      const planId = 'plan_neg_assigned';
+      await repo.insertAssignmentWithStops(
+        {
+          id: planId,
+          scenario_id: 'test-neg-nonfrozen',
+          status: 'PROPOSED',
+          metrics: null,
+          unserved: null,
+          committed_at: null,
+          committed_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: `stop_${planId}_1`,
+            assignment_id: planId,
+            resource_id: resource.id,
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: reqAssigned.id,
+            location: `POINT(${reqAssigned.lng} ${reqAssigned.lat})`,
+            passengers_picked_up: reqAssigned.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+        ],
+      );
+
+      let commitErr: { code?: string; statusCode?: number } | null = null;
+      try {
+        await repo.commitAssignment(planId, 'operator_test');
+      } catch (err) {
+        commitErr = err as { code?: string; statusCode?: number };
+      }
+
+      expect(commitErr).not.toBeNull();
+      expect(commitErr?.code).toBe('REQUEST_ALREADY_ASSIGNED');
+      expect(commitErr?.statusCode).toBe(409);
+      expect((commitErr as Error).message).toContain('is no longer in PENDING status');
+    });
+
+    it('rejects committing an assignment where the same request appears in both a frozen and a non-frozen pickup within one plan', async () => {
+      const resA: RescueResource = {
+        id: 'res_dup_a',
+        name: 'Boat Alpha Duplicate Test',
+        type: 'BOAT',
+        capacity: 6,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const resB: RescueResource = {
+        id: 'res_dup_b',
+        name: 'Boat Bravo Duplicate Test',
+        type: 'BOAT',
+        capacity: 6,
+        speedKmH: 25,
+        lat: 28.71,
+        lng: 77.21,
+        status: 'AVAILABLE',
+      };
+      const shelter: Shelter = {
+        id: 'sh_dup_test',
+        name: 'Duplicate Shelter',
+        lat: 28.72,
+        lng: 77.22,
+        capacity: 100,
+      };
+      const reqDup: RescueRequest = {
+        id: 'req_dup_target',
+        lat: 28.705,
+        lng: 77.205,
+        peopleCount: 2,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(resA, 'REAL');
+      await repo.insertResource(resB, 'REAL');
+      await repo.insertShelter(shelter, 'REAL');
+      await repo.insertRequest(reqDup);
+
+      // Commit initial plan for resA servicing reqDup
+      const planAId = 'plan_dup_init_a';
+      await repo.insertAssignmentWithStops(
+        {
+          id: planAId,
+          scenario_id: 'test-dup-pickup',
+          status: 'PROPOSED',
+          metrics: null,
+          unserved: null,
+          committed_at: null,
+          committed_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: `stop_${planAId}_1`,
+            assignment_id: planAId,
+            resource_id: resA.id,
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: reqDup.id,
+            location: `POINT(${reqDup.lng} ${reqDup.lat})`,
+            passengers_picked_up: reqDup.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${planAId}_2`,
+            assignment_id: planAId,
+            resource_id: resA.id,
+            stop_number: 2,
+            type: 'DROPOFF',
+            target_id: shelter.id,
+            location: `POINT(${shelter.lng} ${shelter.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: reqDup.peopleCount,
+            estimated_arrival_minutes: 20,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+        ],
+      );
+      await repo.commitAssignment(planAId, 'operator_init');
+
+      // Now create a replan that has:
+      // - resA keeping reqDup frozen (legitimate continuation)
+      // - resB ALSO attempting a non-frozen pickup of the SAME reqDup
+      const planReplanId = 'plan_dup_replan_conflict';
+      await repo.insertAssignmentWithStops(
+        {
+          id: planReplanId,
+          scenario_id: 'test-dup-pickup',
+          status: 'PROPOSED',
+          metrics: null,
+          unserved: null,
+          committed_at: null,
+          committed_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: `stop_${planReplanId}_1`,
+            assignment_id: planReplanId,
+            resource_id: resA.id,
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: reqDup.id,
+            location: `POINT(${reqDup.lng} ${reqDup.lat})`,
+            passengers_picked_up: reqDup.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: true,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${planReplanId}_2`,
+            assignment_id: planReplanId,
+            resource_id: resA.id,
+            stop_number: 2,
+            type: 'DROPOFF',
+            target_id: shelter.id,
+            location: `POINT(${shelter.lng} ${shelter.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: reqDup.peopleCount,
+            estimated_arrival_minutes: 20,
+            is_frozen: true,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${planReplanId}_3`,
+            assignment_id: planReplanId,
+            resource_id: resB.id,
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: reqDup.id, // Conflict: already picked up in frozen stop on resA
+            location: `POINT(${reqDup.lng} ${reqDup.lat})`,
+            passengers_picked_up: reqDup.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 15,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${planReplanId}_4`,
+            assignment_id: planReplanId,
+            resource_id: resB.id,
+            stop_number: 2,
+            type: 'DROPOFF',
+            target_id: shelter.id,
+            location: `POINT(${shelter.lng} ${shelter.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: reqDup.peopleCount,
+            estimated_arrival_minutes: 25,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+        ],
+      );
+
+      let dupErr: { code?: string; statusCode?: number; message?: string } | null = null;
+      try {
+        await repo.commitAssignment(planReplanId, 'operator_test');
+      } catch (err) {
+        dupErr = err as { code?: string; statusCode?: number; message?: string };
+      }
+
+      expect(dupErr).not.toBeNull();
+      expect(dupErr?.code).toBe('REQUEST_ALREADY_ASSIGNED');
+      expect(dupErr?.statusCode).toBe(409);
+      expect(dupErr?.message).toContain(
+        `Duplicate PICKUP stop for request "${reqDup.id}" in assignment plan`,
+      );
+    });
+
+    it('rejects committing an assignment with a frozen pickup for a request belonging to another vehicle (Check 3 - PICKUP)', async () => {
+      const resA: RescueResource = {
+        id: 'res_lineage_a',
+        name: 'Boat Alpha',
+        type: 'BOAT',
+        capacity: 6,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const resB: RescueResource = {
+        id: 'res_lineage_b',
+        name: 'Boat Bravo',
+        type: 'BOAT',
+        capacity: 6,
+        speedKmH: 25,
+        lat: 28.71,
+        lng: 77.21,
+        status: 'AVAILABLE',
+      };
+      const shelter: Shelter = {
+        id: 'sh_lineage_cross',
+        name: 'Lineage Shelter',
+        lat: 28.72,
+        lng: 77.22,
+        capacity: 100,
+      };
+      const reqA: RescueRequest = {
+        id: 'req_lineage_a',
+        lat: 28.705,
+        lng: 77.205,
+        peopleCount: 2,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+      const reqB: RescueRequest = {
+        id: 'req_lineage_b',
+        lat: 28.708,
+        lng: 77.208,
+        peopleCount: 2,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(resA, 'REAL');
+      await repo.insertResource(resB, 'REAL');
+      await repo.insertShelter(shelter, 'REAL');
+      await repo.insertRequest(reqA);
+      await repo.insertRequest(reqB);
+
+      // Commit initial plan for resA servicing reqA
+      const planAId = 'plan_lineage_a';
+      await repo.insertAssignmentWithStops(
+        {
+          id: planAId,
+          scenario_id: 'test-lineage-cross',
+          status: 'PROPOSED',
+          metrics: null,
+          unserved: null,
+          committed_at: null,
+          committed_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: `stop_${planAId}_1`,
+            assignment_id: planAId,
+            resource_id: resA.id,
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: reqA.id,
+            location: `POINT(${reqA.lng} ${reqA.lat})`,
+            passengers_picked_up: reqA.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${planAId}_2`,
+            assignment_id: planAId,
+            resource_id: resA.id,
+            stop_number: 2,
+            type: 'DROPOFF',
+            target_id: shelter.id,
+            location: `POINT(${shelter.lng} ${shelter.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: reqA.peopleCount,
+            estimated_arrival_minutes: 20,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+        ],
+      );
+      await repo.commitAssignment(planAId, 'operator_a');
+
+      // Commit initial plan for resB servicing reqB so resB has prior committed lineage (Check 1 passes)
+      const planBInitId = 'plan_lineage_b_init';
+      await repo.insertAssignmentWithStops(
+        {
+          id: planBInitId,
+          scenario_id: 'test-lineage-cross',
+          status: 'PROPOSED',
+          metrics: null,
+          unserved: null,
+          committed_at: null,
+          committed_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: `stop_${planBInitId}_1`,
+            assignment_id: planBInitId,
+            resource_id: resB.id,
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: reqB.id,
+            location: `POINT(${reqB.lng} ${reqB.lat})`,
+            passengers_picked_up: reqB.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${planBInitId}_2`,
+            assignment_id: planBInitId,
+            resource_id: resB.id,
+            stop_number: 2,
+            type: 'DROPOFF',
+            target_id: shelter.id,
+            location: `POINT(${shelter.lng} ${shelter.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: reqB.peopleCount,
+            estimated_arrival_minutes: 20,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+        ],
+      );
+      await repo.commitAssignment(planBInitId, 'operator_b_init');
+
+      // Now create a replan for resB: keeps its own stops frozen (Check 2 passes)
+      // PLUS an extra fabricated frozen stop for reqA (belonging to resA)
+      const planBReplanId = 'plan_lineage_b_replan';
+      await repo.insertAssignmentWithStops(
+        {
+          id: planBReplanId,
+          scenario_id: 'test-lineage-cross',
+          status: 'PROPOSED',
+          metrics: null,
+          unserved: null,
+          committed_at: null,
+          committed_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: `stop_${planBReplanId}_1`,
+            assignment_id: planBReplanId,
+            resource_id: resB.id,
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: reqB.id,
+            location: `POINT(${reqB.lng} ${reqB.lat})`,
+            passengers_picked_up: reqB.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: true,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${planBReplanId}_2`,
+            assignment_id: planBReplanId,
+            resource_id: resB.id,
+            stop_number: 2,
+            type: 'DROPOFF',
+            target_id: shelter.id,
+            location: `POINT(${shelter.lng} ${shelter.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: reqB.peopleCount,
+            estimated_arrival_minutes: 20,
+            is_frozen: true,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${planBReplanId}_3`,
+            assignment_id: planBReplanId,
+            resource_id: resB.id,
+            stop_number: 3,
+            type: 'PICKUP',
+            target_id: reqA.id, // Fabricated: belongs to resA, not resB
+            location: `POINT(${reqA.lng} ${reqA.lat})`,
+            passengers_picked_up: reqA.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 30,
+            is_frozen: true,
+            created_at: new Date(),
+          },
+        ],
+      );
+
+      let stealErr: { code?: string; statusCode?: number; message?: string } | null = null;
+      try {
+        await repo.commitAssignment(planBReplanId, 'operator_b');
+      } catch (err) {
+        stealErr = err as { code?: string; statusCode?: number; message?: string };
+      }
+
+      expect(stealErr).not.toBeNull();
+      expect(stealErr?.code).toBe('RESOURCE_ALREADY_COMMITTED');
+      expect(stealErr?.statusCode).toBe(409);
+      expect(stealErr?.message).toBe(
+        `Frozen PICKUP stop with target "${reqA.id}" does not belong to resource "${resB.id}"'s prior committed assignment lineage`,
+      );
+    });
+
+    it('rejects committing an assignment with a frozen stop on a resource with no prior commitment (Check 1)', async () => {
+      const resFresh: RescueResource = {
+        id: 'res_fresh_noprior',
+        name: 'Fresh Rescue Boat',
+        type: 'BOAT',
+        capacity: 6,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const shelter: Shelter = {
+        id: 'sh_fresh_noprior',
+        name: 'Fresh Shelter',
+        lat: 28.71,
+        lng: 77.21,
+        capacity: 100,
+      };
+      const reqFresh: RescueRequest = {
+        id: 'req_fresh_noprior',
+        lat: 28.705,
+        lng: 77.205,
+        peopleCount: 2,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(resFresh, 'REAL');
+      await repo.insertShelter(shelter, 'REAL');
+      await repo.insertRequest(reqFresh);
+
+      const planId = 'plan_fresh_noprior';
+      await repo.insertAssignmentWithStops(
+        {
+          id: planId,
+          scenario_id: 'test-fresh-noprior',
+          status: 'PROPOSED',
+          metrics: null,
+          unserved: null,
+          committed_at: null,
+          committed_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: `stop_${planId}_1`,
+            assignment_id: planId,
+            resource_id: resFresh.id,
+            stop_number: 1,
+            type: 'DROPOFF',
+            target_id: shelter.id,
+            location: `POINT(${shelter.lng} ${shelter.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: true,
+            created_at: new Date(),
+          },
+        ],
+      );
+
+      let freshErr: { code?: string; statusCode?: number; message?: string } | null = null;
+      try {
+        await repo.commitAssignment(planId, 'operator_test');
+      } catch (err) {
+        freshErr = err as { code?: string; statusCode?: number; message?: string };
+      }
+
+      expect(freshErr).not.toBeNull();
+      expect(freshErr?.code).toBe('RESOURCE_ALREADY_COMMITTED');
+      expect(freshErr?.statusCode).toBe(409);
+      expect(freshErr?.message).toBe(
+        `Resource "${resFresh.id}" has frozen stops in proposed plan but has no prior committed assignment lineage`,
+      );
+    });
+
+    it('rejects committing an assignment with a frozen DROPOFF not in lineage (Check 3 - DROPOFF)', async () => {
+      const resource: RescueResource = {
+        id: 'res_dropoff_lineage',
+        name: 'Dropoff Lineage Boat',
+        type: 'BOAT',
+        capacity: 6,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const shelterReal: Shelter = {
+        id: 'sh_real_lineage',
+        name: 'Real Shelter',
+        lat: 28.71,
+        lng: 77.21,
+        capacity: 100,
+      };
+      const shelterAlien: Shelter = {
+        id: 'sh_alien_lineage',
+        name: 'Alien Shelter',
+        lat: 28.73,
+        lng: 77.23,
+        capacity: 100,
+      };
+      const req: RescueRequest = {
+        id: 'req_dropoff_lineage',
+        lat: 28.705,
+        lng: 77.205,
+        peopleCount: 2,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(resource, 'REAL');
+      await repo.insertShelter(shelterReal, 'REAL');
+      await repo.insertShelter(shelterAlien, 'REAL');
+      await repo.insertRequest(req);
+
+      // Commit initial plan with DROPOFF to shelterReal
+      const planInitialId = 'plan_dropoff_init';
+      await repo.insertAssignmentWithStops(
+        {
+          id: planInitialId,
+          scenario_id: 'test-dropoff-lineage',
+          status: 'PROPOSED',
+          metrics: null,
+          unserved: null,
+          committed_at: null,
+          committed_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: `stop_${planInitialId}_1`,
+            assignment_id: planInitialId,
+            resource_id: resource.id,
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: req.id,
+            location: `POINT(${req.lng} ${req.lat})`,
+            passengers_picked_up: req.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${planInitialId}_2`,
+            assignment_id: planInitialId,
+            resource_id: resource.id,
+            stop_number: 2,
+            type: 'DROPOFF',
+            target_id: shelterReal.id,
+            location: `POINT(${shelterReal.lng} ${shelterReal.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: req.peopleCount,
+            estimated_arrival_minutes: 20,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+        ],
+      );
+      await repo.commitAssignment(planInitialId, 'operator_init');
+
+      // Create a replanned proposal incorporating legitimate pickup and dropoff (Check 2 passes)
+      // PLUS an extra fabricated frozen DROPOFF to shelterAlien
+      const planReplanId = 'plan_dropoff_alien';
+      await repo.insertAssignmentWithStops(
+        {
+          id: planReplanId,
+          scenario_id: 'test-dropoff-lineage',
+          status: 'PROPOSED',
+          metrics: null,
+          unserved: null,
+          committed_at: null,
+          committed_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: `stop_${planReplanId}_1`,
+            assignment_id: planReplanId,
+            resource_id: resource.id,
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: req.id,
+            location: `POINT(${req.lng} ${req.lat})`,
+            passengers_picked_up: req.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: true,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${planReplanId}_2`,
+            assignment_id: planReplanId,
+            resource_id: resource.id,
+            stop_number: 2,
+            type: 'DROPOFF',
+            target_id: shelterReal.id,
+            location: `POINT(${shelterReal.lng} ${shelterReal.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: req.peopleCount,
+            estimated_arrival_minutes: 20,
+            is_frozen: true,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${planReplanId}_3`,
+            assignment_id: planReplanId,
+            resource_id: resource.id,
+            stop_number: 3,
+            type: 'DROPOFF',
+            target_id: shelterAlien.id, // Alien dropoff never in prior lineage
+            location: `POINT(${shelterAlien.lng} ${shelterAlien.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 30,
+            is_frozen: true,
+            created_at: new Date(),
+          },
+        ],
+      );
+
+      let alienErr: { code?: string; statusCode?: number; message?: string } | null = null;
+      try {
+        await repo.commitAssignment(planReplanId, 'operator_replan');
+      } catch (err) {
+        alienErr = err as { code?: string; statusCode?: number; message?: string };
+      }
+
+      expect(alienErr).not.toBeNull();
+      expect(alienErr?.code).toBe('RESOURCE_ALREADY_COMMITTED');
+      expect(alienErr?.statusCode).toBe(409);
+      expect(alienErr?.message).toBe(
+        `Frozen DROPOFF stop with target "${shelterAlien.id}" does not belong to resource "${resource.id}"'s prior committed assignment lineage`,
+      );
+    });
+
+    it('rejects committing an assignment if an operator unfreezes (isFrozen=false) a legitimate prior committed stop (Check 2)', async () => {
+      const resUnfreeze: RescueResource = {
+        id: 'res_unfreeze_test',
+        name: 'Unfreeze Test Boat',
+        type: 'BOAT',
+        capacity: 6,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const shelterUnfreeze: Shelter = {
+        id: 'sh_unfreeze_test',
+        name: 'Unfreeze Shelter',
+        lat: 28.71,
+        lng: 77.21,
+        capacity: 100,
+      };
+      const reqUnfreeze: RescueRequest = {
+        id: 'req_unfreeze_test',
+        lat: 28.705,
+        lng: 77.205,
+        peopleCount: 2,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(resUnfreeze, 'REAL');
+      await repo.insertShelter(shelterUnfreeze, 'REAL');
+      await repo.insertRequest(reqUnfreeze);
+
+      const planInitId = 'plan_unfreeze_init';
+      await repo.insertAssignmentWithStops(
+        {
+          id: planInitId,
+          scenario_id: 'test-unfreeze',
+          status: 'PROPOSED',
+          metrics: null,
+          unserved: null,
+          committed_at: null,
+          committed_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: `stop_${planInitId}_1`,
+            assignment_id: planInitId,
+            resource_id: resUnfreeze.id,
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: reqUnfreeze.id,
+            location: `POINT(${reqUnfreeze.lng} ${reqUnfreeze.lat})`,
+            passengers_picked_up: reqUnfreeze.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${planInitId}_2`,
+            assignment_id: planInitId,
+            resource_id: resUnfreeze.id,
+            stop_number: 2,
+            type: 'DROPOFF',
+            target_id: shelterUnfreeze.id,
+            location: `POINT(${shelterUnfreeze.lng} ${shelterUnfreeze.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: reqUnfreeze.peopleCount,
+            estimated_arrival_minutes: 20,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+        ],
+      );
+      await repo.commitAssignment(planInitId, 'operator_init');
+
+      // Create replanned proposal that initially includes both stops frozen
+      const planReplanId = 'plan_unfreeze_replan';
+      await repo.insertAssignmentWithStops(
+        {
+          id: planReplanId,
+          scenario_id: 'test-unfreeze',
+          status: 'PROPOSED',
+          metrics: null,
+          unserved: null,
+          committed_at: null,
+          committed_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: `stop_${planReplanId}_1`,
+            assignment_id: planReplanId,
+            resource_id: resUnfreeze.id,
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: reqUnfreeze.id,
+            location: `POINT(${reqUnfreeze.lng} ${reqUnfreeze.lat})`,
+            passengers_picked_up: reqUnfreeze.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: true,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${planReplanId}_2`,
+            assignment_id: planReplanId,
+            resource_id: resUnfreeze.id,
+            stop_number: 2,
+            type: 'DROPOFF',
+            target_id: shelterUnfreeze.id,
+            location: `POINT(${shelterUnfreeze.lng} ${shelterUnfreeze.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: reqUnfreeze.peopleCount,
+            estimated_arrival_minutes: 20,
+            is_frozen: true,
+            created_at: new Date(),
+          },
+        ],
+      );
+
+      // Simulate operator unfreezing dropoff stop 2 (e.g. PATCH /assignments/:id/stops/:stopId { isFrozen: false })
+      await repo.updateAssignmentStop(planReplanId, `stop_${planReplanId}_2`, { is_frozen: false });
+
+      let unfreezeErr: { code?: string; statusCode?: number; message?: string } | null = null;
+      try {
+        await repo.commitAssignment(planReplanId, 'operator_replan');
+      } catch (err) {
+        unfreezeErr = err as { code?: string; statusCode?: number; message?: string };
+      }
+
+      expect(unfreezeErr).not.toBeNull();
+      expect(unfreezeErr?.code).toBe('RESOURCE_ALREADY_COMMITTED');
+      expect(unfreezeErr?.statusCode).toBe(409);
+      expect(unfreezeErr?.message).toContain(
+        `Resource "${resUnfreeze.id}" has active stops in another committed/dispatched assignment "${planInitId}" that were not incorporated as frozen stops in this plan`,
+      );
+    });
+
+    it('rejects committing an assignment at the pickup-status step if an operator unfreezes (isFrozen=false) a legitimate prior committed pickup stop', async () => {
+      const resUnfreeze: RescueResource = {
+        id: 'res_unfreeze_pick',
+        name: 'Unfreeze Pickup Boat',
+        type: 'BOAT',
+        capacity: 6,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const shelterUnfreeze: Shelter = {
+        id: 'sh_unfreeze_pick',
+        name: 'Unfreeze Pickup Shelter',
+        lat: 28.71,
+        lng: 77.21,
+        capacity: 100,
+      };
+      const reqUnfreeze: RescueRequest = {
+        id: 'req_unfreeze_pick',
+        lat: 28.705,
+        lng: 77.205,
+        peopleCount: 2,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(resUnfreeze, 'REAL');
+      await repo.insertShelter(shelterUnfreeze, 'REAL');
+      await repo.insertRequest(reqUnfreeze);
+
+      const planInitId = 'plan_unfreeze_pick_init';
+      await repo.insertAssignmentWithStops(
+        {
+          id: planInitId,
+          scenario_id: 'test-unfreeze-pick',
+          status: 'PROPOSED',
+          metrics: null,
+          unserved: null,
+          committed_at: null,
+          committed_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: `stop_${planInitId}_1`,
+            assignment_id: planInitId,
+            resource_id: resUnfreeze.id,
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: reqUnfreeze.id,
+            location: `POINT(${reqUnfreeze.lng} ${reqUnfreeze.lat})`,
+            passengers_picked_up: reqUnfreeze.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${planInitId}_2`,
+            assignment_id: planInitId,
+            resource_id: resUnfreeze.id,
+            stop_number: 2,
+            type: 'DROPOFF',
+            target_id: shelterUnfreeze.id,
+            location: `POINT(${shelterUnfreeze.lng} ${shelterUnfreeze.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: reqUnfreeze.peopleCount,
+            estimated_arrival_minutes: 20,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+        ],
+      );
+      await repo.commitAssignment(planInitId, 'operator_init');
+
+      // Create replanned proposal that initially includes both stops frozen
+      const planReplanId = 'plan_unfreeze_pick_replan';
+      await repo.insertAssignmentWithStops(
+        {
+          id: planReplanId,
+          scenario_id: 'test-unfreeze-pick',
+          status: 'PROPOSED',
+          metrics: null,
+          unserved: null,
+          committed_at: null,
+          committed_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: `stop_${planReplanId}_1`,
+            assignment_id: planReplanId,
+            resource_id: resUnfreeze.id,
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: reqUnfreeze.id,
+            location: `POINT(${reqUnfreeze.lng} ${reqUnfreeze.lat})`,
+            passengers_picked_up: reqUnfreeze.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: true,
+            created_at: new Date(),
+          },
+          {
+            id: `stop_${planReplanId}_2`,
+            assignment_id: planReplanId,
+            resource_id: resUnfreeze.id,
+            stop_number: 2,
+            type: 'DROPOFF',
+            target_id: shelterUnfreeze.id,
+            location: `POINT(${shelterUnfreeze.lng} ${shelterUnfreeze.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: reqUnfreeze.peopleCount,
+            estimated_arrival_minutes: 20,
+            is_frozen: true,
+            created_at: new Date(),
+          },
+        ],
+      );
+
+      // Simulate operator unfreezing pickup stop 1 (e.g. PATCH /assignments/:id/stops/:stopId { isFrozen: false })
+      await repo.updateAssignmentStop(planReplanId, `stop_${planReplanId}_1`, { is_frozen: false });
+
+      let unfreezeErr: { code?: string; statusCode?: number; message?: string } | null = null;
+      try {
+        await repo.commitAssignment(planReplanId, 'operator_replan');
+      } catch (err) {
+        unfreezeErr = err as { code?: string; statusCode?: number; message?: string };
+      }
+
+      expect(unfreezeErr).not.toBeNull();
+      expect(unfreezeErr?.code).toBe('REQUEST_ALREADY_ASSIGNED');
+      expect(unfreezeErr?.statusCode).toBe(409);
+      expect(unfreezeErr?.message).toContain(
+        `Request "${reqUnfreeze.id}" is no longer in PENDING status (current status: ASSIGNED)`,
+      );
     });
 
     it('allows concurrent commits using different resources to both succeed', async () => {
