@@ -150,6 +150,7 @@ export interface SolverMetrics {
 export interface SolverPlan {
   scenarioId: string;
   calculatedAt: string;
+  solverStatus?: string;
   routes: ResourceRoute[];
   unserved: UnservedRequest[];
   metrics: SolverMetrics;

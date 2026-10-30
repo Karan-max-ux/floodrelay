@@ -253,6 +253,13 @@ export function validateSolverPlan(
             `inconsistent with recomputed stops duration (${recomputedDurationMin.toFixed(2)} min, diff: ${durDiff.toFixed(2)} min)`,
         );
       }
+
+      // Explicitly check applicable shift limit against independently recomputed duration
+      if (recomputedDurationMin > maxShiftMinutes + toleranceMinutes) {
+        errors.push(
+          `Route for resource '${resource.id}' independently recomputed duration exceeds max shift limit: ${recomputedDurationMin.toFixed(2)} min > ${maxShiftMinutes} min`,
+        );
+      }
     }
 
     // 8. Check servedRequestIds consistency with pickups

@@ -277,3 +277,41 @@ def test_unserved_classification_shift_limit_vs_capacity():
         assert u["reason"] == "UNASSIGNED"
 
 
+def test_solver_status_reporting(base_scenario: dict[str, Any]):
+    # Feasible solution solved within time limit
+    plan = solve(base_scenario, max_shift_minutes=480.0, time_limit_seconds=3.0)
+    assert plan["solverStatus"] in ("FEASIBLE_LOCAL_OPTIMUM", "FEASIBLE_TIME_LIMIT_REACHED")
+    # Must never claim global optimality merely because all requests were served
+    assert plan["solverStatus"] != "PROVEN_GLOBAL_OPTIMUM"
+
+
+def test_solver_status_edge_cases(base_scenario: dict[str, Any]):
+    # Empty requests
+    empty_plan = solve({**base_scenario, "requests": []})
+    assert empty_plan["solverStatus"] == "EMPTY_REQUESTS"
+
+    # No resources
+    no_res_plan = solve({**base_scenario, "resources": []})
+    assert no_res_plan["solverStatus"] == "NO_RESOURCES"
+
+    # No shelters
+    no_sh_plan = solve({**base_scenario, "shelters": []})
+    assert no_sh_plan["solverStatus"] == "NO_REACHABLE_RESOURCE"
+
+    # Oversized requests
+    oversized_plan = solve({
+        **base_scenario,
+        "requests": [
+            {
+                "id": "r-big",
+                "lat": 28.52,
+                "lng": 77.12,
+                "peopleCount": 99,
+                "urgency": "HIGH",
+            }
+        ],
+    })
+    assert oversized_plan["solverStatus"] == "ALL_REQUESTS_OVERSIZED"
+
+
+

@@ -56,9 +56,10 @@ class SolverMetrics(TypedDict):
     totalRequestsCount: int
 
 
-class SolverPlan(TypedDict):
+class SolverPlan(TypedDict, total=False):
     scenarioId: str
     calculatedAt: str
+    solverStatus: str
     routes: list[ResourceRoute]
     unserved: list[UnservedRequest]
     metrics: SolverMetrics

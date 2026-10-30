@@ -166,6 +166,7 @@ export function solveOrToolsBaseline(scenario: Scenario, options?: OrToolsOption
   return {
     scenarioId: rawPlan.scenarioId ?? scenario.id,
     calculatedAt: rawPlan.calculatedAt ?? new Date().toISOString(),
+    solverStatus: rawPlan.solverStatus,
     routes: rawPlan.routes ?? [],
     unserved: rawPlan.unserved ?? [],
     metrics,

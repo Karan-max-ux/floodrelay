@@ -434,4 +434,29 @@ describe('validateSolverPlan and assertValidSolverPlan', () => {
     expect(res2.valid).toBe(false);
     expect(res2.errors.some((e) => e.includes('pre-assigned status'))).toBe(true);
   });
+
+  it('rejects route where fraudulent totalDurationMinutes claims to be within shift limit but recomputed duration exceeds it', () => {
+    // validPlan has resource 'res-boat-1' with recomputed duration t2 (~14 min).
+    // If maxShiftMinutes is set to 10 min, but the route fraudulently claims totalDurationMinutes: 8 min
+    const fraudulentPlan: SolverPlan = {
+      ...validPlan,
+      routes: [
+        {
+          ...validPlan.routes[0]!,
+          totalDurationMinutes: 8.0, // Fraudulently claims within 10 min limit
+        },
+      ],
+    };
+
+    const res = validateSolverPlan(baseScenario, fraudulentPlan, { maxShiftMinutes: 10 });
+    expect(res.valid).toBe(false);
+    expect(
+      res.errors.some((e) =>
+        e.includes('independently recomputed duration exceeds max shift limit'),
+      ),
+    ).toBe(true);
+    expect(() =>
+      assertValidSolverPlan(baseScenario, fraudulentPlan, { maxShiftMinutes: 10 }),
+    ).toThrow(/independently recomputed duration exceeds max shift limit/);
+  });
 });

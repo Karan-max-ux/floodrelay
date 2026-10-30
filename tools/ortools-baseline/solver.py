@@ -20,6 +20,17 @@ from typing import Any
 
 from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 
+ROUTING_STATUS_NAMES: dict[int, str] = {
+    pywrapcp.RoutingModel.ROUTING_NOT_SOLVED: "NOT_SOLVED",
+    pywrapcp.RoutingModel.ROUTING_SUCCESS: "FEASIBLE_LOCAL_OPTIMUM",
+    pywrapcp.RoutingModel.ROUTING_PARTIAL_SUCCESS_LOCAL_OPTIMUM_NOT_REACHED: "FEASIBLE_TIME_LIMIT_REACHED",
+    pywrapcp.RoutingModel.ROUTING_FAIL: "NO_SOLUTION_FOUND",
+    pywrapcp.RoutingModel.ROUTING_FAIL_TIMEOUT: "TIMEOUT_NO_SOLUTION",
+    pywrapcp.RoutingModel.ROUTING_INVALID: "INVALID_MODEL",
+    pywrapcp.RoutingModel.ROUTING_INFEASIBLE: "PROVEN_INFEASIBLE",
+    pywrapcp.RoutingModel.ROUTING_OPTIMAL: "PROVEN_GLOBAL_OPTIMUM",
+}
+
 try:
     from .model import (
         ResourceRoute,
@@ -96,6 +107,7 @@ def solve(
         return {
             "scenarioId": scenario_id,
             "calculatedAt": datetime.now(timezone.utc).isoformat(),
+            "solverStatus": "NO_REACHABLE_RESOURCE" if not shelters else "NO_RESOURCES",
             "routes": [],
             "unserved": unserved_list,
             "metrics": metrics,
@@ -108,6 +120,7 @@ def solve(
         return {
             "scenarioId": scenario_id,
             "calculatedAt": datetime.now(timezone.utc).isoformat(),
+            "solverStatus": "EMPTY_REQUESTS",
             "routes": [],
             "unserved": [],
             "metrics": metrics,
@@ -140,6 +153,7 @@ def solve(
         return {
             "scenarioId": scenario_id,
             "calculatedAt": datetime.now(timezone.utc).isoformat(),
+            "solverStatus": "ALL_REQUESTS_OVERSIZED",
             "routes": [],
             "unserved": unserved_list,
             "metrics": metrics,
@@ -422,8 +436,14 @@ def solve(
                 })
 
     # Classify unserved candidate requests with verified evidence (Task 4)
-    solver_status = routing.status()
-    timed_out = solver_status == pywrapcp.RoutingModel.ROUTING_FAIL_TIMEOUT
+    raw_status = routing.status()
+    solver_status_name = ROUTING_STATUS_NAMES.get(
+        raw_status, f"STATUS_{raw_status}"
+    )
+    timed_out = raw_status in (
+        pywrapcp.RoutingModel.ROUTING_PARTIAL_SUCCESS_LOCAL_OPTIMUM_NOT_REACHED,
+        pywrapcp.RoutingModel.ROUTING_FAIL_TIMEOUT,
+    )
 
     for req in candidate_requests:
         if req["id"] not in served_ids:
@@ -477,6 +497,7 @@ def solve(
     return {
         "scenarioId": scenario_id,
         "calculatedAt": datetime.now(timezone.utc).isoformat(),
+        "solverStatus": solver_status_name,
         "routes": routes,
         "unserved": unserved_list,
         "metrics": metrics,
