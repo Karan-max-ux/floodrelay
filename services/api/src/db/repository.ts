@@ -1,4 +1,4 @@
-import type pg from 'pg';
+import pg from 'pg';
 import {
   validateScenario,
   type RescueRequest,
@@ -788,10 +788,10 @@ export class PostgisRepository {
     operatorId: string,
     notes?: string,
   ): Promise<boolean> {
-    const isPool =
-      typeof (this.client as unknown as { totalCount?: unknown }).totalCount === 'number';
+    const isPool = this.client instanceof pg.Pool;
+    let poolClient: pg.PoolClient | undefined;
     const client: Queryable = isPool
-      ? await (this.client as unknown as { connect: () => Promise<Queryable> }).connect()
+      ? (poolClient = await (this.client as pg.Pool).connect())
       : this.client;
 
     try {
@@ -849,7 +849,7 @@ export class PostgisRepository {
 
       if (pickupTargetIds.length > 0) {
         const reqResult = await client.query<{ id: string; status: string }>(
-          'SELECT id, status FROM requests WHERE id = ANY($1::text[]) ORDER BY id ASC FOR UPDATE;',
+          'SELECT id, status FROM requests WHERE id = ANY($1::text[]) ORDER BY id COLLATE "C" ASC FOR UPDATE;',
           [pickupTargetIds],
         );
         const lockedRequests = new Map(reqResult.rows.map((r) => [r.id, r.status]));
@@ -878,7 +878,7 @@ export class PostgisRepository {
       const resourceIds = Array.from(new Set(planStops.map((s) => s.resource_id))).sort();
       if (resourceIds.length > 0) {
         const resResult = await client.query<{ id: string; status: string }>(
-          'SELECT id, status FROM resources WHERE id = ANY($1::text[]) ORDER BY id ASC FOR UPDATE;',
+          'SELECT id, status FROM resources WHERE id = ANY($1::text[]) ORDER BY id COLLATE "C" ASC FOR UPDATE;',
           [resourceIds],
         );
         const lockedResources = new Map(resResult.rows.map((r) => [r.id, r.status]));
@@ -1013,8 +1013,8 @@ export class PostgisRepository {
       }
       throw err;
     } finally {
-      if (isPool && typeof (client as unknown as { release?: unknown }).release === 'function') {
-        (client as unknown as { release: () => void }).release();
+      if (poolClient) {
+        poolClient.release();
       }
     }
   }
