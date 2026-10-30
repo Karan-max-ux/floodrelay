@@ -142,7 +142,7 @@ Incoming rescue requests
 | OR-Tools baseline                                                                 | —     | ✅     | `tools/ortools-baseline/tests/test_solver.py`, `tools/ortools-baseline/tests/test_constraints.py`, `packages/solver/src/baselines/ortoolsBaseline.test.ts` (`serves requests and respects capacity constraints`, `strictly enforces return leg to shelter within shift limit`, `executes reliably on a generated scenario and satisfies invariants`) |
 | Results-table script                                                              | —     | ✅     | `packages/solver/src/evaluation/benchmark.test.ts` (`evaluates all solvers across random seeds and generates a results table`), verified via `scenarios/evaluate.ts`                                                                                                                                                                                 |
 
-### Phase 2 — API and database (Under Review 🟡)
+### Phase 2 — API and database
 
 | Task                                                    | Owner | Status | Proving test(s)                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ------------------------------------------------------- | ----- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -162,12 +162,12 @@ Incoming rescue requests
 
 ### Phase 4 — Road network and uncertainty
 
-| Task                                                                     | Owner | Status |
-| ------------------------------------------------------------------------ | ----- | ------ |
-| OSRM travel times (check the OSRM docs for the table request size limit) | —     | ⬜     |
-| Operator-marked blocked areas                                            | —     | ⬜     |
-| Uncertainty features                                                     | —     | ⬜     |
-| Perturbation re-runs to report how often assignments change              | —     | ⬜     |
+| Task                                                                     | Owner | Status | Proving test(s)                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------------------------------ | ----- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| OSRM travel times (check the OSRM docs for the table request size limit) | —     | 🟡     | `packages/solver/src/routing/osrmTravelTime.test.ts` (table coordinate chunking with $\le 100$ coords via `planChunks`, async prefetch caching, fallback to straight-line on network errors/timeouts, stats tracking; marked partly done pending live OSRM server integration tests) |
+| Operator-marked blocked areas                                            | —     | ✅     | `packages/solver/src/routing/blockedZones.test.ts` (ray-casting point-in-polygon, segment intersection, `HazardAwareTravelTimeProvider` with INFINITE and PENALTY policies, request zone filtering, route hazard inspection)                                                         |
+| Uncertainty features                                                     | —     | ✅     | `packages/solver/src/routing/uncertainty.test.ts` (lognormal travel time modeling with CV quadrature, Acklam rational quantile approximation, `RiskAwareTravelTimeProvider`, correlated-leg Monte Carlo route risk assessment)                                                       |
+| Perturbation re-runs to report how often assignments change              | —     | ✅     | `packages/solver/src/evaluation/perturbation.test.ts` (`PerturbedTravelTimeProvider`, timestamp perturbation, plan churn metric computation, verified via `scenarios/perturb.ts` study script)                                                                                       |
 
 ### Phase 5 — Incremental updates and live operations
 
@@ -200,8 +200,9 @@ Incoming rescue requests
 - **Next up:** Phase 3: Frontend (Next.js App Router, React Leaflet operator map and citizen intake UI).
 - **Phase 0:** Complete.
 - **Phase 1:** Complete (8 of 8 tasks complete ✅).
-- **Phase 2:** Under Review 🟡 (Pending PR review — review fixes implemented: deterministic resource row-level locking, late-stage transaction rollback verification with PostgreSQL triggers, explicit provenance classification for real/simulated/mixed scenarios, coordinate-derived regional metadata, and CI integration test enforcement with REQUIRE_DB=1; CI verification is pending final push).
-- Everything in Phase 3 and beyond: not started.
+- **Phase 2:** Complete ✅ (merged into main in PR #17).
+- **Phase 4:** Implementation complete on `feature/phase-4-road-network` (OSRM marked 🟡 partly done pending live server; hazard-aware routing, lognormal uncertainty with Monte Carlo risk assessment, and perturbation study complete with 57 unit tests passing).
+- Everything in Phase 3 and Phase 5+: not started.
 
 ---
 
