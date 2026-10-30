@@ -1,8 +1,8 @@
 # Flood Rescue Resource Allocation Platform — Progress
 
-**Last updated:** 2026-10-23
+**Last updated:** 2026-10-30
 
-**Current focus:** Phase 1 complete (all 8 tasks implemented with proving tests)
+**Current focus:** Phase 2 Review Fixes Implemented & Under Review 🟡 — Concurrency Locking, Rollback Verification, Provenance Classification (Pending PR Review)
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -142,15 +142,15 @@ Incoming rescue requests
 | OR-Tools baseline                                                                 | —     | ✅     | `tools/ortools-baseline/tests/test_solver.py`, `tools/ortools-baseline/tests/test_constraints.py`, `packages/solver/src/baselines/ortoolsBaseline.test.ts` (`serves requests and respects capacity constraints`, `strictly enforces return leg to shelter within shift limit`, `executes reliably on a generated scenario and satisfies invariants`) |
 | Results-table script                                                              | —     | ✅     | `packages/solver/src/evaluation/benchmark.test.ts` (`evaluates all solvers across random seeds and generates a results table`), verified via `scenarios/evaluate.ts`                                                                                                                                                                                 |
 
-### Phase 2 — API and database
+### Phase 2 — API and database (Under Review 🟡)
 
-| Task                                                    | Owner | Status |
-| ------------------------------------------------------- | ----- | ------ |
-| Schema                                                  | —     | ⬜     |
-| Request intake with idempotency and duplicate detection | —     | ⬜     |
-| PostGIS storage                                         | —     | ⬜     |
-| Assignment endpoints                                    | —     | ⬜     |
-| OpenAPI spec                                            | —     | ⬜     |
+| Task                                                    | Owner | Status | Proving test(s)                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------- | ----- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Schema                                                  | —     | ✅     | `services/api/src/db/schema.test.ts` (migration 001/002 up/down SQL structure, PostGIS extensions, GiST indexes, drop default REAL), `services/api/src/db/integration.test.ts` (live PostgreSQL NOT NULL/default source constraints and check constraints)                                                                                                                                                                                              |
+| PostGIS storage                                         | —     | ✅     | `services/api/src/db/repository.test.ts` (parameterized LIMIT/OFFSET with $N placeholders, MAX_QUERY_OFFSET enforcement, seeder SIMULATED provenance), `services/api/src/db/integration.test.ts` (live PostGIS ST_DWithin spatial proximity queries and distance filters)                                                                                                                                                                               |
+| Request intake with idempotency and duplicate detection | —     | ✅     | `services/api/src/routes/requests.test.ts` (real Supertest HTTP tests: 201 Created, 400 validation, 409 reused key conflict, idempotent replay, duplicate detection), `services/api/src/openapi.test.ts` (Supertest response schema validation), `services/api/src/db/integration.test.ts` (live PostGIS unique-violation code 23505 race handling)                                                                                                     |
+| Assignment endpoints                                    | —     | ✅     | `services/api/src/routes/assignments.test.ts` (real Supertest HTTP tests: 201 propose, 400 rejection when committed frozen stops exist, 200 commit with frozen stops, rollback on injected statement failure, 409 concurrency/conflict, PATCH /stops), `services/api/src/openapi.test.ts` (Supertest response schema validation), `services/api/src/db/integration.test.ts` (live PostgreSQL transaction with SELECT FOR UPDATE row locks and rollback) |
+| OpenAPI spec                                            | —     | ✅     | `services/api/src/openapi.test.ts` (byte-for-byte synchronization between docs/openapi.json and services/api/src/openapi.json, Express route introspection anti-drift, real Supertest HTTP validation against 23 response schemas for success and error status codes, schema contract parity with @floodrelay/shared types)                                                                                                                             |
 
 ### Phase 3 — Frontend
 
@@ -196,11 +196,12 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Google OR-Tools Python baseline implementation, child-process TypeScript integration, comprehensive test suite, benchmark harness integration, and ADR-17.
-- **Next up:** Proceed to Phase 2 (API and database).
-- **Phase 0:** 100% complete.
-- **Phase 1:** 100% complete (8 of 8 tasks complete ✅).
-- Everything in Phase 2 and beyond: not started.
+- **Last completed:** Google OR-Tools Python baseline implementation, child-process TypeScript integration, comprehensive test suite, benchmark harness integration, and Phase 2 review fixes (deterministic resource row-level locking, scoped transaction rollback verification with PostgreSQL triggers, explicit provenance classification, dynamic coordinate-derived regional metadata).
+- **Next up:** Phase 3: Frontend (Next.js App Router, React Leaflet operator map and citizen intake UI).
+- **Phase 0:** Complete.
+- **Phase 1:** Complete (8 of 8 tasks complete ✅).
+- **Phase 2:** Under Review 🟡 (Pending PR review — review fixes implemented: deterministic resource row-level locking, late-stage transaction rollback verification with PostgreSQL triggers, explicit provenance classification for real/simulated/mixed scenarios, coordinate-derived regional metadata, and CI integration test enforcement with REQUIRE_DB=1; CI verification is pending final push).
+- Everything in Phase 3 and beyond: not started.
 
 ---
 
@@ -219,15 +220,22 @@ Incoming rescue requests
 
 ## 11. Decisions made
 
-| Decision                                          | Reason                                                                                                                                                                                                                                     |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Next.js + React frontend                          | University requirement                                                                                                                                                                                                                     |
-| Separate Node.js backend                          | Long-running work and live updates do not fit serverless; stronger backend story                                                                                                                                                           |
-| PostgreSQL + PostGIS                              | Spatial queries, built-in DBSCAN for verification                                                                                                                                                                                          |
-| No machine learning                               | Reliable deterministic algorithms preferred; no measured need for ML                                                                                                                                                                       |
-| Build solver and evaluation before infrastructure | Validate the core logic before adding queues, real-time layers, etc.                                                                                                                                                                       |
-| Operator commits assignments                      | Decision support only; the system never dispatches autonomously                                                                                                                                                                            |
-| Backend framework: Express with TypeScript        | Team knows Express, setup is minimal, effort goes to the solver; TypeScript strict mode shared across all packages catches field mismatches at compile time; framework can be changed later because the solver has no framework dependency |
+| Decision                                                   | Reason                                                                                                                                                                                                                                     |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Next.js + React frontend                                   | University requirement                                                                                                                                                                                                                     |
+| Separate Node.js backend                                   | Long-running work and live updates do not fit serverless; stronger backend story                                                                                                                                                           |
+| PostgreSQL + PostGIS                                       | Spatial queries, built-in DBSCAN for verification                                                                                                                                                                                          |
+| No machine learning                                        | Reliable deterministic algorithms preferred; no measured need for ML                                                                                                                                                                       |
+| Build solver and evaluation before infrastructure          | Validate the core logic before adding queues, real-time layers, etc.                                                                                                                                                                       |
+| Operator commits assignments                               | Decision support only; the system never dispatches autonomously                                                                                                                                                                            |
+| Backend framework: Express with TypeScript                 | Team knows Express, setup is minimal, effort goes to the solver; TypeScript strict mode shared across all packages catches field mismatches at compile time; framework can be changed later because the solver has no framework dependency |
+| Shelter drop-off model                                     | Intermediate safe shelter drop-off stops inserted when vehicle passenger capacity is reached during multi-trip dispatching (ADR-11)                                                                                                        |
+| Flood impedance multipliers                                | Travel impedance multiplier (ASSUMED_FLOOD_IMPEDANCE_MULTIPLIER = 1.5) applied to travel times in flood-affected zones (ADR-12)                                                                                                            |
+| PostGIS schema and plain SQL migrations                    | GEOGRAPHY(Point, 4326) with GiST spatial indexes, plain SQL migrations with transactional runner, strict alignment with @floodrelay/shared (ADR-13)                                                                                        |
+| Request intake validation and duplicate detection          | Zod coordinate bounds, DB idempotency keys, spatial-temporal duplicate flagging (<=100m, <=2h, +-2 people) without dropping records, unverified submissions retained (ADR-14)                                                              |
+| Operator-committed assignments and stop-freezing lifecycle | Solver only proposes; operator action commits, freezes stops, marks requests ASSIGNED, subsequent replans preserve frozen stops (ADR-15)                                                                                                   |
+| OpenAPI 3.1 specification and anti-drift testing           | OpenAPI 3.1 spec served at /openapi.json and validated via automated route-introspection tests against Express handlers (ADR-16)                                                                                                           |
+| Deterministic resource locking and rollback verification   | Row-level SELECT FOR UPDATE in ascending order on resources, late statement rollback verification, explicit provenance (ADR-19)                                                                                                            |
 
 ---
 

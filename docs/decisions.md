@@ -140,6 +140,56 @@ When recording a new decision, copy this template and fill it in:
 
 ---
 
+---
+
+### ADR-13: Database schema, PostGIS spatial indexing, and SQL migration strategy
+
+- **Date:** 2026-10-27
+- **Decision:** Use plain SQL migrations (`infra/migrations/`) executed via a lightweight runner (`services/api/src/db/migrator.ts`), `node-postgres` (`pg`) connection pooling, and PostGIS `GEOGRAPHY(Point, 4326)` columns with spatial GiST indexes for all location entities. Keep table schemas and columns strictly aligned with `@floodrelay/shared` data contracts.
+- **Context:** Phase 2 requires persistent storage for citizen rescue requests, fleet resources, safe shelters, solver assignment proposals, route stops, and an audit event log. PostGIS spatial functions (`ST_DWithin`, `ST_Distance`) are best queried with native SQL without ORM abstraction penalties.
+- **Alternatives considered:**
+  - Prisma / Drizzle ORM: Heavier abstraction layers with evolving spatial geometry types; higher cognitive overhead when debugging raw spatial SQL.
+  - Geometry vs Geography: Using `GEOMETRY` with flat Euclidean projections requires managing SRID projections. `GEOGRAPHY(Point, 4326)` calculates true spherical distances in meters natively.
+- **Consequence:** Database tables (`requests`, `resources`, `shelters`, `assignments`, `assignment_stops`, `audit_events`) have spatial GiST indexing, supporting sub-millisecond proximity queries, duplicate detection within radial meters, and strict alignment with TypeScript interfaces in `@floodrelay/shared`.
+
+---
+
+### ADR-14: Request intake validation, idempotency, and non-destructive duplicate detection
+
+- **Date:** 2026-10-27
+- **Decision:** Validate citizen rescue requests using Zod with coordinate and schema bounds, enforce intake idempotency via database `idempotency_key` lookups, and detect spatial-temporal duplicates (distance $\le 100\text{ m}$, submission window $\le 2\text{ hours}$, passenger delta $\le 2$ people). Flagged duplicate requests and unverified submissions are always stored in the database with their respective flags (`is_flagged_duplicate: true`, `duplicate_of_id`, `verification_status: 'UNVERIFIED'`) and are never silently discarded or dropped.
+- **Context:** Emergency intake endpoints face erratic network conditions causing client retries, as well as multiple reports from neighbors or family members for the same stranded individuals. Discarding any call risks life safety if a duplicate classification is mistaken; simultaneously, dispatching multiple rescue boats to identical locations wastes scarce emergency capacity. Idempotency prevents duplicate records from client retry loops, while audit logging preserves every submission event.
+- **Alternatives considered:**
+  - Silent deduplication / dropping duplicate submissions: Rejected because false-positive drops during life-or-death emergencies could leave victims unserved.
+  - Ephemeral in-memory idempotency cache: Rejected because node restarts or multi-instance deployments lose idempotency keys; database persistence ensures durable idempotency.
+- **Consequence:** Requests are reliably persisted with full audit traceability (`audit_events` logged for every creation and duplicate flag). Operators retain complete visibility to inspect unverified or flagged submissions before or during solver dispatch runs.
+
+---
+
+### ADR-15: Operator-committed assignments and stop-freezing lifecycle
+
+- **Date:** 2026-10-28
+- **Decision:** Allocation endpoints run the solver solely to propose assignment plans (`status: 'PROPOSED'`). Only an explicit operator action via `POST /assignments/:id/commit` transitions an assignment to `COMMITTED`, freezes all route stops (`is_frozen = true`), and marks served requests as `ASSIGNED`. Once committed, an assignment cannot be re-committed or mutated, and subsequent replanning cycles (`POST /assignments/propose` with `preserveFrozen: true`) preserve frozen stops at the head of vehicle routes.
+- **Context:** Emergency dispatch decisions carry severe legal and ethical consequences during active flood disasters. Autonomous dispatch risks directing first responders into dangerous, rapidly changing hazard areas without human verification. Requiring human-in-the-loop operator commitment ensures operational authority remains with dispatchers while freezing dispatched stops ensures vehicles are not disrupted or redirected mid-mission.
+- **Alternatives considered:**
+  - Autonomous dispatch: Solver immediately commits and dispatches resources without operator review. (Rejected: unsafe in volatile flood disasters where ground truth overrides model assumptions).
+  - Mutable committed plans: Allow unconstrained editing of committed stops without audit trail or freeze enforcement. (Rejected: creates fleet confusion and dispatch churn).
+- **Consequence:** Clear lifecycle separation between solver proposals and human operator commits, with full audit logging (`ASSIGNMENT_PROPOSED`, `ASSIGNMENT_COMMITTED`, `ASSIGNMENT_STOP_MODIFIED`) and stop-freezing invariants during dynamic replanning.
+
+---
+
+### ADR-16: OpenAPI 3.1 specification and automated anti-drift validation
+
+- **Date:** 2026-10-28
+- **Decision:** Document all platform endpoints using OpenAPI 3.1 (`docs/openapi.json` and served over HTTP at `GET /openapi.json`), backed by an automated test suite (`services/api/src/openapi.test.ts`) that introspects Express routes and validates bidirectional alignment between registered endpoints and specification.
+- **Context:** API specifications frequently diverge from actual code as endpoints evolve, breaking downstream frontend interfaces and client integrations. An automated test validates that registered Express endpoints have matching documentation, helping detect undocumented routes or stale endpoints.
+- **Alternatives considered:**
+  - Manual unverified documentation: Rejected because manual docs drift within days of development.
+  - Runtime decorator generators (e.g. tsoa, routing-controllers): Adds invasive decorators, extra compilation steps, and unnecessary runtime reflection overhead.
+- **Consequence:** OpenAPI document is kept aligned with code, automatically validated in CI/tests, and served live from the backend API for client discovery and UI generation.
+
+---
+
 ### ADR-17: Google OR-Tools Python Baseline Formulation and Child-Process Integration
 
 - **Date:** 2026-10-23
@@ -150,3 +200,35 @@ When recording a new decision, copy this template and fill it in:
   - Persistent Python microservice / REST server: Running a background HTTP daemon for baseline evaluation introduces unnecessary operational complexity, port conflicts, and dependency management for library-level solver tests.
   - Shell string interpolation (`child_process.exec`): Vulnerable to command injection and platform discrepancies across Windows and Linux environments.
 - **Consequence:** Clean decoupling where the Python solver operates as a standalone CLI tool reading/writing JSON via stdin/stdout, while the TypeScript wrapper (`solveOrToolsBaseline`) provides a seamless synchronous interface conforming to `SolverFn` with zero native binding complexity. Requires Python 3.10+ with `ortools` installed in the development and CI environments.
+
+---
+
+### ADR-18: Rejection of Frozen Route Preservation for Greedy and Savings Baselines
+
+- **Date:** 2026-10-29
+- **Decision:** Reject attempts to propose assignments using the `nearest-first` or `savings` baseline algorithms with HTTP 400 (`UNSUPPORTED_ALGORITHM_OPTION`) whenever committed frozen stops exist in the active scenario, or when `preserveFrozen: true` is explicitly requested. Operators requiring incremental replanning around committed stops must use `cluster-allocation` or explicitly pass `preserveFrozen: false` to recalculate entirely from scratch.
+- **Context:** The Nearest-First greedy heuristic and Clarke-Wright savings baseline construct route networks ab initio and do not model fixed initial partial routes or committed frozen waypoints. Allowing these baseline solvers to run while committed stops exist would either silently ignore the frozen stops (leading to disjoint dispatches and conflicting vehicle assignments) or fail downstream constraints. Explicit rejection provides unambiguous feedback to operators.
+- **Alternatives considered:**
+  - Silently disregard frozen stops: Rejected because committed rescue units would have their active tasks dropped or reassigned, violating dispatch integrity.
+  - Artificially prepend frozen stops to baseline routes without re-optimizing: Rejected because greedy and savings heuristics cannot guarantee capacity or shift limit compliance when prepended with arbitrary prior routes.
+- **Consequence:** Clear algorithm capability contracts: `cluster-allocation` supports incremental operations with frozen stops; `nearest-first` and `savings` serve as pure initial baselines.
+
+---
+
+### ADR-19: Deterministic resource-level locking and transactional rollback verification
+
+- **Date:** 2026-10-30
+- **Decision:** In `commitAssignment()`, acquire exclusive PostgreSQL row locks (`SELECT ... FOR UPDATE`) on the assignment row, all referenced request rows (in ascending ID order), and all referenced resource rows (in ascending ID order) within a single database transaction. Recheck for resource assignment conflicts after locks are acquired before applying status transitions. Wrap the entire workflow—assignment status update, stop freezing, request assignment, and audit event insertion—in a PostgreSQL transaction that performs full rollback on any intermediate failure.
+- **Context:** Concurrent operator proposals may allocate the same rescue resource or request. Without deterministic row-level locking on resources, concurrent commits of different proposals using the same resource could commit simultaneously, causing double-allocation. Ordering lock acquisitions lexicographically minimizes transaction deadlocks.
+- **Alternatives considered:**
+  - Optimistic concurrency control (version column): Adds retry loops and requires client-side conflict resolution.
+  - Table-level locking: Serializes all assignment operations across the system, creating extreme contention.
+- **Consequence:** Two proposals using the same resource for different requests cannot commit concurrently; one commits while the other fails deterministically with HTTP 409 `RESOURCE_ALREADY_COMMITTED`. Transaction rollback is verified against live PostGIS ensuring partial database writes revert cleanly on late statement failure.
+
+#### Update: Review Fix Hardening and Verification (2026-10-30)
+
+- **Deterministic Lock Ordering:** Lock acquisition sequence is strictly ordered: assignment row -> request rows (ordered by ID `COLLATE "C"` ascending) -> resource rows (ordered by ID `COLLATE "C"` ascending). Collation ordering equivalence with JavaScript `.sort()` is verified for ASCII identifiers (tested by `proves identical lock acquisition ordering between JS .sort() and PostgreSQL COLLATE "C" across mixed-case, numbers, and underscores`).
+- **Live Overlap Verification:** Concurrency conflict prevention is verified with live transaction overlap using a monitoring connection polling `pg_stat_activity` for `wait_event_type = 'Lock'` (tested by `prevents two different proposals using the same resource for different requests from committing concurrently via genuine overlapping transactions`).
+- **Bidirectional Frozen-Stop Lineage:** Implemented three verification checks: Check 1 rejects frozen stops on resources with no prior commitments (defense-in-depth); Check 2 enforces preservation of all prior committed stops; Check 3 enforces lineage verification for both `PICKUP` and `DROPOFF` stops. Duplicate pickups for the same request across stops within a plan are rejected.
+- **Scoped Rollback Verification:** Rollback after partial writes is verified using a test-scoped PostgreSQL trigger (`trg_test_fail_audit`) and function (`fn_test_fail_audit()`) conditioned on the specific assignment ID. Cleanup is enforced in `beforeAll`, `finally`, and `afterAll`. Testing confirmed that omitting `ROLLBACK` on error was detected indirectly: the connection remained in aborted transaction state `25P02` and failed on subsequent query reuse rather than by an immediate outcome assertion.
+- **Known Limitations Recorded:** Acknowledged residual concurrency race in un-locked `modifyStop()`, ASCII-only lock order verification, deferred request lifecycle transitions (`IN_TRANSIT`, `RESCUED`), and absence of assignment retirement workflow prior to Phase 3.
