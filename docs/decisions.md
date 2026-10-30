@@ -137,3 +137,16 @@ When recording a new decision, copy this template and fill it in:
   - Binary passable/impassable road edges only: Treat flooded roads as strictly blocked (infinite travel time). (Rejected: specialized high-water trucks and rescue boats can traverse certain flooded corridors, and strictly blocking all flooded areas can cause solver infeasibility).
   - Static dry-road speeds: Use standard unweighted road speeds everywhere. (Rejected: dangerous optimism leading to unrealistic ETAs and unachievable dispatch schedules).
 - **Consequence:** Travel time providers support impedance scaling for flooded segments, and all speed and impedance parameters are explicitly exported as uncalibrated placeholder assumptions (`ASSUMED_*`) documented in `docs/limitations.md`.
+
+---
+
+### ADR-17: Google OR-Tools Python Baseline Formulation and Child-Process Integration
+
+- **Date:** 2026-10-23
+- **Decision:** Implement an optimization baseline using Google OR-Tools in Python (`ortools.constraint_solver.pywrapcp`), integrated with the TypeScript solver package via a child process (`child_process.spawnSync`).
+- **Context:** Phase 1 required an established optimization baseline to benchmark against our custom heuristics (Nearest-First, Urgency-batched savings + 2-opt, Cluster-Allocation). OR-Tools is an industry standard for Vehicle Routing Problems (VRP) and Pickup and Delivery Problems (PDP). Formulating rescue operations as a multi-vehicle PDP with capacity and time dimensions provides a formal mathematical optimization baseline using constraint programming and metaheuristic routing search to evaluate heuristic dispatch quality, high-priority wait times, and travel efficiency.
+- **Alternatives considered:**
+  - TypeScript LP/MIP solvers (e.g. javascript-lp-solver): Lack native routing dimension support, vehicle routing metaheuristics, and perform poorly on non-trivial VRP instances.
+  - Persistent Python microservice / REST server: Running a background HTTP daemon for baseline evaluation introduces unnecessary operational complexity, port conflicts, and dependency management for library-level solver tests.
+  - Shell string interpolation (`child_process.exec`): Vulnerable to command injection and platform discrepancies across Windows and Linux environments.
+- **Consequence:** Clean decoupling where the Python solver operates as a standalone CLI tool reading/writing JSON via stdin/stdout, while the TypeScript wrapper (`solveOrToolsBaseline`) provides a seamless synchronous interface conforming to `SolverFn` with zero native binding complexity. Requires Python 3.10+ with `ortools` installed in the development and CI environments.

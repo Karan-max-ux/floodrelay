@@ -1,6 +1,11 @@
 import type { Scenario } from '@floodrelay/shared';
 import { describe, expect, it } from 'vitest';
-import { solveClarkeWrightBaseline, solveClusterAllocation, solveNearestFirst } from './index.js';
+import {
+  solveClarkeWrightBaseline,
+  solveClusterAllocation,
+  solveNearestFirst,
+  solveOrToolsBaseline,
+} from './index.js';
 import { StraightLineTravelTimeProvider } from './routing/travelTime.js';
 
 describe('Sanity Scenarios', () => {
@@ -307,6 +312,7 @@ describe('Sanity Scenarios', () => {
     // Clarke-Wright constructs a round-trip tour serving both clusters within shift limit
     expect(cwPlan.routes[0]?.servedRequestIds).toHaveLength(6);
   });
+
   it('exhaustive sanity test: no solver reports travel time below brute-force optimum', () => {
     const provider = new StraightLineTravelTimeProvider();
 
@@ -424,18 +430,21 @@ describe('Sanity Scenarios', () => {
     const nfPlan = solveNearestFirst(tinyScenario);
     const cwPlan = solveClarkeWrightBaseline(tinyScenario);
     const caPlan = solveClusterAllocation(tinyScenario);
+    const otPlan = solveOrToolsBaseline(tinyScenario, { timeLimitSeconds: 2 });
 
     console.log(
-      `[Exhaustive Sanity] Brute-force optimum: ${optimalDuration.toFixed(2)} min | NF: ${nfPlan.metrics.totalTravelTimeMinutes.toFixed(2)} min | CW: ${cwPlan.metrics.totalTravelTimeMinutes.toFixed(2)} min | CA: ${caPlan.metrics.totalTravelTimeMinutes.toFixed(2)} min`,
+      `[Exhaustive Sanity] Brute-force optimum: ${optimalDuration.toFixed(2)} min | NF: ${nfPlan.metrics.totalTravelTimeMinutes.toFixed(2)} min | CW: ${cwPlan.metrics.totalTravelTimeMinutes.toFixed(2)} min | CA: ${caPlan.metrics.totalTravelTimeMinutes.toFixed(2)} min | OT: ${otPlan.metrics.totalTravelTimeMinutes.toFixed(2)} min`,
     );
 
     expect(nfPlan.metrics.coveragePercent).toBe(100);
     expect(cwPlan.metrics.coveragePercent).toBe(100);
     expect(caPlan.metrics.coveragePercent).toBe(100);
+    expect(otPlan.metrics.coveragePercent).toBe(100);
 
     // No solver can report a travel time below the exhaustive theoretical optimum
     expect(nfPlan.metrics.totalTravelTimeMinutes).toBeGreaterThanOrEqual(optimalDuration - 1e-4);
     expect(cwPlan.metrics.totalTravelTimeMinutes).toBeGreaterThanOrEqual(optimalDuration - 1e-4);
     expect(caPlan.metrics.totalTravelTimeMinutes).toBeGreaterThanOrEqual(optimalDuration - 1e-4);
+    expect(otPlan.metrics.totalTravelTimeMinutes).toBeGreaterThanOrEqual(optimalDuration - 1e-4);
   });
 });

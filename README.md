@@ -81,7 +81,7 @@ The repository contains seeded synthetic scenarios for testing and benchmark eva
   - Small: 20 requests / 4 resources / 2 shelters
   - Medium: 100 requests / 12 resources / 3 shelters
   - Large: 500 requests / 30 resources / 5 shelters
-- Evaluation harness: Run `npx tsx scenarios/evaluate.ts` to evaluate allocation solvers across reproducible synthetic scenarios (solvers evaluated: Nearest-First (Greedy), Urgency-batched savings + 2-opt, and Cluster-Allocation).
+- Evaluation harness: Run `npx tsx scenarios/evaluate.ts` to evaluate allocation solvers across reproducible synthetic scenarios (solvers evaluated: Nearest-First (Greedy), Urgency-batched savings + 2-opt, and Cluster-Allocation; pass `--include-ortools` to include the Google OR-Tools baseline).
 
 **Evaluation trade-offs & data notice:**
 
