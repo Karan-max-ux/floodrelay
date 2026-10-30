@@ -249,12 +249,13 @@ def test_unserved_classification_shift_limit_vs_capacity():
     assert unserved_far is not None
     assert unserved_far["reason"] == "SHIFT_LIMIT_REACHED"
 
-    # Now test CAPACITY_EXCEEDED:
+    # Now test UNASSIGNED:
     # 3 requests of 4 people, vehicle capacity 4 (requires 3 distinct trips).
     # Each round trip takes ~12.5 min.
     # With max_shift_minutes = 30.0, vehicle can complete 2 trips (~25 min), but not 3 (~37.5 min).
     # Direct mission for any individual request is ~12.5 min <= 30.0 min.
-    # Thus the omitted 3rd request is classified as CAPACITY_EXCEEDED (fleet capacity / multi-trip limit).
+    # Because physical impossibility is not mathematically proven for that individual request alone,
+    # the omitted request is properly classified as generic UNASSIGNED.
     scenario_cap = {
         "id": "capacity-exceeded-test",
         "requests": [
@@ -273,6 +274,6 @@ def test_unserved_classification_shift_limit_vs_capacity():
     assert len(plan_cap["routes"]) == 1
     assert len(plan_cap["unserved"]) >= 1
     for u in plan_cap["unserved"]:
-        assert u["reason"] == "CAPACITY_EXCEEDED"
+        assert u["reason"] == "UNASSIGNED"
 
 

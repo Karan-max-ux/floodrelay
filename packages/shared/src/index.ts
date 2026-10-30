@@ -118,7 +118,18 @@ export type UnservedReason =
   | 'TIME_WINDOW_EXCEEDED'
   | 'ISOLATED_ZONE'
   | 'GROUP_LARGER_THAN_ANY_VEHICLE'
-  | 'SHIFT_LIMIT_REACHED';
+  | 'SHIFT_LIMIT_REACHED'
+  | 'UNASSIGNED';
+
+export const VALID_UNSERVED_REASONS: ReadonlySet<UnservedReason> = new Set([
+  'CAPACITY_EXCEEDED',
+  'NO_REACHABLE_RESOURCE',
+  'TIME_WINDOW_EXCEEDED',
+  'ISOLATED_ZONE',
+  'GROUP_LARGER_THAN_ANY_VEHICLE',
+  'SHIFT_LIMIT_REACHED',
+  'UNASSIGNED',
+]);
 
 export interface UnservedRequest {
   requestId: string;

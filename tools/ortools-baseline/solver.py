@@ -308,7 +308,7 @@ def solve(
     # Search parameters
     search_params = pywrapcp.DefaultRoutingSearchParameters()
     search_params.first_solution_strategy = (
-        routing_enums_pb2.FirstSolutionStrategy.PARALLEL_CHEAPEST_INSERTION
+        routing_enums_pb2.FirstSolutionStrategy.LOCAL_CHEAPEST_INSERTION
     )
     search_params.local_search_metaheuristic = (
         routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
@@ -464,10 +464,10 @@ def solve(
                 timeout_note = " (solver reached search time limit)" if timed_out else ""
                 unserved_list.append({
                     "requestId": req["id"],
-                    "reason": "CAPACITY_EXCEEDED",
+                    "reason": "UNASSIGNED",
                     "details": (
-                        f"Request of {req['peopleCount']} passengers could not be assigned within "
-                        f"vehicle capacity, shift duration, or search limits{timeout_note}"
+                        f"Request of {req['peopleCount']} passengers was omitted by routing solver or search limit{timeout_note}; "
+                        "individual vehicle capacity or shift duration infeasibility is not mathematically proven"
                     ),
                 })
 
