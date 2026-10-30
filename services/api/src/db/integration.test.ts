@@ -60,11 +60,26 @@ describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
       );
     }
     const client = await pool.connect();
-    client.release();
+    try {
+      await client.query('DROP TRIGGER IF EXISTS trg_test_fail_audit ON audit_events;');
+      await client.query('DROP FUNCTION IF EXISTS fn_test_fail_audit();');
+    } finally {
+      client.release();
+    }
   });
 
   afterAll(async () => {
-    await closePool();
+    try {
+      const client = await pool.connect();
+      try {
+        await client.query('DROP TRIGGER IF EXISTS trg_test_fail_audit ON audit_events;');
+        await client.query('DROP FUNCTION IF EXISTS fn_test_fail_audit();');
+      } finally {
+        client.release();
+      }
+    } finally {
+      await closePool();
+    }
   });
 
   beforeEach(async () => {
@@ -337,14 +352,19 @@ describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
       const preReq = await repo.getRequestById(req.id);
       expect(preReq?.status).toBe('PENDING');
 
-      // Install a PostgreSQL trigger on audit_events to force an error on ASSIGNMENT_COMMITTED
+      // Validate plan.id format before interpolating into DDL
+      expect(plan.id).toMatch(/^[A-Za-z0-9_-]+$/);
+
+      // Install a PostgreSQL trigger scoped strictly to this plan ID on audit_events
       const client = await pool.connect();
       try {
         await client.query(`
-          CREATE OR REPLACE FUNCTION trigger_fail_assignment_audit()
+          CREATE OR REPLACE FUNCTION fn_test_fail_audit()
           RETURNS TRIGGER AS $$
           BEGIN
-            IF NEW.entity_type = 'ASSIGNMENT' AND NEW.event_type = 'ASSIGNMENT_COMMITTED' THEN
+            IF NEW.entity_type = 'ASSIGNMENT' 
+               AND NEW.event_type = 'ASSIGNMENT_COMMITTED' 
+               AND NEW.entity_id = '${plan.id}' THEN
               RAISE EXCEPTION 'Simulated SQL failure on audit-event insert for transaction rollback test';
             END IF;
             RETURN NEW;
@@ -353,11 +373,11 @@ describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
         `);
 
         await client.query(`
-          DROP TRIGGER IF EXISTS trigger_audit_fail ON audit_events;
-          CREATE TRIGGER trigger_audit_fail
+          DROP TRIGGER IF EXISTS trg_test_fail_audit ON audit_events;
+          CREATE TRIGGER trg_test_fail_audit
           BEFORE INSERT ON audit_events
           FOR EACH ROW
-          EXECUTE FUNCTION trigger_fail_assignment_audit();
+          EXECUTE FUNCTION fn_test_fail_audit();
         `);
 
         // Attempt to commit assignment - this performs partial writes:
@@ -367,7 +387,9 @@ describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
         // 4. INSERT INTO audit_events -> FAILS and triggers ROLLBACK
         await expect(
           assignmentService.commitAssignment(plan.id, { operatorId: 'op_rollback_test' }),
-        ).rejects.toThrow('Simulated SQL failure on audit-event insert');
+        ).rejects.toThrow(
+          'Simulated SQL failure on audit-event insert for transaction rollback test',
+        );
 
         // Verify that ALL database modifications were reverted to their pre-commit state:
         // 1. Assignment status remains PROPOSED, committed_at is null
@@ -383,19 +405,22 @@ describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
         const postReq = await repo.getRequestById(req.id);
         expect(postReq?.status).toBe('PENDING');
 
-        // 4. Audit events contain no committed record (reverted to only ASSIGNMENT_PROPOSED)
-        const auditRes = await client.query(
+        // 4. Audit events contain exactly 1 ASSIGNMENT_PROPOSED and 0 ASSIGNMENT_COMMITTED
+        const auditRes = await client.query<{ event_type: string }>(
           "SELECT event_type FROM audit_events WHERE entity_type = 'ASSIGNMENT' AND entity_id = $1;",
           [plan.id],
         );
-        expect(auditRes.rows.map((r: { event_type: string }) => r.event_type)).toEqual([
-          'ASSIGNMENT_PROPOSED',
-        ]);
+        const proposedEvents = auditRes.rows.filter((r) => r.event_type === 'ASSIGNMENT_PROPOSED');
+        const committedEvents = auditRes.rows.filter(
+          (r) => r.event_type === 'ASSIGNMENT_COMMITTED',
+        );
+        expect(proposedEvents.length).toBe(1);
+        expect(committedEvents.length).toBe(0);
       } finally {
         // Clean up test-specific database triggers and functions reliably
         try {
-          await client.query('DROP TRIGGER IF EXISTS trigger_audit_fail ON audit_events;');
-          await client.query('DROP FUNCTION IF EXISTS trigger_fail_assignment_audit();');
+          await client.query('DROP TRIGGER IF EXISTS trg_test_fail_audit ON audit_events;');
+          await client.query('DROP FUNCTION IF EXISTS fn_test_fail_audit();');
         } finally {
           client.release();
         }
@@ -414,15 +439,108 @@ describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
 
       const clientAfter = await pool.connect();
       try {
-        const finalAudit = await clientAfter.query(
+        const finalAudit = await clientAfter.query<{ event_type: string }>(
           "SELECT event_type FROM audit_events WHERE entity_type = 'ASSIGNMENT' AND entity_id = $1;",
           [plan.id],
         );
-        expect(finalAudit.rows.map((r: { event_type: string }) => r.event_type)).toContain(
-          'ASSIGNMENT_COMMITTED',
-        );
+        expect(finalAudit.rows.map((r) => r.event_type)).toContain('ASSIGNMENT_COMMITTED');
       } finally {
         clientAfter.release();
+      }
+    });
+
+    it('scoped trigger does not fire for commits of unrelated assignments', async () => {
+      const resourceOther: RescueResource = {
+        id: 'res_scope_other',
+        name: 'Scope Other Boat',
+        type: 'BOAT',
+        capacity: 6,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const shelterOther: Shelter = {
+        id: 'sh_scope_other',
+        name: 'Scope Other Shelter',
+        lat: 28.71,
+        lng: 77.21,
+        capacity: 100,
+      };
+      const reqOther: RescueRequest = {
+        id: 'req_scope_other',
+        lat: 28.705,
+        lng: 77.205,
+        peopleCount: 2,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(resourceOther, 'REAL');
+      await repo.insertShelter(shelterOther, 'REAL');
+      await repo.insertRequest(reqOther);
+
+      const planOther = await assignmentService.proposeAssignment(
+        ProposeAssignmentSchema.parse({}),
+      );
+      expect(planOther.status).toBe('PROPOSED');
+
+      // Target plan ID for which the trigger is configured to fail (different from planOther.id)
+      const targetPlanId = 'plan_target_blocked';
+      expect(targetPlanId).toMatch(/^[A-Za-z0-9_-]+$/);
+
+      const client = await pool.connect();
+      try {
+        await client.query(`
+          CREATE OR REPLACE FUNCTION fn_test_fail_audit()
+          RETURNS TRIGGER AS $$
+          BEGIN
+            IF NEW.entity_type = 'ASSIGNMENT' 
+               AND NEW.event_type = 'ASSIGNMENT_COMMITTED' 
+               AND NEW.entity_id = '${targetPlanId}' THEN
+              RAISE EXCEPTION 'Simulated SQL failure for target plan %', NEW.entity_id;
+            END IF;
+            RETURN NEW;
+          END;
+          $$ LANGUAGE plpgsql;
+        `);
+
+        await client.query(`
+          DROP TRIGGER IF EXISTS trg_test_fail_audit ON audit_events;
+          CREATE TRIGGER trg_test_fail_audit
+          BEFORE INSERT ON audit_events
+          FOR EACH ROW
+          EXECUTE FUNCTION fn_test_fail_audit();
+        `);
+
+        // planOther is an unrelated assignment: the scoped trigger must NOT fire
+        const commitSuccess = await assignmentService.commitAssignment(planOther.id, {
+          operatorId: 'op_scope_test',
+        });
+        expect(commitSuccess).toBe(true);
+
+        // Verify planOther is COMMITTED
+        const committedAssign = await repo.getAssignmentWithStops(planOther.id);
+        expect(committedAssign?.assignment.status).toBe('COMMITTED');
+
+        // Verify exactly one ASSIGNMENT_COMMITTED audit row for planOther
+        const auditRes = await client.query<{ event_type: string }>(
+          "SELECT event_type FROM audit_events WHERE entity_type = 'ASSIGNMENT' AND entity_id = $1;",
+          [planOther.id],
+        );
+        const committedAuditRows = auditRes.rows.filter(
+          (r) => r.event_type === 'ASSIGNMENT_COMMITTED',
+        );
+        expect(committedAuditRows.length).toBe(1);
+      } finally {
+        try {
+          await client.query('DROP TRIGGER IF EXISTS trg_test_fail_audit ON audit_events;');
+          await client.query('DROP FUNCTION IF EXISTS fn_test_fail_audit();');
+        } finally {
+          client.release();
+        }
       }
     });
 
