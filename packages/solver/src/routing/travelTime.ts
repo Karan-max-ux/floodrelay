@@ -1,4 +1,4 @@
-import type { GeoPoint } from '@floodrelay/shared';
+import type { GeoPoint, HazardLevel } from '@floodrelay/shared';
 import { haversineKm } from '../index.js';
 
 export const ASSUMED_ROAD_DETOUR_FACTOR = 1.3; // placeholder, not measured
@@ -8,6 +8,9 @@ export const ASSUMED_FLOOD_IMPEDANCE_MULTIPLIER = 1.5; // placeholder, not measu
 export interface TravelEstimate {
   distanceKm: number;
   durationMinutes: number;
+  blocked?: boolean;
+  hazard?: HazardLevel;
+  source?: 'OSRM' | 'STRAIGHT_LINE';
 }
 
 export interface TravelTimeProvider {
@@ -46,6 +49,7 @@ export class StraightLineTravelTimeProvider implements TravelTimeProvider {
     return {
       distanceKm,
       durationMinutes,
+      source: 'STRAIGHT_LINE',
     };
   }
 

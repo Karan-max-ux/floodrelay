@@ -35,7 +35,8 @@ A flood-rescue resource allocation platform. Citizens submit rescue requests, th
 ├── infra/                (docker-compose and setup files, added later)
 └── docs/
     ├── decisions.md      (architecture decision log)
-    └── limitations.md    (honest limitations)
+    ├── limitations.md    (honest limitations)
+    └── osrm.md           (OSRM road network routing guide)
 ```
 
 ## Getting started
@@ -100,3 +101,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md#how-we-work) for our full development and 
 - [Contributing guidelines](CONTRIBUTING.md)
 - [Architecture decisions](docs/decisions.md)
 - [Known limitations](docs/limitations.md)
+- [OSRM routing guide](docs/osrm.md)

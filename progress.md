@@ -162,12 +162,12 @@ Incoming rescue requests
 
 ### Phase 4 — Road network and uncertainty
 
-| Task                                                                     | Owner | Status |
-| ------------------------------------------------------------------------ | ----- | ------ |
-| OSRM travel times (check the OSRM docs for the table request size limit) | —     | ⬜     |
-| Operator-marked blocked areas                                            | —     | ⬜     |
-| Uncertainty features                                                     | —     | ⬜     |
-| Perturbation re-runs to report how often assignments change              | —     | ⬜     |
+| Task                                                                     | Owner | Status | Proving test(s)                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------------------------------ | ----- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OSRM travel times (check the OSRM docs for the table request size limit) | —     | 🟡     | Provider is built and unit-tested against a local fake HTTP server (`osrmTravelTime.test.ts`, `osrmHttp.test.ts`), is wired into the API with graceful fallback (`assignmentsOsrm.test.ts`, `travelTimeFactory.test.ts`), and has not yet been verified against a real OSRM server. Marked 🟡 partly done; do not mark ✅ until `osrm-check.ts` and the LIVE test have run against a real server. |
+| Operator-marked blocked areas                                            | —     | ✅     | `packages/solver/src/routing/blockedZones.test.ts` (ray-casting point-in-polygon, segment intersection, `HazardAwareTravelTimeProvider` with INFINITE and PENALTY policies, request zone filtering, route hazard inspection)                                                                                                                                                                      |
+| Uncertainty features                                                     | —     | ✅     | `packages/solver/src/routing/uncertainty.test.ts` (lognormal travel time modeling with CV quadrature, Acklam rational quantile approximation, `RiskAwareTravelTimeProvider`, correlated-leg Monte Carlo route risk assessment)                                                                                                                                                                    |
+| Perturbation re-runs to report how often assignments change              | —     | ✅     | `packages/solver/src/evaluation/perturbation.test.ts` (`PerturbedTravelTimeProvider`, timestamp perturbation, plan churn metric computation, verified via `scenarios/perturb.ts` study script)                                                                                                                                                                                                    |
 
 ### Phase 5 — Incremental updates and live operations
 
@@ -201,7 +201,8 @@ Incoming rescue requests
 - **Phase 0:** Complete.
 - **Phase 1:** Complete (8 of 8 tasks complete ✅).
 - **Phase 2:** Under Review 🟡 (Pending PR review — review fixes implemented: deterministic resource row-level locking, late-stage transaction rollback verification with PostgreSQL triggers, explicit provenance classification for real/simulated/mixed scenarios, coordinate-derived regional metadata, and CI integration test enforcement with REQUIRE_DB=1; CI verification is pending final push).
-- Everything in Phase 3 and beyond: not started.
+- **Phase 4:** Implementation complete on `feature/phase-4-road-network` (OSRM marked 🟡 partly done pending live server; hazard-aware routing, lognormal uncertainty with Monte Carlo risk assessment, and perturbation study complete with 82 unit tests passing).
+- Everything in Phase 3 and Phase 5+: not started.
 
 ---
 

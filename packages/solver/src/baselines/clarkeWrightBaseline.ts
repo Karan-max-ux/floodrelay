@@ -122,8 +122,9 @@ export function solveClarkeWrightBaseline(
             ).distanceKm;
             const dIJ = provider.getTravelEstimate(reqI, reqJ, resource.speedKmH).distanceKm;
             const saving = dDepotI + dDepotJ - dIJ;
-
-            savings.push({ i, j, saving });
+            if (Number.isFinite(saving)) {
+              savings.push({ i, j, saving });
+            }
           }
         }
 
@@ -227,7 +228,7 @@ export function solveClarkeWrightBaseline(
         let minShelterDist = Number.POSITIVE_INFINITY;
         for (const sh of shelters) {
           const d = provider.getTravelEstimate(currentLocation, sh, resource.speedKmH).distanceKm;
-          if (d < minShelterDist) {
+          if (Number.isFinite(d) && d < minShelterDist) {
             minShelterDist = d;
             bestShelter = sh;
           }

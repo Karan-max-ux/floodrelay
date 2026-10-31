@@ -43,8 +43,12 @@ export function calculatePlanMetrics(
   let totalTravelTimeMinutes = 0;
 
   for (const route of plan.routes) {
-    totalTravelDistanceKm += route.totalTravelDistanceKm;
-    totalTravelTimeMinutes += route.totalDurationMinutes;
+    if (Number.isFinite(route.totalTravelDistanceKm)) {
+      totalTravelDistanceKm += route.totalTravelDistanceKm;
+    }
+    if (Number.isFinite(route.totalDurationMinutes)) {
+      totalTravelTimeMinutes += route.totalDurationMinutes;
+    }
 
     for (const stop of route.stops) {
       if (stop.type === 'PICKUP' && stop.targetId) {

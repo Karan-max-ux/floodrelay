@@ -77,3 +77,17 @@ This file documents honest limitations of the system. Keep it updated as the pro
 
 - **Integration test verbosity and execution time:**
   The live integration test suite (`integration.test.ts`) contains extensive, fully self-contained end-to-end scenarios against PostgreSQL/PostGIS. Because each test seeds isolated resources, shelters, requests, and assignments to prevent cross-test contamination, the test file comprises approximately 2,960 lines and executes in approximately 1.5–2.5 seconds.
+
+- **OSRM Table API limitations & chunking boundary:**
+  - **Static OpenStreetMap data:** OSRM calculates routes and durations across static OpenStreetMap network data and does not dynamically represent real-time inundation or depth without operator-marked zones.
+  - **Coordinate request limit & chunking:** Public and standard self-hosted OSRM instances enforce an upper bound on table coordinates (default `maxTableCoordinates = 100` total origins and destinations per HTTP request). `OsrmTravelTimeProvider` decomposes larger matrices into 2D sub-queries via `planChunks` and aggregates them into a unified cache. Because solvers run synchronously, any cache miss, network timeout, or HTTP 429/5xx error falls back to `StraightLineTravelTimeProvider` with statistics recorded in `OsrmStats`.
+  - **Untested live OSRM instance:** The provider is built and unit-tested against a local fake node:http server and unit tests with mocked fetch, and is fully wired into the API. Integration testing against an active, live OSRM Docker container remains pending until `scenarios/osrm-check.ts` and LIVE tests are executed against a real server. See [docs/osrm.md](osrm.md) for full operational instructions, limitations, and verification steps.
+
+- **Hazard polygon straight-line segment approximation:**
+  The hazard evaluation functions (`pointInPolygon`, `segmentIntersectsPolygon`, `HazardAwareTravelTimeProvider`) evaluate straight-line geodesic segments connecting origin and destination coordinates against polygonal hazard zones. Real-world emergency vehicles navigate winding road networks; a physical road might detour around a hazard that the straight line crosses (false positive), or conversely curve through a hazard zone even if the Euclidean segment endpoints avoid it (false negative). Dynamic polygon avoidance within the road network requires edge-weight updates directly on the routing graph.
+
+- **Google OR-Tools Python solver isolation:**
+  The Google OR-Tools baseline runs in an independent Python subprocess (`tools/ortools-baseline/solver.py`) with internal distance calculations. It does not interface with TypeScript `TravelTimeProvider` implementations, meaning it cannot participate in `HazardAwareTravelTimeProvider`, `RiskAwareTravelTimeProvider`, or automated perturbation studies without reimplementing custom distance providers in Python.
+
+- **Lognormal travel time uncertainty calibration (uncalibrated placeholders):**
+  The risk-aware routing and Monte Carlo risk assessment models assume travel times follow a lognormal distribution with variance derived via quadrature: `cv_effective = sqrt(cv_base^2 + cv_zone^2)`. The variance coefficients (`ASSUMED_BASE_CV = 0.20`, `ASSUMED_WATER_SURGE_CV = 0.40`, `ASSUMED_CAUTION_CV = 0.15`) are heuristic placeholders and have not been fitted against historical GPS tracking data from emergency relief vehicles.

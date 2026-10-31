@@ -1,10 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   ALL_SOLVERS,
   evaluateSolversOnCase,
   formatMarkdownResultsTable,
   STANDARD_BENCHMARK_CASES,
 } from './benchmark.js';
+
+// Tests that spawn the OR-Tools Python process can exceed vitest's 5 s default when the full suite runs in parallel.
+vi.setConfig({ testTimeout: 30_000 });
 
 describe('Solver Evaluation Benchmark Harness', () => {
   it('evaluates standard solvers across random seeds and generates a results table', () => {
