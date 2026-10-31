@@ -201,7 +201,7 @@ Incoming rescue requests
 - **Phase 0:** Complete.
 - **Phase 1:** Complete (8 of 8 tasks complete ✅).
 - **Phase 2:** Under Review 🟡 (Pending PR review — review fixes implemented: deterministic resource row-level locking, late-stage transaction rollback verification with PostgreSQL triggers, explicit provenance classification for real/simulated/mixed scenarios, coordinate-derived regional metadata, and CI integration test enforcement with REQUIRE_DB=1; CI verification is pending final push).
-- **Phase 4:** Implementation complete on `feature/phase-4-road-network` (OSRM marked 🟡 partly done pending live server; hazard-aware routing, lognormal uncertainty with Monte Carlo risk assessment, and perturbation study complete with 57 unit tests passing).
+- **Phase 4:** Implementation complete on `feature/phase-4-road-network` (OSRM marked 🟡 partly done pending live server; hazard-aware routing, lognormal uncertainty with Monte Carlo risk assessment, and perturbation study complete with 82 unit tests passing).
 - Everything in Phase 3 and Phase 5+: not started.
 
 ---

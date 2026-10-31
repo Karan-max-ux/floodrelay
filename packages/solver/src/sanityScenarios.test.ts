@@ -1,5 +1,5 @@
 import type { Scenario } from '@floodrelay/shared';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   solveClarkeWrightBaseline,
   solveClusterAllocation,
@@ -7,6 +7,9 @@ import {
   solveOrToolsBaseline,
 } from './index.js';
 import { StraightLineTravelTimeProvider } from './routing/travelTime.js';
+
+// Tests that spawn the OR-Tools Python process can exceed vitest's 5 s default when the full suite runs in parallel.
+vi.setConfig({ testTimeout: 30_000 });
 
 describe('Sanity Scenarios', () => {
   it('straight line scenario: Urgency-batched savings + 2-opt total travel time is <= nearest-first', () => {
