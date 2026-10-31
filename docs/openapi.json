@@ -827,6 +827,14 @@
             "minimum": 1,
             "maximum": 1440,
             "default": 480
+          },
+          "blockedZones": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BlockedZoneInput"
+            },
+            "maxItems": 100,
+            "description": "Optional request-scoped polygon hazard zones (blocked, water surge, caution)"
           }
         }
       },
@@ -1065,6 +1073,9 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "travelTime": {
+            "$ref": "#/components/schemas/TravelTimeReport"
           }
         }
       },
@@ -1134,6 +1145,99 @@
                 "type": "string",
                 "format": "date-time"
               }
+            }
+          }
+        }
+      },
+      "BlockedZoneInput": {
+        "type": "object",
+        "required": ["id", "severity", "polygon"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "zone_yamuna_01"
+          },
+          "name": {
+            "type": "string",
+            "example": "Wazirabad Submerged Causeway"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["BLOCKED", "WATER_SURGE", "CAUTION"]
+          },
+          "polygon": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["lat", "lng"],
+              "properties": {
+                "lat": {
+                  "type": "number",
+                  "minimum": -90,
+                  "maximum": 90
+                },
+                "lng": {
+                  "type": "number",
+                  "minimum": -180,
+                  "maximum": 180
+                }
+              }
+            },
+            "minItems": 3,
+            "maxItems": 500
+          }
+        }
+      },
+      "TravelTimeReport": {
+        "type": "object",
+        "required": [
+          "effectiveSource",
+          "osrmConfigured",
+          "osrmRequests",
+          "osrmFailedRequests",
+          "lookupsOsrm",
+          "lookupsStraightLine",
+          "hazardZoneCount",
+          "warnings"
+        ],
+        "properties": {
+          "effectiveSource": {
+            "type": "string",
+            "enum": ["OSRM", "STRAIGHT_LINE", "MIXED"]
+          },
+          "osrmConfigured": {
+            "type": "boolean"
+          },
+          "osrmRequests": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "osrmFailedRequests": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lookupsOsrm": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lookupsStraightLine": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "roadCoveragePercent": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "hazardZoneCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           }
         }

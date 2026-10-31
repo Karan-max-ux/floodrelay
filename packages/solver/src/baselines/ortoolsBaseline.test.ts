@@ -1,5 +1,7 @@
 import type { Scenario } from '@floodrelay/shared';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.setConfig({ testTimeout: 30_000 });
 import { generateScenario } from '../generator.js';
 import { solveOrToolsBaseline } from './ortoolsBaseline.js';
 

@@ -1,5 +1,6 @@
 import {
   validateScenario,
+  type BlockedZone,
   type BoundingBox,
   type GeoPoint,
   type RescueRequest,
@@ -16,6 +17,10 @@ import {
   solveClusterAllocation,
   solveNearestFirst,
   solveClarkeWrightBaseline,
+  prepareTravelTimeProvider,
+  osrmConfigFromEnv,
+  type OsrmProviderOptions,
+  type TravelTimeReport,
 } from '@floodrelay/solver';
 import { PostgisRepository } from '../db/repository.js';
 import {
@@ -43,6 +48,11 @@ export interface AssignmentDetailResponse {
   routes: ResourceRoute[];
   createdAt: string;
   updatedAt: string;
+  travelTime?: TravelTimeReport;
+}
+
+export interface AssignmentServiceOptions {
+  osrm?: OsrmProviderOptions | null;
 }
 
 export interface ProvenanceClassification {
@@ -161,7 +171,10 @@ export function deriveRegionFromCoordinates(points: GeoPoint[]): string {
 }
 
 export class AssignmentService {
-  constructor(private readonly repository: PostgisRepository) {}
+  constructor(
+    private readonly repository: PostgisRepository,
+    private readonly options?: AssignmentServiceOptions,
+  ) {}
 
   /**
    * Runs the solver on stored database data and proposes an assignment plan.
@@ -216,7 +229,14 @@ export class AssignmentService {
       requests,
       availableResources,
       shelters,
+      input.blockedZones,
     );
+
+    const osrmOptions =
+      this.options?.osrm === null ? null : (this.options?.osrm ?? osrmConfigFromEnv(process.env));
+
+    const { provider: travelTimeProvider, report: getTravelTimeReport } =
+      await prepareTravelTimeProvider(scenario, { osrm: osrmOptions });
 
     const validation = validateScenario(scenario);
     if (!validation.valid) {
@@ -229,14 +249,26 @@ export class AssignmentService {
     // 6. Execute selected solver algorithm
     let plan: SolverPlan;
     if (input.algorithm === 'nearest-first') {
-      plan = solveNearestFirst(scenario);
+      plan = solveNearestFirst(scenario, {
+        travelTimeProvider,
+        maxShiftDurationMinutes: input.maxShiftMinutes,
+      });
     } else if (input.algorithm === 'savings') {
-      plan = solveClarkeWrightBaseline(scenario);
+      plan = solveClarkeWrightBaseline(scenario, {
+        travelTimeProvider,
+        maxShiftMinutes: input.maxShiftMinutes,
+      });
     } else {
       plan = solveClusterAllocation(scenario, {
         existingFrozenRoutes,
         maxShiftMinutes: input.maxShiftMinutes,
+        travelTimeProvider,
       });
+    }
+
+    const travelTimeReport = getTravelTimeReport();
+    for (const warning of travelTimeReport.warnings) {
+      console.warn(`[AssignmentService] ${warning}`);
     }
 
     // 7. Store proposed assignment and stops in the database
@@ -280,6 +312,7 @@ export class AssignmentService {
         metrics: plan.metrics,
         routesCount: plan.routes.length,
         unservedCount: plan.unserved.length,
+        travelTime: travelTimeReport,
       },
     });
 
@@ -294,6 +327,7 @@ export class AssignmentService {
       routes: plan.routes,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
+      travelTime: travelTimeReport,
     };
   }
 
@@ -469,6 +503,7 @@ export class AssignmentService {
     requests: RescueRequest[],
     resources: RescueResource[],
     shelters: Shelter[],
+    blockedZones?: BlockedZone[],
   ): Scenario {
     const bounds = this.computeBoundingBox(requests, resources, shelters);
     const allPoints = [
@@ -498,6 +533,7 @@ export class AssignmentService {
       requests,
       resources,
       shelters,
+      blockedZones: blockedZones && blockedZones.length > 0 ? blockedZones : undefined,
     };
   }
 }

@@ -31,12 +31,6 @@ export function runCli(): void {
       seeds: [42, 1337, 2026],
     });
 
-    for (const row of results.rows) {
-      if (row.solverName === 'Clarke-Wright Savings + 2-opt') {
-        row.solverName = 'Urgency-batched savings + 2-opt';
-      }
-    }
-
     const markdown = formatPerturbationResultsMarkdown(results);
     console.log(markdown);
     return;
@@ -75,10 +69,7 @@ export function runCli(): void {
   >();
 
   for (const row of results.rows) {
-    const solver =
-      row.solverName === 'Clarke-Wright Savings + 2-opt'
-        ? 'Urgency-batched savings + 2-opt'
-        : row.solverName;
+    const solver = row.solverName;
     const key = `${solver}|${row.magnitude}`;
     if (!map.has(key)) {
       map.set(key, { assignment: [], route: [], sequence: [], delta: [] });

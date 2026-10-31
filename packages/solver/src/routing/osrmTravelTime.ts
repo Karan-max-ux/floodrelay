@@ -16,6 +16,8 @@ export interface OsrmStats {
   failedRequests: number;
   osrmCells: number;
   fallbackCells: number;
+  lookupsOsrm: number;
+  lookupsFallback: number;
 }
 
 export interface OsrmProviderOptions {
@@ -25,6 +27,7 @@ export interface OsrmProviderOptions {
   timeoutMs?: number;
   fallbackProvider?: TravelTimeProvider;
   fetchImpl?: typeof fetch;
+  useResourceSpeed?: boolean;
 }
 
 interface OsrmTableResponse {
@@ -61,6 +64,7 @@ export class OsrmTravelTimeProvider implements TravelTimeProvider {
   private readonly timeoutMs: number;
   private readonly fallbackProvider: TravelTimeProvider;
   private readonly fetchFn: typeof fetch;
+  private readonly useResourceSpeed: boolean;
 
   private readonly cache = new Map<string, TravelEstimate>();
   private readonly stats: OsrmStats = {
@@ -68,6 +72,8 @@ export class OsrmTravelTimeProvider implements TravelTimeProvider {
     failedRequests: 0,
     osrmCells: 0,
     fallbackCells: 0,
+    lookupsOsrm: 0,
+    lookupsFallback: 0,
   };
 
   constructor(options: OsrmProviderOptions = {}) {
@@ -77,6 +83,7 @@ export class OsrmTravelTimeProvider implements TravelTimeProvider {
     this.timeoutMs = options.timeoutMs ?? 5000;
     this.fallbackProvider = options.fallbackProvider ?? new StraightLineTravelTimeProvider();
     this.fetchFn = options.fetchImpl ?? globalThis.fetch;
+    this.useResourceSpeed = options.useResourceSpeed ?? true;
   }
 
   /**
@@ -139,6 +146,8 @@ export class OsrmTravelTimeProvider implements TravelTimeProvider {
     this.stats.failedRequests = 0;
     this.stats.osrmCells = 0;
     this.stats.fallbackCells = 0;
+    this.stats.lookupsOsrm = 0;
+    this.stats.lookupsFallback = 0;
   }
 
   clearCache(): void {
@@ -191,20 +200,36 @@ export class OsrmTravelTimeProvider implements TravelTimeProvider {
     const cached = this.cache.get(key);
 
     if (cached) {
-      if (isFlooded) {
+      if (cached.source === 'OSRM') {
+        this.stats.lookupsOsrm++;
+        let durationMinutes = cached.durationMinutes;
+        if (this.useResourceSpeed && speedKmH !== undefined && speedKmH > 0) {
+          durationMinutes = Number(((cached.distanceKm / speedKmH) * 60).toFixed(2));
+        }
+
+        let distanceKm = cached.distanceKm;
+        if (isFlooded) {
+          durationMinutes = Number(
+            (durationMinutes * ASSUMED_FLOOD_IMPEDANCE_MULTIPLIER).toFixed(2),
+          );
+          distanceKm = Number((distanceKm * ASSUMED_FLOOD_IMPEDANCE_MULTIPLIER).toFixed(3));
+        }
+
         return {
-          ...cached,
-          durationMinutes: Number(
-            (cached.durationMinutes * ASSUMED_FLOOD_IMPEDANCE_MULTIPLIER).toFixed(2),
-          ),
-          distanceKm: Number((cached.distanceKm * ASSUMED_FLOOD_IMPEDANCE_MULTIPLIER).toFixed(3)),
+          distanceKm,
+          durationMinutes,
+          source: 'OSRM',
         };
       }
-      return cached;
+
+      // Cached fallback cell: recompute with caller speed and isFlooded
+      this.stats.lookupsFallback++;
+      return this.fallbackProvider.getTravelEstimate(from, to, speedKmH, isFlooded);
     }
 
     // Cache miss: fall back to straight line
     this.stats.fallbackCells++;
+    this.stats.lookupsFallback++;
     return this.fallbackProvider.getTravelEstimate(from, to, speedKmH, isFlooded);
   }
 
@@ -249,7 +274,6 @@ export class OsrmTravelTimeProvider implements TravelTimeProvider {
 
     try {
       const res = await this.fetchFn(url, { signal: controller.signal });
-      clearTimeout(timeoutId);
 
       if (!res.ok) {
         this.stats.failedRequests++;
@@ -259,10 +283,11 @@ export class OsrmTravelTimeProvider implements TravelTimeProvider {
 
       responseData = (await res.json()) as OsrmTableResponse;
     } catch {
-      clearTimeout(timeoutId);
       this.stats.failedRequests++;
       this.fallbackEntireChunk(chunkOrigins, chunkDestinations);
       return;
+    } finally {
+      clearTimeout(timeoutId);
     }
 
     if (!responseData || responseData.code !== 'Ok' || !responseData.durations) {
@@ -291,7 +316,7 @@ export class OsrmTravelTimeProvider implements TravelTimeProvider {
           // Point not routable in road network, fall back
           this.stats.fallbackCells++;
           const fb = this.fallbackProvider.getTravelEstimate(origin, dest);
-          this.cache.set(key, fb);
+          this.cache.set(key, { ...fb, source: 'STRAIGHT_LINE' });
         } else {
           this.stats.osrmCells++;
           const distanceKm = Number((distMeters / 1000).toFixed(3));
@@ -312,7 +337,7 @@ export class OsrmTravelTimeProvider implements TravelTimeProvider {
         const key = pairKey(origin, dest);
         this.stats.fallbackCells++;
         const fb = this.fallbackProvider.getTravelEstimate(origin, dest);
-        this.cache.set(key, fb);
+        this.cache.set(key, { ...fb, source: 'STRAIGHT_LINE' });
       }
     }
   }

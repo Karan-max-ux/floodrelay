@@ -329,7 +329,7 @@ export function runPerturbationStudy(
       solve: (sc, prov) => solveClusterAllocation(sc, { travelTimeProvider: prov }),
     },
     {
-      name: 'Clarke-Wright Savings + 2-opt',
+      name: 'Urgency-batched savings + 2-opt',
       solve: (sc, prov) => solveClarkeWrightBaseline(sc, { travelTimeProvider: prov }),
     },
   ];

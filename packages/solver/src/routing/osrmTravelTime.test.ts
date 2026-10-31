@@ -283,9 +283,88 @@ describe('OsrmTravelTimeProvider', () => {
       const provider = new OsrmTravelTimeProvider();
       provider.getTravelEstimate(p1, p2); // cache miss
       expect(provider.getStats().fallbackCells).toBe(1);
+      expect(provider.getStats().lookupsFallback).toBe(1);
 
       provider.resetStats();
       expect(provider.getStats().fallbackCells).toBe(0);
+      expect(provider.getStats().lookupsFallback).toBe(0);
+      expect(provider.getStats().lookupsOsrm).toBe(0);
+    });
+
+    it('scales duration with vehicle speed when useResourceSpeed is true', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          code: 'Ok',
+          durations: [[1200]], // 20 mins default OSRM driving
+          distances: [[30000]], // 30 km
+        }),
+      });
+
+      const provider = new OsrmTravelTimeProvider({
+        fetchImpl: mockFetch as unknown as typeof fetch,
+        useResourceSpeed: true,
+      });
+      await provider.prefetch([p1], [p2]);
+
+      // No speed provided => default OSRM car duration (20 mins)
+      const defaultEst = provider.getTravelEstimate(p1, p2);
+      expect(defaultEst.durationMinutes).toBe(20);
+
+      // Caller passes speedKmH = 60 => 30 km / 60 km/h * 60 = 30 mins
+      const speed60Est = provider.getTravelEstimate(p1, p2, 60);
+      expect(speed60Est.durationMinutes).toBe(30);
+
+      // Caller passes speedKmH = 15 => 30 km / 15 km/h * 60 = 120 mins
+      const speed15Est = provider.getTravelEstimate(p1, p2, 15);
+      expect(speed15Est.durationMinutes).toBe(120);
+
+      const stats = provider.getStats();
+      expect(stats.lookupsOsrm).toBe(3);
+      expect(stats.lookupsFallback).toBe(0);
+    });
+
+    it('ignores vehicle speed when useResourceSpeed is false', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          code: 'Ok',
+          durations: [[1200]], // 20 mins
+          distances: [[30000]], // 30 km
+        }),
+      });
+
+      const provider = new OsrmTravelTimeProvider({
+        fetchImpl: mockFetch as unknown as typeof fetch,
+        useResourceSpeed: false,
+      });
+      await provider.prefetch([p1], [p2]);
+
+      const est = provider.getTravelEstimate(p1, p2, 60);
+      expect(est.durationMinutes).toBe(20); // stays 20 mins
+    });
+
+    it('recomputes cached fallback entries with caller speed at lookup time', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+      });
+
+      const provider = new OsrmTravelTimeProvider({
+        fetchImpl: mockFetch as unknown as typeof fetch,
+      });
+      await provider.prefetch([p1], [p2]);
+
+      const est30 = provider.getTravelEstimate(p1, p2, 30);
+      const est60 = provider.getTravelEstimate(p1, p2, 60);
+
+      expect(est30.source).toBe('STRAIGHT_LINE');
+      expect(est60.source).toBe('STRAIGHT_LINE');
+      expect(est60.durationMinutes).toBeCloseTo(est30.durationMinutes / 2, 1);
+
+      const stats = provider.getStats();
+      expect(stats.fallbackCells).toBe(1);
+      expect(stats.lookupsFallback).toBe(2);
     });
   });
 });

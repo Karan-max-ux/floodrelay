@@ -77,7 +77,7 @@ export function solveNearestFirst(scenario: Scenario, options?: NearestFirstOpti
       for (const [reqId, req] of unservedRequests.entries()) {
         if (req.peopleCount <= remainingCapacity) {
           const estimate = provider.getTravelEstimate(currentLocation, req, resource.speedKmH);
-          if (estimate.distanceKm < minDistance) {
+          if (Number.isFinite(estimate.distanceKm) && estimate.distanceKm < minDistance) {
             minDistance = estimate.distanceKm;
             nearestReqId = reqId;
           }
@@ -131,7 +131,7 @@ export function solveNearestFirst(scenario: Scenario, options?: NearestFirstOpti
               shelter,
               resource.speedKmH,
             ).distanceKm;
-            if (dist < minShelterDist) {
+            if (Number.isFinite(dist) && dist < minShelterDist) {
               minShelterDist = dist;
               nearestShelter = shelter;
             }
@@ -175,7 +175,7 @@ export function solveNearestFirst(scenario: Scenario, options?: NearestFirstOpti
           shelter,
           resource.speedKmH,
         ).distanceKm;
-        if (dist < minShelterDist) {
+        if (Number.isFinite(dist) && dist < minShelterDist) {
           minShelterDist = dist;
           nearestShelter = shelter;
         }

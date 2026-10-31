@@ -42,3 +42,4 @@ export * from './baselines/clarkeWrightBaseline.js';
 export * from './baselines/ortoolsBaseline.js';
 export * from './evaluation/benchmark.js';
 export * from './evaluation/perturbation.js';
+export * from './routing/travelTimeFactory.js';

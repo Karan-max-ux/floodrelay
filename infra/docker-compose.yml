@@ -2,6 +2,10 @@
 # Start with: docker-compose up -d
 # Stop with:  docker-compose down
 # Reset data: docker-compose down -v
+#
+# OSRM profile (optional, run with --profile osrm):
+# Start OSRM: docker-compose --profile osrm up -d
+# Note: PBF download and data prep were not run unless explicitly triggered.
 
 services:
   postgres:
@@ -23,5 +27,62 @@ services:
       timeout: 5s
       retries: 5
 
+  osrm-download:
+    image: curlimages/curl:8.10.1
+    container_name: floodrelay-osrm-download
+    profiles:
+      - osrm
+    volumes:
+      - osrm-data:/data
+    command:
+      - sh
+      - -c
+      - |
+        if [ ! -f /data/region.osm.pbf ]; then
+          echo "Downloading OSM PBF from $${OSRM_PBF_URL:-https://download.geofabrik.de/asia/india/delhi-latest.osm.pbf}..."
+          curl -L -f -o /data/region.osm.pbf "$${OSRM_PBF_URL:-https://download.geofabrik.de/asia/india/delhi-latest.osm.pbf}"
+        else
+          echo "OSM PBF already downloaded at /data/region.osm.pbf"
+        fi
+
+  osrm-prep:
+    image: ghcr.io/project-osrm/osrm-backend:v5.27.1
+    container_name: floodrelay-osrm-prep
+    profiles:
+      - osrm
+    depends_on:
+      osrm-download:
+        condition: service_completed_successfully
+    volumes:
+      - osrm-data:/data
+    command:
+      - sh
+      - -c
+      - |
+        if [ ! -f /data/region.osrm.partition ]; then
+          echo "Extracting, partitioning and customizing OSRM road graph..."
+          osrm-extract -p /opt/car.lua /data/region.osm.pbf && \
+          osrm-partition /data/region.osrm && \
+          osrm-customize /data/region.osrm
+        else
+          echo "OSRM graph files already prepped at /data/region.osrm"
+        fi
+
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:v5.27.1
+    container_name: floodrelay-osrm
+    profiles:
+      - osrm
+    restart: unless-stopped
+    depends_on:
+      osrm-prep:
+        condition: service_completed_successfully
+    ports:
+      - '${OSRM_PORT:-5000}:5000'
+    volumes:
+      - osrm-data:/data
+    command: osrm-routed --algorithm mld --max-table-size 100 /data/region.osrm
+
 volumes:
   pgdata:
+  osrm-data:
