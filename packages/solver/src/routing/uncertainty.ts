@@ -1,4 +1,10 @@
-import type { GeoPoint, HazardLevel, ResourceRoute, SolverPlan, ResourceType } from '@floodrelay/shared';
+import type {
+  GeoPoint,
+  HazardLevel,
+  ResourceRoute,
+  SolverPlan,
+  ResourceType,
+} from '@floodrelay/shared';
 import { SeededRNG } from '../generator.js';
 import type { TravelEstimate, TravelTimeProvider } from './travelTime.js';
 
@@ -53,7 +59,17 @@ export interface PlanRiskReport {
 
 /**
  * Computes combined coefficient of variation (CV = sigma / mean)
- * by combining individual uncertainty factors in quadrature.
+ * by combining individual uncertainty factors in quadrature:
+ * cv_effective = sqrt(cv_base^2 + cv_depth^2 + cv_weather^2 + cv_congestion^2 + cv_hazard^2)
+ * where:
+ * - cv_base = ASSUMED_BASE_CV (0.15, placeholder, not measured)
+ * - cv_depth = waterDepthMeters * ASSUMED_WATER_DEPTH_CV_FACTOR (0.20 per meter, placeholder, not measured)
+ * - cv_weather = weatherSeverity * ASSUMED_WEATHER_CV_FACTOR (0.10 per severity level 0-3, placeholder, not measured)
+ * - cv_congestion = congestionFactor * ASSUMED_CONGESTION_CV_FACTOR (0.15, placeholder, not measured)
+ * - cv_hazard = ASSUMED_HAZARD_CV_WATER_SURGE (0.30 for WATER_SURGE or BLOCKED, placeholder, not measured)
+ *             | ASSUMED_HAZARD_CV_CAUTION (0.15 for CAUTION, placeholder, not measured)
+ *             | 0.0 (otherwise)
+ * All terms represent heuristic uncalibrated estimates without empirical telemetry calibration.
  */
 export function calculateCoefficientOfVariation(factors: UncertaintyFactors = {}): number {
   const base = ASSUMED_BASE_CV;
@@ -75,7 +91,7 @@ export function calculateCoefficientOfVariation(factors: UncertaintyFactors = {}
 
 /**
  * Rational approximation of the inverse standard normal cumulative distribution function (probit).
- * Accurate to within 1.15e-9 (Peter J. Acklam algorithm).
+ * Accurate to within a relative error of about 1.15e-9 (Peter J. Acklam algorithm).
  */
 export function inverseNormalCDF(p: number): number {
   if (p <= 0 || p >= 1) {
@@ -192,7 +208,9 @@ export class RiskAwareTravelTimeProvider implements TravelTimeProvider {
     resourceType?: ResourceType,
   ): TravelEstimate[][] {
     return origins.map((origin) =>
-      destinations.map((dest) => this.getTravelEstimate(origin, dest, speedKmH, undefined, resourceType)),
+      destinations.map((dest) =>
+        this.getTravelEstimate(origin, dest, speedKmH, undefined, resourceType),
+      ),
     );
   }
 }

@@ -101,4 +101,14 @@ This file documents honest limitations of the system. Keep it updated as the pro
   The Google OR-Tools baseline runs in an independent Python subprocess (`tools/ortools-baseline/solver.py`) with internal distance calculations. It does not interface with TypeScript `TravelTimeProvider` implementations, meaning it cannot participate in `HazardAwareTravelTimeProvider`, `RiskAwareTravelTimeProvider`, or automated perturbation studies without reimplementing custom distance providers in Python.
 
 - **Lognormal travel time uncertainty calibration (uncalibrated placeholders):**
-  The risk-aware routing and Monte Carlo risk assessment models assume travel times follow a lognormal distribution with variance derived via quadrature: `cv_effective = sqrt(cv_base^2 + cv_zone^2)`. The variance coefficients (`ASSUMED_BASE_CV = 0.20`, `ASSUMED_WATER_SURGE_CV = 0.40`, `ASSUMED_CAUTION_CV = 0.15`) are heuristic placeholders and have not been fitted against historical GPS tracking data from emergency relief vehicles.
+  The effective coefficient of variation (CV = sigma / mean) is computed by combining individual uncertainty factors in quadrature:
+  cv_effective = sqrt(cv_base^2 + cv_depth^2 + cv_weather^2 + cv_congestion^2 + cv_hazard^2)
+  where:
+  - cv_base = ASSUMED_BASE_CV (0.15, placeholder, not measured)
+  - cv_depth = waterDepthMeters * ASSUMED_WATER_DEPTH_CV_FACTOR (0.20 per meter, placeholder, not measured)
+  - cv_weather = weatherSeverity * ASSUMED_WEATHER_CV_FACTOR (0.10 per severity level 0-3, placeholder, not measured)
+  - cv_congestion = congestionFactor * ASSUMED_CONGESTION_CV_FACTOR (0.15, placeholder, not measured)
+  - cv_hazard = ASSUMED_HAZARD_CV_WATER_SURGE (0.30 for WATER_SURGE or BLOCKED, placeholder, not measured)
+    | ASSUMED_HAZARD_CV_CAUTION (0.15 for CAUTION, placeholder, not measured)
+    | 0.0 (otherwise)
+    All terms represent heuristic uncalibrated estimates without empirical telemetry calibration. Travel times follow a lognormal distribution parameterized by planned duration and cv_effective. The inverse normal CDF uses Peter J. Acklam's rational approximation algorithm with a relative error of about 1.15e-9.

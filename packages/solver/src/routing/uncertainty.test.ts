@@ -39,6 +39,45 @@ describe('Uncertainty Modeling & Risk Assessment', () => {
       expect(inverseNormalCDF(0.95)).toBeCloseTo(1.64485, 4);
     });
 
+    it('computes inverseNormalCDF matching expected benchmark quantiles within 1e-6 tolerance', () => {
+      expect(inverseNormalCDF(0.5)).toBeCloseTo(0.0, 6);
+      expect(inverseNormalCDF(0.8)).toBeCloseTo(0.841621, 6);
+      expect(inverseNormalCDF(0.95)).toBeCloseTo(1.644854, 6);
+      expect(inverseNormalCDF(0.975)).toBeCloseTo(1.959964, 6);
+      expect(inverseNormalCDF(0.99)).toBeCloseTo(2.326348, 6);
+    });
+
+    it('satisfies inverseNormalCDF symmetry z(1 - p) = -z(p) and boundary conditions', () => {
+      const testPValues = [0.001, 0.01, 0.05, 0.1, 0.2, 0.35, 0.49];
+      for (const p of testPValues) {
+        expect(inverseNormalCDF(1 - p)).toBeCloseTo(-inverseNormalCDF(p), 6);
+      }
+
+      // Edge cases
+      expect(inverseNormalCDF(0)).toBe(-Infinity);
+      expect(inverseNormalCDF(1)).toBe(Infinity);
+      expect(inverseNormalCDF(-0.5)).toBe(-Infinity);
+      expect(inverseNormalCDF(1.5)).toBe(Infinity);
+    });
+
+    it('verifies lognormalQuantile median (p=0.5) equals exp(mu)', () => {
+      const testCases = [
+        { mean: 30, cv: 0.15 },
+        { mean: 50, cv: 0.25 },
+        { mean: 120, cv: 0.4 },
+      ];
+
+      for (const { mean, cv } of testCases) {
+        const sigmaLn = Math.sqrt(Math.log(1 + cv * cv));
+        const muLn = Math.log(mean) - 0.5 * sigmaLn * sigmaLn;
+        const expectedMedian = Number(Math.exp(muLn).toFixed(2));
+
+        const computedMedian = lognormalQuantile(0.5, mean, cv);
+        expect(computedMedian).toBeCloseTo(expectedMedian, 2);
+        expect(computedMedian).toBeCloseTo(Math.exp(muLn), 2);
+      }
+    });
+
     it('lognormalQuantile preserves strict monotonic ordering across percentiles', () => {
       const mean = 60; // 60 minutes
       const cv = 0.3;
