@@ -39,7 +39,8 @@ OSRM_PROFILE=driving
 OSRM_PORT=5000
 OSRM_TIMEOUT_MS=5000
 OSRM_MAX_TABLE_COORDINATES=100
-OSRM_PBF_URL=https://download.geofabrik.de/asia/india/delhi-latest.osm.pbf
+# Must be set to an extract you have verified (HTTP 200) that covers your scenario area
+OSRM_PBF_URL=
 ```
 
 ### Starting the Service
