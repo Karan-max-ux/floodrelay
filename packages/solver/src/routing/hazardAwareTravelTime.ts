@@ -1,8 +1,11 @@
 import type { BlockedZone, GeoPoint, ResourceType } from '@floodrelay/shared';
 import { type TravelEstimate, type TravelTimeProvider } from './travelTime.js';
 import {
-  zonesCrossedBySegment,
   type HazardPolicyOptions,
+  type BoundingBox,
+  computeBoundingBox,
+  boundingBoxesOverlap,
+  segmentIntersectsPolygon,
   ASSUMED_WATER_SURGE_IMPEDANCE_MULTIPLIER,
   ASSUMED_CAUTION_IMPEDANCE_MULTIPLIER,
   ASSUMED_BLOCKED_PENALTY_MULTIPLIER,
@@ -15,13 +18,21 @@ import {
  *
  * NOTE: Spatial hazard checks evaluate straight-line leg geometry between endpoints,
  * not the precise road network polyline.
+ * Uses bounding-box prefiltering and per-leg result caching for high performance.
  */
 export class HazardAwareTravelTimeProvider implements TravelTimeProvider {
+  private readonly legCache = new Map<string, BlockedZone[]>();
+  private readonly zoneBoxes: Map<string, BoundingBox>;
+
   constructor(
     private readonly inner: TravelTimeProvider,
     private readonly zones: BlockedZone[],
     private readonly options: HazardPolicyOptions = {},
-  ) {}
+  ) {
+    this.zoneBoxes = new Map(
+      zones.map((z) => [z.id, computeBoundingBox(z.polygon)]),
+    );
+  }
 
   getTravelEstimate(
     from: GeoPoint,
@@ -36,7 +47,25 @@ export class HazardAwareTravelTimeProvider implements TravelTimeProvider {
       return base;
     }
 
-    const crossed = zonesCrossedBySegment(from, to, this.zones);
+    const fromLat = from.lat ?? (from as unknown as { latitude?: number }).latitude ?? 0;
+    const fromLng = from.lng ?? (from as unknown as { longitude?: number }).longitude ?? 0;
+    const toLat = to.lat ?? (to as unknown as { latitude?: number }).latitude ?? 0;
+    const toLng = to.lng ?? (to as unknown as { longitude?: number }).longitude ?? 0;
+    const legKey = `${fromLat.toFixed(6)},${fromLng.toFixed(6)}->${toLat.toFixed(6)},${toLng.toFixed(6)}`;
+
+    let crossed = this.legCache.get(legKey);
+    if (!crossed) {
+      const segBox = computeBoundingBox([from, to]);
+      crossed = this.zones.filter((zone) => {
+        const box = this.zoneBoxes.get(zone.id);
+        if (box && !boundingBoxesOverlap(segBox, box)) {
+          return false;
+        }
+        return segmentIntersectsPolygon(from, to, zone.polygon);
+      });
+      this.legCache.set(legKey, crossed);
+    }
+
     if (crossed.length === 0) {
       return base;
     }

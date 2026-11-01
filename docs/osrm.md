@@ -87,6 +87,19 @@ The live test verifies:
 
 ---
 
+
+### Hazard Zone Policies & Leg Cost Semantics
+
+Operator-defined hazard polygons apply spatial impedance or outright exclusion to legs intersecting the polygon geometry. The resulting leg cost depends on the zone severity and the configured blocked policy:
+
+| Zone Type (`severity`) | Policy: `INFINITE` (Default) | Policy: `PENALTY` |
+| :--- | :--- | :--- |
+| `BLOCKED` | Leg blocked: `distance = Infinity`, `duration = Infinity`, `blocked = true`, `hazard = 'BLOCKED'` | Leg penalized: `baseCost * penaltyMultiplier` (default 10.0x), `blocked = true`, `hazard = 'BLOCKED'` |
+| `WATER_SURGE` | Leg impedance: `baseCost * ASSUMED_WATER_SURGE_IMPEDANCE_MULTIPLIER` (2.0x), `hazard = 'WATER_SURGE'` | Leg impedance: `baseCost * ASSUMED_WATER_SURGE_IMPEDANCE_MULTIPLIER` (2.0x), `hazard = 'WATER_SURGE'` |
+| `CAUTION` | Leg impedance: `baseCost * ASSUMED_CAUTION_IMPEDANCE_MULTIPLIER` (1.25x), `hazard = 'CAUTION'` | Leg impedance: `baseCost * ASSUMED_CAUTION_IMPEDANCE_MULTIPLIER` (1.25x), `hazard = 'CAUTION'` |
+
+Clear legs outside all hazard polygons receive unaltered baseline travel estimates (1.0x).
+
 ## 4. Understanding the `travelTime` Report
 
 Every proposal generated via `POST /assignments/propose` includes a `travelTime` report object in the response and audit event log:

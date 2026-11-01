@@ -420,6 +420,129 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
 
+    it('rejects polygon with more than 200 vertices', async () => {
+      const polygon = Array.from({ length: 201 }, (_, i) => ({
+        lat: 28.6 + i * 0.0001,
+        lng: 77.2 + i * 0.0001,
+      }));
+
+      const res = await request(app)
+        .post('/assignments/propose')
+        .send({
+          blockedZones: [
+            {
+              id: 'bz_too_many_vertices',
+              severity: 'CAUTION',
+              polygon,
+            },
+          ],
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('rejects polygon with fewer than 3 distinct vertices (degenerate ring)', async () => {
+      const res = await request(app)
+        .post('/assignments/propose')
+        .send({
+          blockedZones: [
+            {
+              id: 'bz_degenerate',
+              severity: 'BLOCKED',
+              polygon: [
+                { lat: 28.69, lng: 77.23 },
+                { lat: 28.69, lng: 77.23 },
+                { lat: 28.70, lng: 77.24 },
+              ],
+            },
+          ],
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('rejects polygon with non-finite coordinates', async () => {
+      const res = await request(app)
+        .post('/assignments/propose')
+        .send({
+          blockedZones: [
+            {
+              id: 'bz_infinite',
+              severity: 'BLOCKED',
+              polygon: [
+                { lat: 28.69, lng: 77.23 },
+                { lat: Infinity as unknown as number, lng: 77.24 },
+                { lat: 28.71, lng: 77.25 },
+              ],
+            },
+          ],
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('rejects longitude out of range [-180, 180]', async () => {
+      const res = await request(app)
+        .post('/assignments/propose')
+        .send({
+          blockedZones: [
+            {
+              id: 'bz_lng_oob',
+              severity: 'WATER_SURGE',
+              polygon: [
+                { lat: 28.69, lng: 77.23 },
+                { lat: 28.70, lng: 185.0 }, // lng > 180
+                { lat: 28.71, lng: 77.25 },
+              ],
+            },
+          ],
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('rejects request with more than 100 blocked zones', async () => {
+      const blockedZones = Array.from({ length: 101 }, (_, i) => ({
+        id: `zone_${i}`,
+        severity: 'CAUTION' as const,
+        polygon: [
+          { lat: 28.6, lng: 77.2 },
+          { lat: 28.61, lng: 77.2 },
+          { lat: 28.61, lng: 77.21 },
+        ],
+      }));
+
+      const res = await request(app)
+        .post('/assignments/propose')
+        .send({ blockedZones });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('rejects request exceeding cumulative limit of 2000 total vertices across zones', async () => {
+      // 11 zones with 190 vertices each = 2090 vertices (> 2000)
+      const blockedZones = Array.from({ length: 11 }, (_, z) => ({
+        id: `zone_large_${z}`,
+        severity: 'CAUTION' as const,
+        polygon: Array.from({ length: 190 }, (_, v) => ({
+          lat: 28.6 + z * 0.01 + v * 0.00001,
+          lng: 77.2 + z * 0.01 + v * 0.00001,
+        })),
+      }));
+
+      const res = await request(app)
+        .post('/assignments/propose')
+        .send({ blockedZones });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
     it('accepts valid blockedZones and reflects them in the travelTime report', async () => {
       const res = await request(app)
         .post('/assignments/propose')

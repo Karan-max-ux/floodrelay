@@ -35,6 +35,37 @@ export interface PlanHazardReport {
   }>;
 }
 
+export interface BoundingBox {
+  minLat: number;
+  maxLat: number;
+  minLng: number;
+  maxLng: number;
+}
+
+export function computeBoundingBox(points: GeoPoint[]): BoundingBox {
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  let minLng = Infinity;
+  let maxLng = -Infinity;
+  for (const pt of points) {
+    const { lat, lng } = getPoint(pt);
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+    if (lng < minLng) minLng = lng;
+    if (lng > maxLng) maxLng = lng;
+  }
+  return { minLat, maxLat, minLng, maxLng };
+}
+
+export function boundingBoxesOverlap(b1: BoundingBox, b2: BoundingBox): boolean {
+  return !(
+    b1.maxLat < b2.minLat ||
+    b1.minLat > b2.maxLat ||
+    b1.maxLng < b2.minLng ||
+    b1.minLng > b2.maxLng
+  );
+}
+
 function getPoint(p: GeoPoint): { lat: number; lng: number } {
   const lat = p.lat ?? (p as unknown as { latitude?: number }).latitude ?? 0;
   const lng = p.lng ?? (p as unknown as { longitude?: number }).longitude ?? 0;
@@ -204,16 +235,31 @@ export function zonesCrossedBySegment(
   p2: GeoPoint,
   zones: BlockedZone[],
 ): BlockedZone[] {
-  return zones.filter((zone) => segmentIntersectsPolygon(p1, p2, zone.polygon));
+  if (zones.length === 0) return [];
+  const segBox = computeBoundingBox([p1, p2]);
+  return zones.filter((zone) => {
+    const zoneBox = computeBoundingBox(zone.polygon);
+    if (!boundingBoxesOverlap(segBox, zoneBox)) {
+      return false;
+    }
+    return segmentIntersectsPolygon(p1, p2, zone.polygon);
+  });
 }
 
 /**
  * Tests whether a segment crosses any zone with severity 'BLOCKED'.
  */
 export function isSegmentBlocked(p1: GeoPoint, p2: GeoPoint, zones: BlockedZone[]): boolean {
-  return zones.some(
-    (zone) => zone.severity === 'BLOCKED' && segmentIntersectsPolygon(p1, p2, zone.polygon),
-  );
+  if (zones.length === 0) return false;
+  const segBox = computeBoundingBox([p1, p2]);
+  return zones.some((zone) => {
+    if (zone.severity !== 'BLOCKED') return false;
+    const zoneBox = computeBoundingBox(zone.polygon);
+    if (!boundingBoxesOverlap(segBox, zoneBox)) {
+      return false;
+    }
+    return segmentIntersectsPolygon(p1, p2, zone.polygon);
+  });
 }
 
 /**

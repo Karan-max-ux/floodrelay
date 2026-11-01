@@ -13,6 +13,8 @@ import {
 } from './blockedZones.js';
 import { HazardAwareTravelTimeProvider } from './hazardAwareTravelTime.js';
 import { StraightLineTravelTimeProvider } from './travelTime.js';
+import { generateScenario } from '../generator.js';
+import { solveNearestFirst } from '../baselines/nearestFirst.js';
 
 describe('BlockedZones & Geometry Helpers', () => {
   // Rectangle: lat [28.0, 28.2], lng [77.0, 77.2]
@@ -462,6 +464,89 @@ describe('BlockedZones & Geometry Helpers', () => {
       expect(matrix).toHaveLength(2);
       expect(matrix[0]![0]!.blocked).toBeUndefined(); // clear
       expect(matrix[1]![1]!.blocked).toBe(true); // blocked
+    });
+    it('scales WATER_SURGE legs by 2.0 under PENALTY policy (policy applies to BLOCKED only)', () => {
+      const provider = new HazardAwareTravelTimeProvider(baseProvider, zones, {
+        blockedPolicy: 'PENALTY',
+        penaltyMultiplier: 10.0,
+      });
+      const from = { lat: 28.35, lng: 77.35 };
+      const to = { lat: 28.45, lng: 77.45 };
+
+      const baseEst = baseProvider.getTravelEstimate(from, to);
+      const est = provider.getTravelEstimate(from, to);
+
+      expect(est.hazard).toBe('WATER_SURGE');
+      expect(est.blocked).toBeUndefined();
+      expect(est.distanceKm).toBeCloseTo(Number((baseEst.distanceKm * 2.0).toFixed(3)), 2);
+      expect(est.durationMinutes).toBeCloseTo(
+        Number((baseEst.durationMinutes * 2.0).toFixed(2)),
+        2,
+      );
+    });
+
+    it('scales CAUTION legs by 1.25 under PENALTY policy (policy applies to BLOCKED only)', () => {
+      const provider = new HazardAwareTravelTimeProvider(baseProvider, zones, {
+        blockedPolicy: 'PENALTY',
+        penaltyMultiplier: 10.0,
+      });
+      const from = { lat: 28.05, lng: 77.05 };
+      const to = { lat: 28.15, lng: 77.15 };
+
+      const baseEst = baseProvider.getTravelEstimate(from, to);
+      const est = provider.getTravelEstimate(from, to);
+
+      expect(est.hazard).toBe('CAUTION');
+      expect(est.blocked).toBeUndefined();
+      expect(est.distanceKm).toBeCloseTo(Number((baseEst.distanceKm * 1.25).toFixed(3)), 2);
+      expect(est.durationMinutes).toBeCloseTo(
+        Number((baseEst.durationMinutes * 1.25).toFixed(2)),
+        2,
+      );
+    });
+
+    it('executes worst-case hazard input (10 zones x 200 vertices = 2000 vertices) on Large scenario efficiently', () => {
+      const scenario = generateScenario({ seed: 42, requestCount: 500, resourceCount: 30 });
+
+      // Maximum allowed input: 10 zones of 200 vertices each = 2000 total vertices
+      const maxZones: BlockedZone[] = [];
+      for (let z = 0; z < 10; z++) {
+        const centerLat = 28.5 + (z % 3) * 0.1;
+        const centerLng = 77.1 + Math.floor(z / 3) * 0.1;
+        const radius = 0.02;
+        const polygon: GeoPoint[] = [];
+        const N = 200;
+        for (let i = 0; i < N; i++) {
+          const angle = (2 * Math.PI * i) / N;
+          polygon.push({
+            lat: Number((centerLat + radius * Math.cos(angle)).toFixed(6)),
+            lng: Number((centerLng + radius * Math.sin(angle)).toFixed(6)),
+          });
+        }
+        maxZones.push({
+          id: `zone-worst-${z}`,
+          severity: z === 0 ? 'BLOCKED' : z % 2 === 0 ? 'WATER_SURGE' : 'CAUTION',
+          polygon,
+        });
+      }
+
+      expect(maxZones).toHaveLength(10);
+      const totalVertices = maxZones.reduce((s, z) => s + z.polygon.length, 0);
+      expect(totalVertices).toBe(2000);
+
+      const provider = new HazardAwareTravelTimeProvider(baseProvider, maxZones);
+
+      const start = performance.now();
+      const plan = solveNearestFirst(
+        { ...scenario, blockedZones: maxZones },
+        { travelTimeProvider: provider },
+      );
+      const elapsed = performance.now() - start;
+
+      expect(plan.routes.length).toBeGreaterThan(0);
+      expect(plan.metrics.servedRequestsCount).toBeGreaterThan(0);
+      // Confirms bounding-box prefilter and per-leg cache execute well within standard timeout
+      expect(elapsed).toBeLessThan(5000);
     });
   });
 });

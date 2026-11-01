@@ -1,5 +1,9 @@
 import { z } from 'zod';
 
+export const ASSUMED_MAX_HAZARD_ZONES = 100; // placeholder, not measured
+export const ASSUMED_MAX_VERTICES_PER_POLYGON = 200; // placeholder, not measured
+export const ASSUMED_MAX_TOTAL_VERTICES_PER_REQUEST = 2000; // placeholder, not measured
+
 export const BlockedZoneInputSchema = z.object({
   id: z.string().min(1),
   name: z.string().optional(),
@@ -7,12 +11,19 @@ export const BlockedZoneInputSchema = z.object({
   polygon: z
     .array(
       z.object({
-        lat: z.number().min(-90).max(90),
-        lng: z.number().min(-180).max(180),
+        lat: z.number().finite().min(-90).max(90),
+        lng: z.number().finite().min(-180).max(180),
       }),
     )
     .min(3)
-    .max(500),
+    .max(ASSUMED_MAX_VERTICES_PER_POLYGON)
+    .refine(
+      (pts) => {
+        const distinct = new Set(pts.map((p) => `${p.lat},${p.lng}`));
+        return distinct.size >= 3;
+      },
+      { message: 'Polygon ring must contain at least 3 distinct vertices' },
+    ),
 });
 
 export type BlockedZoneInput = z.infer<typeof BlockedZoneInputSchema>;
@@ -26,7 +37,20 @@ export const ProposeAssignmentSchema = z.object({
   includeUnverified: z.boolean().optional().default(false),
   preserveFrozen: z.boolean().optional().default(true),
   maxShiftMinutes: z.number().int().positive().max(1440).optional().default(480),
-  blockedZones: z.array(BlockedZoneInputSchema).max(100).optional(),
+  blockedZones: z
+    .array(BlockedZoneInputSchema)
+    .max(ASSUMED_MAX_HAZARD_ZONES)
+    .refine(
+      (zones) => {
+        if (!zones) return true;
+        const total = zones.reduce((sum, z) => sum + z.polygon.length, 0);
+        return total <= ASSUMED_MAX_TOTAL_VERTICES_PER_REQUEST;
+      },
+      {
+        message: `Total polygon vertices across all blocked zones cannot exceed ${ASSUMED_MAX_TOTAL_VERTICES_PER_REQUEST}`,
+      },
+    )
+    .optional(),
 });
 
 export type ProposeAssignmentInput = z.infer<typeof ProposeAssignmentSchema>;

@@ -16,7 +16,13 @@ This file documents honest limitations of the system. Keep it updated as the pro
   Travel times and synthetic scenarios rely on estimated parameters that are not calibrated against empirical disaster-response telemetry:
   - `ASSUMED_ROAD_DETOUR_FACTOR` (1.3): Geodesic haversine distance multiplier to approximate road route tortuosity (placeholder, not measured).
   - `ASSUMED_DEFAULT_SPEED_KMH` (30 km/h): Fallback speed for travel time estimation when resource speed is not specified (placeholder, not measured).
-  - `ASSUMED_FLOOD_IMPEDANCE_MULTIPLIER` (1.5): Travel impedance multiplier applied when routing through flooded or degraded zones (placeholder, not measured).
+  - `ASSUMED_FLOOD_IMPEDANCE_MULTIPLIER` (1.5): Baseline travel impedance multiplier applied when routing through generic flooded or degraded segments without polygonal zones (placeholder, not measured).
+  - `ASSUMED_CAUTION_IMPEDANCE_MULTIPLIER` (1.25): Travel impedance multiplier applied in `HazardAwareTravelTimeProvider` and `legImpedanceMultiplier` when routing across operator-marked `CAUTION` hazard zones (mild water pooling, minor debris; placeholder, not measured). It represents milder degradation than the generic 1.5x flood multiplier.
+  - `ASSUMED_WATER_SURGE_IMPEDANCE_MULTIPLIER` (2.0): Travel impedance multiplier applied in `HazardAwareTravelTimeProvider` and `legImpedanceMultiplier` when routing across operator-marked `WATER_SURGE` hazard zones (deep, fast-moving flood waters; placeholder, not measured). It enforces a heavier 2.0x penalty compared to the generic 1.5x flood multiplier.
+  - `ASSUMED_BLOCKED_PENALTY_MULTIPLIER` (10.0): Finite penalty multiplier applied to impassable legs crossing `BLOCKED` hazard zones when running under the non-default `PENALTY` policy (placeholder, not measured). Under the default `INFINITE` policy, blocked legs receive Infinite duration/distance.
+  - `ASSUMED_MAX_HAZARD_ZONES` (100 zones): Request ceiling on the number of polygon hazard zones accepted per proposal (placeholder, not measured).
+  - `ASSUMED_MAX_VERTICES_PER_POLYGON` (200 vertices): Ceiling on the number of boundary vertices per hazard polygon ring (placeholder, not measured).
+  - `ASSUMED_MAX_TOTAL_VERTICES_PER_REQUEST` (2000 vertices): Cumulative ceiling on total vertices across all hazard zones in a request (placeholder, not measured).
   - `ASSUMED_BOAT_SPEED_MIN_KMH` (20 km/h) and `ASSUMED_BOAT_SPEED_MAX_KMH` (30 km/h): Synthetic speed range for boat resources in scenario generator (placeholder, not measured).
   - `ASSUMED_TRUCK_SPEED_MIN_KMH` (35 km/h) and `ASSUMED_TRUCK_SPEED_MAX_KMH` (50 km/h): Synthetic speed range for high-water truck resources in scenario generator (placeholder, not measured).
 

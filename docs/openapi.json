@@ -1184,7 +1184,7 @@
               }
             },
             "minItems": 3,
-            "maxItems": 500
+            "maxItems": 200
           }
         }
       },
