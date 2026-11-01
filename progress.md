@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-11-01
 
-**Current focus:** Phase 4 Review Follow-up Complete 🟡 (Routing Policy per Resource Type, Hazard Zones, Unreachable Requests, Explainable Plans, Uncertainty Model, 7 ADRs — Local Commits Ready for Review)
+**Current focus:** Phase 4 Review Follow-up 🟡 — Follow-up fixes implemented and tested locally; live OSRM verification still pending (no Docker/network available)
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -201,7 +201,7 @@ Incoming rescue requests
 - **Phase 0:** Complete.
 - **Phase 1:** Complete (8 of 8 tasks complete ✅).
 - **Phase 2:** Under Review 🟡 (Pending PR review — review fixes implemented: deterministic resource row-level locking, late-stage transaction rollback verification with PostgreSQL triggers, explicit provenance classification for real/simulated/mixed scenarios, coordinate-derived regional metadata, and CI integration test enforcement with REQUIRE_DB=1; CI verification is pending final push).
-- **Phase 4:** Follow-up fixes complete on `fix/phase-4-review-followup` (OSRM marked 🟡 partly done pending live server due to local Docker unavailability; per-resource-type routing policy, hazard zones impedance semantics, UNREACHABLE_DUE_TO_HAZARD reason, explainable plan audit logging with SHA-256 hash, calibrated lognormal uncertainty model, and 7 ADRs complete with 105 unit tests passing across Phase 4 test suites).
+- **Phase 4:** Follow-up fixes implemented and tested locally on `fix/phase-4-review-followup` (per-resource-type routing policy, hazard zones impedance semantics, UNREACHABLE_DUE_TO_HAZARD reason, explainable plan audit logging with SHA-256 hash, calibrated lognormal uncertainty model, and 7 ADRs with 105 unit tests passing across Phase 4 test suites); live OSRM verification remains pending (no Docker/network available; OSRM row kept at 🟡).
 - Everything in Phase 3 and Phase 5+: not started.
 
 ---
