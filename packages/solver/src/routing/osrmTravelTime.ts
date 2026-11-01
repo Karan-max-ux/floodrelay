@@ -1,4 +1,4 @@
-import type { GeoPoint } from '@floodrelay/shared';
+import type { GeoPoint, ResourceType } from '@floodrelay/shared';
 import {
   StraightLineTravelTimeProvider,
   type TravelEstimate,
@@ -17,6 +17,7 @@ export interface OsrmStats {
   osrmCells: number;
   fallbackCells: number;
   lookupsOsrm: number;
+  lookupsStraightLinePolicy: number;
   lookupsFallback: number;
 }
 
@@ -73,6 +74,7 @@ export class OsrmTravelTimeProvider implements TravelTimeProvider {
     osrmCells: 0,
     fallbackCells: 0,
     lookupsOsrm: 0,
+    lookupsStraightLinePolicy: 0,
     lookupsFallback: 0,
   };
 
@@ -147,6 +149,7 @@ export class OsrmTravelTimeProvider implements TravelTimeProvider {
     this.stats.osrmCells = 0;
     this.stats.fallbackCells = 0;
     this.stats.lookupsOsrm = 0;
+    this.stats.lookupsStraightLinePolicy = 0;
     this.stats.lookupsFallback = 0;
   }
 
@@ -181,9 +184,10 @@ export class OsrmTravelTimeProvider implements TravelTimeProvider {
     origins: GeoPoint[],
     destinations: GeoPoint[],
     speedKmH?: number,
+    resourceType?: ResourceType,
   ): Promise<TravelEstimate[][]> {
     await this.prefetch(origins, destinations);
-    return this.getMatrix(origins, destinations, speedKmH);
+    return this.getMatrix(origins, destinations, speedKmH, resourceType);
   }
 
   /**
@@ -195,7 +199,14 @@ export class OsrmTravelTimeProvider implements TravelTimeProvider {
     to: GeoPoint,
     speedKmH?: number,
     isFlooded?: boolean,
+    resourceType?: ResourceType,
   ): TravelEstimate {
+    // Per-resource routing policy: BOAT and HELICOPTER always use straight-line travel time
+    if (resourceType === 'BOAT' || resourceType === 'HELICOPTER') {
+      this.stats.lookupsStraightLinePolicy++;
+      return this.fallbackProvider.getTravelEstimate(from, to, speedKmH, isFlooded, resourceType);
+    }
+
     const key = pairKey(from, to);
     const cached = this.cache.get(key);
 
@@ -224,21 +235,26 @@ export class OsrmTravelTimeProvider implements TravelTimeProvider {
 
       // Cached fallback cell: recompute with caller speed and isFlooded
       this.stats.lookupsFallback++;
-      return this.fallbackProvider.getTravelEstimate(from, to, speedKmH, isFlooded);
+      return this.fallbackProvider.getTravelEstimate(from, to, speedKmH, isFlooded, resourceType);
     }
 
     // Cache miss: fall back to straight line
     this.stats.fallbackCells++;
     this.stats.lookupsFallback++;
-    return this.fallbackProvider.getTravelEstimate(from, to, speedKmH, isFlooded);
+    return this.fallbackProvider.getTravelEstimate(from, to, speedKmH, isFlooded, resourceType);
   }
 
   /**
    * Synchronously retrieves an M x N travel estimate matrix from the prefetch cache.
    */
-  getMatrix(origins: GeoPoint[], destinations: GeoPoint[], speedKmH?: number): TravelEstimate[][] {
+  getMatrix(
+    origins: GeoPoint[],
+    destinations: GeoPoint[],
+    speedKmH?: number,
+    resourceType?: ResourceType,
+  ): TravelEstimate[][] {
     return origins.map((origin) =>
-      destinations.map((dest) => this.getTravelEstimate(origin, dest, speedKmH)),
+      destinations.map((dest) => this.getTravelEstimate(origin, dest, speedKmH, undefined, resourceType)),
     );
   }
 

@@ -168,7 +168,7 @@ describe('OSRM HTTP Server Integration Tests', () => {
     await provider.prefetch(origins, destinations);
 
     // Haversine ~ 14.7 km * 1.5 detour = ~22.05 km
-    const estimateSlow = provider.getTravelEstimate(origins[0]!, destinations[0]!, 10); // 10 km/h boat
+    const estimateSlow = provider.getTravelEstimate(origins[0]!, destinations[0]!, 10); // 10 km/h slow vehicle
     const estimateFast = provider.getTravelEstimate(origins[0]!, destinations[0]!, 60); // 60 km/h truck
 
     expect(estimateSlow.source).toBe('OSRM');
@@ -323,7 +323,8 @@ describe('OSRM HTTP Server Integration Tests', () => {
     expect(rep.osrmConfigured).toBe(true);
     expect(rep.effectiveSource).toBe('OSRM');
     expect(rep.lookupsOsrm).toBeGreaterThan(0);
-    expect(rep.lookupsStraightLine).toBe(0);
+    expect(rep.lookupsStraightLinePolicy).toBe(0);
+    expect(rep.lookupsFallback).toBe(0);
     expect(rep.roadCoveragePercent).toBe(100);
     expect(rep.warnings).toHaveLength(0);
   });

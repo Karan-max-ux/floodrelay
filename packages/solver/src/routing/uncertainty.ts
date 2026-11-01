@@ -1,4 +1,4 @@
-import type { GeoPoint, HazardLevel, ResourceRoute, SolverPlan } from '@floodrelay/shared';
+import type { GeoPoint, HazardLevel, ResourceRoute, SolverPlan, ResourceType } from '@floodrelay/shared';
 import { SeededRNG } from '../generator.js';
 import type { TravelEstimate, TravelTimeProvider } from './travelTime.js';
 
@@ -168,8 +168,9 @@ export class RiskAwareTravelTimeProvider implements TravelTimeProvider {
     to: GeoPoint,
     speedKmH?: number,
     isFlooded?: boolean,
+    resourceType?: ResourceType,
   ): TravelEstimate {
-    const base = this.inner.getTravelEstimate(from, to, speedKmH, isFlooded);
+    const base = this.inner.getTravelEstimate(from, to, speedKmH, isFlooded, resourceType);
 
     const cv =
       typeof this.cvOrCalculator === 'function'
@@ -184,9 +185,14 @@ export class RiskAwareTravelTimeProvider implements TravelTimeProvider {
     };
   }
 
-  getMatrix(origins: GeoPoint[], destinations: GeoPoint[], speedKmH?: number): TravelEstimate[][] {
+  getMatrix(
+    origins: GeoPoint[],
+    destinations: GeoPoint[],
+    speedKmH?: number,
+    resourceType?: ResourceType,
+  ): TravelEstimate[][] {
     return origins.map((origin) =>
-      destinations.map((dest) => this.getTravelEstimate(origin, dest, speedKmH)),
+      destinations.map((dest) => this.getTravelEstimate(origin, dest, speedKmH, undefined, resourceType)),
     );
   }
 }

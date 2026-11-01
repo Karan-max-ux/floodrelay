@@ -1196,7 +1196,8 @@
           "osrmRequests",
           "osrmFailedRequests",
           "lookupsOsrm",
-          "lookupsStraightLine",
+          "lookupsStraightLinePolicy",
+          "lookupsFallback",
           "hazardZoneCount",
           "warnings"
         ],
@@ -1220,7 +1221,11 @@
             "type": "integer",
             "minimum": 0
           },
-          "lookupsStraightLine": {
+          "lookupsStraightLinePolicy": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lookupsFallback": {
             "type": "integer",
             "minimum": 0
           },

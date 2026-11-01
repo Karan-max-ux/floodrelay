@@ -13,8 +13,8 @@ This document describes how to configure, run, and verify the Open Source Routin
 FloodRelay solvers operate strictly **synchronously**. To provide realistic road distances and durations without making solver algorithms asynchronous or blocking the event loop:
 
 1. **Two-Phase Routing Design**:
-   - **Phase 1 (Async Prefetch)**: Before solver execution, `prepareTravelTimeProvider` gathers unique origins (resources, requests, shelters) and destinations (requests, shelters), chunks them to respect table coordinate limits (default $\le 100$ coordinates per request), and queries OSRM's `/table/v1/{profile}/...` Table API. The resulting road distances and durations are populated into an in-memory cache.
-   - **Phase 2 (Sync Estimation)**: During solver execution, `getTravelEstimate(from, to, speedKmH)` retrieves cached road distances synchronously in $O(1)$ time. When vehicle speed is specified, duration is computed as `roadDistance / speedKmH * 60` to account for different vehicle capabilities.
+   - **Phase 1 (Async Prefetch)**: Before solver execution, `prepareTravelTimeProvider` gathers unique origins for road vehicles (`HIGH_WATER_VEHICLE`, `AMBULANCE`), requests, and shelters, chunks them to respect table coordinate limits (default $\le 100$ coordinates per request), and queries OSRM's `/table/v1/{profile}/...` Table API. If the scenario contains no road vehicles, zero OSRM requests are dispatched. The resulting road distances and durations are populated into an in-memory cache.
+   - **Phase 2 (Sync Estimation)**: During solver execution, `getTravelEstimate(from, to, speedKmH, isFlooded, resourceType)` retrieves cached road distances synchronously in $O(1)$ time for road vehicles. For road vehicles with custom speed, duration is computed as `roadDistance / speedKmH * 60`. Non-road resources (`BOAT`, `HELICOPTER`) follow an explicit straight-line routing policy by design.
 2. **Graceful Fallback**: If OSRM is not configured, unreachable, returns HTTP errors (e.g. 429 / 500), or times out, the provider automatically falls back to straight-line Euclidean/Haversine routing with an assumed 1.3 road detour multiplier, tagging fallback lookups accordingly.
 3. **Hazard Decoration**: If `scenario.blockedZones` are defined, `HazardAwareTravelTimeProvider` wraps the provider, applying infinite penalty or flood impedance multipliers to legs intersecting hazard polygons.
 
@@ -98,7 +98,8 @@ Every proposal generated via `POST /assignments/propose` includes a `travelTime`
   "osrmRequests": 1,
   "osrmFailedRequests": 0,
   "lookupsOsrm": 18,
-  "lookupsStraightLine": 0,
+  "lookupsStraightLinePolicy": 0,
+  "lookupsFallback": 0,
   "roadCoveragePercent": 100.0,
   "hazardZoneCount": 1,
   "warnings": []
@@ -114,9 +115,10 @@ Every proposal generated via `POST /assignments/propose` includes a `travelTime`
 - **`osrmConfigured`**: `true` if `OSRM_BASE_URL` was provided.
 - **`osrmRequests`**: Total HTTP table requests dispatched to OSRM.
 - **`osrmFailedRequests`**: Total HTTP requests that failed (timeout, network error, 4xx/5xx).
-- **`lookupsOsrm`**: Number of pairwise distance queries served from cached OSRM cells.
-- **`lookupsStraightLine`**: Number of pairwise distance queries that used straight-line fallback.
-- **`roadCoveragePercent`**: `(lookupsOsrm / totalLookups) * 100`. Returns `null` if OSRM was unconfigured; `0` if configured but all lookups failed.
+- **`lookupsOsrm`**: Number of pairwise distance queries served from cached OSRM road network cells.
+- **`lookupsStraightLinePolicy`**: Number of pairwise distance queries served via straight-line policy by design (for `BOAT` and `HELICOPTER` resources).
+- **`lookupsFallback`**: Number of pairwise road-vehicle distance queries that fell back to straight-line due to OSRM cache misses, unroutable coordinates, or network failure.
+- **`roadCoveragePercent`**: `(lookupsOsrm / (lookupsOsrm + lookupsFallback)) * 100` evaluated strictly over road-vehicle queries. Returns `null` when there are no road vehicles or no road queries; `0` if configured but all road queries fell back.
 - **`hazardZoneCount`**: Number of active blocked or hazard zones evaluated.
 - **`warnings`**: List of any warnings encountered during prefetch (e.g. chunk failure or point limit truncation).
 
@@ -124,7 +126,7 @@ Every proposal generated via `POST /assignments/propose` includes a `travelTime`
 
 ## 5. Technical Limitations & Operational Assumptions
 
-1. **No Waterway / Boat Routing Profile**: OSRM routes over road networks (`driving` profile with car.lua). For marine rescue craft (`BOAT`), duration is calculated using the vehicle's speed against road distances or straight-line distance, but OSRM does not compute navigable river channels.
+1. **Per-Resource Routing Policy**: OSRM routes exclusively over road networks (`driving` profile with car.lua). Only road vehicles (`HIGH_WATER_VEHICLE`, `AMBULANCE`) query OSRM road distance. Marine craft (`BOAT`) and aerial craft (`HELICOPTER`) use straight-line geodesic calculations by design and do not follow road topology. OSRM does not compute navigable river channels or air corridors.
 2. **Straight-Line Hazard Intersections**: Hazard collision detection (`zonesCrossedBySegment`) currently evaluates line segments connecting origin and destination coordinates, rather than the intermediate polyline of the road route.
 3. **Sequential Chunk Prefetching**: Prefetch chunks are requested sequentially to avoid overwhelming lightweight OSRM instances or hitting public rate limits.
 4. **Public Demo Server Limits**: Using public OSRM demo servers (`router.project-osrm.org`) in production is prohibited by their usage policy and rate limits. Always deploy a dedicated local instance via Docker Compose.

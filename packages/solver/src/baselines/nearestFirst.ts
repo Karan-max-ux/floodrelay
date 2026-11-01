@@ -76,7 +76,7 @@ export function solveNearestFirst(scenario: Scenario, options?: NearestFirstOpti
 
       for (const [reqId, req] of unservedRequests.entries()) {
         if (req.peopleCount <= remainingCapacity) {
-          const estimate = provider.getTravelEstimate(currentLocation, req, resource.speedKmH);
+          const estimate = provider.getTravelEstimate(currentLocation, req, resource.speedKmH, undefined, resource.type);
           if (Number.isFinite(estimate.distanceKm) && estimate.distanceKm < minDistance) {
             minDistance = estimate.distanceKm;
             nearestReqId = reqId;
@@ -86,11 +86,11 @@ export function solveNearestFirst(scenario: Scenario, options?: NearestFirstOpti
 
       if (nearestReqId) {
         const req = unservedRequests.get(nearestReqId)!;
-        const estimate = provider.getTravelEstimate(currentLocation, req, resource.speedKmH);
+        const estimate = provider.getTravelEstimate(currentLocation, req, resource.speedKmH, undefined, resource.type);
 
         let minShelterDuration = Number.POSITIVE_INFINITY;
         for (const sh of shelters) {
-          const shelterEst = provider.getTravelEstimate(req, sh, resource.speedKmH);
+          const shelterEst = provider.getTravelEstimate(req, sh, resource.speedKmH, undefined, resource.type);
           if (shelterEst.durationMinutes < minShelterDuration) {
             minShelterDuration = shelterEst.durationMinutes;
           }
@@ -126,22 +126,14 @@ export function solveNearestFirst(scenario: Scenario, options?: NearestFirstOpti
           let minShelterDist = Number.POSITIVE_INFINITY;
 
           for (const shelter of shelters) {
-            const dist = provider.getTravelEstimate(
-              currentLocation,
-              shelter,
-              resource.speedKmH,
-            ).distanceKm;
+            const dist = provider.getTravelEstimate(currentLocation, shelter, resource.speedKmH, undefined, resource.type).distanceKm;
             if (Number.isFinite(dist) && dist < minShelterDist) {
               minShelterDist = dist;
               nearestShelter = shelter;
             }
           }
 
-          const shelterEstimate = provider.getTravelEstimate(
-            currentLocation,
-            nearestShelter,
-            resource.speedKmH,
-          );
+          const shelterEstimate = provider.getTravelEstimate(currentLocation, nearestShelter, resource.speedKmH, undefined, resource.type);
           currentMinutes += shelterEstimate.durationMinutes;
           currentDistanceKm += shelterEstimate.distanceKm;
           currentLocation = { lat: nearestShelter.lat, lng: nearestShelter.lng };
@@ -170,21 +162,13 @@ export function solveNearestFirst(scenario: Scenario, options?: NearestFirstOpti
       let nearestShelter = shelters[0]!;
       let minShelterDist = Number.POSITIVE_INFINITY;
       for (const shelter of shelters) {
-        const dist = provider.getTravelEstimate(
-          currentLocation,
-          shelter,
-          resource.speedKmH,
-        ).distanceKm;
+        const dist = provider.getTravelEstimate(currentLocation, shelter, resource.speedKmH, undefined, resource.type).distanceKm;
         if (Number.isFinite(dist) && dist < minShelterDist) {
           minShelterDist = dist;
           nearestShelter = shelter;
         }
       }
-      const shelterEstimate = provider.getTravelEstimate(
-        currentLocation,
-        nearestShelter,
-        resource.speedKmH,
-      );
+      const shelterEstimate = provider.getTravelEstimate(currentLocation, nearestShelter, resource.speedKmH, undefined, resource.type);
       currentMinutes += shelterEstimate.durationMinutes;
       currentDistanceKm += shelterEstimate.distanceKm;
 

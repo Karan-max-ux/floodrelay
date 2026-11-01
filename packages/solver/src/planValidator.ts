@@ -124,11 +124,7 @@ export function validateSolverPlan(
       }
 
       // Recompute physical travel estimate for this leg
-      const legEstimate = travelProvider.getTravelEstimate(
-        prevLocation,
-        { lat: stop.lat, lng: stop.lng },
-        resource.speedKmH,
-      );
+      const legEstimate = travelProvider.getTravelEstimate(prevLocation, { lat: stop.lat, lng: stop.lng }, resource.speedKmH, undefined, resource.type);
       recomputedDistanceKm += legEstimate.distanceKm;
       recomputedDurationMin += legEstimate.durationMinutes;
 

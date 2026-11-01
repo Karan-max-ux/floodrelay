@@ -185,8 +185,8 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
 
     dbStub.resources.set('res_01', {
       id: 'res_01',
-      name: 'Boat Alpha',
-      type: 'BOAT',
+      name: 'Rescue Truck Alpha',
+      type: 'HIGH_WATER_VEHICLE',
       capacity: 6,
       status: 'AVAILABLE',
       speed_km_h: 25,
@@ -230,7 +230,8 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
       expect(travelTime.effectiveSource).toBe('OSRM');
       expect(travelTime.osrmConfigured).toBe(true);
       expect(travelTime.lookupsOsrm).toBeGreaterThan(0);
-      expect(travelTime.lookupsStraightLine).toBe(0);
+      expect(travelTime.lookupsStraightLinePolicy).toBe(0);
+      expect(travelTime.lookupsFallback).toBe(0);
       expect(travelTime.roadCoveragePercent).toBe(100);
 
       // Verify audit event payload includes travelTime
@@ -258,7 +259,8 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
     expect(travelTime.effectiveSource).toBe('STRAIGHT_LINE');
     expect(travelTime.osrmConfigured).toBe(true);
     expect(travelTime.osrmFailedRequests).toBeGreaterThan(0);
-    expect(travelTime.lookupsStraightLine).toBeGreaterThan(0);
+    expect(travelTime.lookupsFallback).toBeGreaterThan(0);
+    expect(travelTime.lookupsStraightLinePolicy).toBe(0);
     expect(travelTime.roadCoveragePercent).toBe(0);
     expect(travelTime.warnings.length).toBeGreaterThan(0);
   });
@@ -308,6 +310,44 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
         delete process.env.OSRM_BASE_URL;
       }
     }
+  });
+
+  it('routes BOAT resources via straight-line policy with zero OSRM requests and null road coverage', async () => {
+    dbStub.resources.set('res_boat', {
+      id: 'res_boat',
+      name: 'Boat Charlie',
+      type: 'BOAT',
+      capacity: 6,
+      status: 'AVAILABLE',
+      speed_km_h: 25,
+      source: 'REAL',
+      location: 'POINT(77.220 28.680)',
+      depot_id: null,
+      shift_max_duration_min: 480,
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+    // Remove the road vehicle so this scenario has only a boat
+    dbStub.resources.delete('res_01');
+
+    const assignmentService = new AssignmentService(repository, {
+      osrm: { baseUrl: fakeOsrmUrl },
+    });
+    const app = createApp({ repository, assignmentService });
+
+    const res = await request(app)
+      .post('/assignments/propose')
+      .send({ algorithm: 'nearest-first' });
+
+    expect(res.status).toBe(201);
+    const travelTime = res.body.data.travelTime;
+    expect(travelTime.effectiveSource).toBe('STRAIGHT_LINE');
+    expect(travelTime.osrmConfigured).toBe(true);
+    expect(travelTime.osrmRequests).toBe(0); // Zero OSRM requests dispatched for boat-only scenario
+    expect(travelTime.lookupsOsrm).toBe(0);
+    expect(travelTime.lookupsStraightLinePolicy).toBeGreaterThan(0);
+    expect(travelTime.lookupsFallback).toBe(0);
+    expect(travelTime.roadCoveragePercent).toBeNull();
   });
 
   describe('blockedZones request validation', () => {

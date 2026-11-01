@@ -107,20 +107,12 @@ export function solveClarkeWrightBaseline(
 
         for (let i = 0; i < candidates.length; i++) {
           const reqI = candidates[i]!;
-          const dDepotI = provider.getTravelEstimate(
-            primaryDepot,
-            reqI,
-            resource.speedKmH,
-          ).distanceKm;
+          const dDepotI = provider.getTravelEstimate(primaryDepot, reqI, resource.speedKmH, undefined, resource.type).distanceKm;
 
           for (let j = i + 1; j < candidates.length; j++) {
             const reqJ = candidates[j]!;
-            const dDepotJ = provider.getTravelEstimate(
-              primaryDepot,
-              reqJ,
-              resource.speedKmH,
-            ).distanceKm;
-            const dIJ = provider.getTravelEstimate(reqI, reqJ, resource.speedKmH).distanceKm;
+            const dDepotJ = provider.getTravelEstimate(primaryDepot, reqJ, resource.speedKmH, undefined, resource.type).distanceKm;
+            const dIJ = provider.getTravelEstimate(reqI, reqJ, resource.speedKmH, undefined, resource.type).distanceKm;
             const saving = dDepotI + dDepotJ - dIJ;
             if (Number.isFinite(saving)) {
               savings.push({ i, j, saving });
@@ -157,10 +149,10 @@ export function solveClarkeWrightBaseline(
         let d = 0;
         let prev: { lat: number; lng: number } = currentLocation;
         for (const p of pts) {
-          d += provider.getTravelEstimate(prev, p, resource.speedKmH).distanceKm;
+          d += provider.getTravelEstimate(prev, p, resource.speedKmH, undefined, resource.type).distanceKm;
           prev = p;
         }
-        d += provider.getTravelEstimate(prev, primaryDepot, resource.speedKmH).distanceKm;
+        d += provider.getTravelEstimate(prev, primaryDepot, resource.speedKmH, undefined, resource.type).distanceKm;
         return d;
       };
 
@@ -191,10 +183,10 @@ export function solveClarkeWrightBaseline(
       let tripPickups = 0;
 
       for (const req of orderedPickups) {
-        const est = provider.getTravelEstimate(currentLocation, req, resource.speedKmH);
+        const est = provider.getTravelEstimate(currentLocation, req, resource.speedKmH, undefined, resource.type);
         let minShelterDuration = Number.POSITIVE_INFINITY;
         for (const sh of shelters) {
-          const shelterEst = provider.getTravelEstimate(req, sh, resource.speedKmH);
+          const shelterEst = provider.getTravelEstimate(req, sh, resource.speedKmH, undefined, resource.type);
           if (shelterEst.durationMinutes < minShelterDuration) {
             minShelterDuration = shelterEst.durationMinutes;
           }
@@ -227,7 +219,7 @@ export function solveClarkeWrightBaseline(
         let bestShelter = shelters[0]!;
         let minShelterDist = Number.POSITIVE_INFINITY;
         for (const sh of shelters) {
-          const d = provider.getTravelEstimate(currentLocation, sh, resource.speedKmH).distanceKm;
+          const d = provider.getTravelEstimate(currentLocation, sh, resource.speedKmH, undefined, resource.type).distanceKm;
           if (Number.isFinite(d) && d < minShelterDist) {
             minShelterDist = d;
             bestShelter = sh;

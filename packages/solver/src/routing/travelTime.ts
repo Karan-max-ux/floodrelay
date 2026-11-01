@@ -1,4 +1,4 @@
-import type { GeoPoint, HazardLevel } from '@floodrelay/shared';
+import type { GeoPoint, HazardLevel, ResourceType } from '@floodrelay/shared';
 import { haversineKm } from '../index.js';
 
 export const ASSUMED_ROAD_DETOUR_FACTOR = 1.3; // placeholder, not measured
@@ -19,8 +19,14 @@ export interface TravelTimeProvider {
     to: GeoPoint,
     speedKmH?: number,
     isFlooded?: boolean,
+    resourceType?: ResourceType,
   ): TravelEstimate;
-  getMatrix(origins: GeoPoint[], destinations: GeoPoint[], speedKmH?: number): TravelEstimate[][];
+  getMatrix(
+    origins: GeoPoint[],
+    destinations: GeoPoint[],
+    speedKmH?: number,
+    resourceType?: ResourceType,
+  ): TravelEstimate[][];
 }
 
 /**
@@ -39,7 +45,9 @@ export class StraightLineTravelTimeProvider implements TravelTimeProvider {
     to: GeoPoint,
     speedKmH?: number,
     isFlooded?: boolean,
+    resourceType?: ResourceType,
   ): TravelEstimate {
+    void resourceType;
     const rawDistance = haversineKm(from, to);
     const impedance = isFlooded ? this.floodImpedanceMultiplier : 1.0;
     const distanceKm = Number((rawDistance * this.detourFactor * impedance).toFixed(3));
@@ -53,9 +61,14 @@ export class StraightLineTravelTimeProvider implements TravelTimeProvider {
     };
   }
 
-  getMatrix(origins: GeoPoint[], destinations: GeoPoint[], speedKmH?: number): TravelEstimate[][] {
+  getMatrix(
+    origins: GeoPoint[],
+    destinations: GeoPoint[],
+    speedKmH?: number,
+    resourceType?: ResourceType,
+  ): TravelEstimate[][] {
     return origins.map((origin) =>
-      destinations.map((dest) => this.getTravelEstimate(origin, dest, speedKmH)),
+      destinations.map((dest) => this.getTravelEstimate(origin, dest, speedKmH, undefined, resourceType)),
     );
   }
 }

@@ -1,4 +1,4 @@
-import type { BlockedZone, GeoPoint } from '@floodrelay/shared';
+import type { BlockedZone, GeoPoint, ResourceType } from '@floodrelay/shared';
 import { type TravelEstimate, type TravelTimeProvider } from './travelTime.js';
 import {
   zonesCrossedBySegment,
@@ -28,8 +28,9 @@ export class HazardAwareTravelTimeProvider implements TravelTimeProvider {
     to: GeoPoint,
     speedKmH?: number,
     isFlooded?: boolean,
+    resourceType?: ResourceType,
   ): TravelEstimate {
-    const base = this.inner.getTravelEstimate(from, to, speedKmH, isFlooded);
+    const base = this.inner.getTravelEstimate(from, to, speedKmH, isFlooded, resourceType);
 
     if (this.zones.length === 0) {
       return base;
@@ -88,9 +89,14 @@ export class HazardAwareTravelTimeProvider implements TravelTimeProvider {
     return base;
   }
 
-  getMatrix(origins: GeoPoint[], destinations: GeoPoint[], speedKmH?: number): TravelEstimate[][] {
+  getMatrix(
+    origins: GeoPoint[],
+    destinations: GeoPoint[],
+    speedKmH?: number,
+    resourceType?: ResourceType,
+  ): TravelEstimate[][] {
     return origins.map((origin) =>
-      destinations.map((dest) => this.getTravelEstimate(origin, dest, speedKmH)),
+      destinations.map((dest) => this.getTravelEstimate(origin, dest, speedKmH, undefined, resourceType)),
     );
   }
 }
