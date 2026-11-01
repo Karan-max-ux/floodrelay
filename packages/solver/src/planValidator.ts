@@ -5,13 +5,14 @@ import {
   VALID_UNSERVED_REASONS,
   type ValidationResult,
 } from '@floodrelay/shared';
-import { StraightLineTravelTimeProvider } from './routing/travelTime.js';
+import { StraightLineTravelTimeProvider, type TravelTimeProvider } from './routing/travelTime.js';
 
 export interface PlanValidationOptions {
   maxShiftMinutes?: number;
   allowFrozen?: boolean;
   toleranceMinutes?: number;
   distanceToleranceKm?: number;
+  travelTimeProvider?: TravelTimeProvider;
 }
 
 /**
@@ -42,7 +43,7 @@ export function validateSolverPlan(
   const toleranceMinutes = options?.toleranceMinutes ?? 0.1;
   const distanceToleranceKm = options?.distanceToleranceKm ?? 0.2;
 
-  const travelProvider = new StraightLineTravelTimeProvider();
+  const travelProvider = options?.travelTimeProvider ?? new StraightLineTravelTimeProvider();
 
   // 1. Frozen routes / stops invariant
   if (!allowFrozen) {
@@ -124,7 +125,18 @@ export function validateSolverPlan(
       }
 
       // Recompute physical travel estimate for this leg
-      const legEstimate = travelProvider.getTravelEstimate(prevLocation, { lat: stop.lat, lng: stop.lng }, resource.speedKmH, undefined, resource.type);
+      const legEstimate = travelProvider.getTravelEstimate(
+        prevLocation,
+        { lat: stop.lat, lng: stop.lng },
+        resource.speedKmH,
+        undefined,
+        resource.type,
+      );
+      if (legEstimate.blocked && !Number.isFinite(legEstimate.durationMinutes)) {
+        errors.push(
+          `Route for resource '${resource.id}' leg to stop ${stop.stopNumber} crosses an impassable hazard zone under INFINITE policy`,
+        );
+      }
       recomputedDistanceKm += legEstimate.distanceKm;
       recomputedDurationMin += legEstimate.durationMinutes;
 

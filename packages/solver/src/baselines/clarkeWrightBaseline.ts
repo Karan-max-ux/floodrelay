@@ -8,6 +8,7 @@ import type {
 } from '@floodrelay/shared';
 import { calculatePlanMetrics } from '../metrics.js';
 import { StraightLineTravelTimeProvider, type TravelTimeProvider } from '../routing/travelTime.js';
+import { hasFiniteRoundTrip } from '../routing/blockedZones.js';
 
 export interface ClarkeWrightBaselineOptions {
   travelTimeProvider?: TravelTimeProvider;
@@ -107,12 +108,30 @@ export function solveClarkeWrightBaseline(
 
         for (let i = 0; i < candidates.length; i++) {
           const reqI = candidates[i]!;
-          const dDepotI = provider.getTravelEstimate(primaryDepot, reqI, resource.speedKmH, undefined, resource.type).distanceKm;
+          const dDepotI = provider.getTravelEstimate(
+            primaryDepot,
+            reqI,
+            resource.speedKmH,
+            undefined,
+            resource.type,
+          ).distanceKm;
 
           for (let j = i + 1; j < candidates.length; j++) {
             const reqJ = candidates[j]!;
-            const dDepotJ = provider.getTravelEstimate(primaryDepot, reqJ, resource.speedKmH, undefined, resource.type).distanceKm;
-            const dIJ = provider.getTravelEstimate(reqI, reqJ, resource.speedKmH, undefined, resource.type).distanceKm;
+            const dDepotJ = provider.getTravelEstimate(
+              primaryDepot,
+              reqJ,
+              resource.speedKmH,
+              undefined,
+              resource.type,
+            ).distanceKm;
+            const dIJ = provider.getTravelEstimate(
+              reqI,
+              reqJ,
+              resource.speedKmH,
+              undefined,
+              resource.type,
+            ).distanceKm;
             const saving = dDepotI + dDepotJ - dIJ;
             if (Number.isFinite(saving)) {
               savings.push({ i, j, saving });
@@ -149,10 +168,22 @@ export function solveClarkeWrightBaseline(
         let d = 0;
         let prev: { lat: number; lng: number } = currentLocation;
         for (const p of pts) {
-          d += provider.getTravelEstimate(prev, p, resource.speedKmH, undefined, resource.type).distanceKm;
+          d += provider.getTravelEstimate(
+            prev,
+            p,
+            resource.speedKmH,
+            undefined,
+            resource.type,
+          ).distanceKm;
           prev = p;
         }
-        d += provider.getTravelEstimate(prev, primaryDepot, resource.speedKmH, undefined, resource.type).distanceKm;
+        d += provider.getTravelEstimate(
+          prev,
+          primaryDepot,
+          resource.speedKmH,
+          undefined,
+          resource.type,
+        ).distanceKm;
         return d;
       };
 
@@ -183,13 +214,35 @@ export function solveClarkeWrightBaseline(
       let tripPickups = 0;
 
       for (const req of orderedPickups) {
-        const est = provider.getTravelEstimate(currentLocation, req, resource.speedKmH, undefined, resource.type);
+        const est = provider.getTravelEstimate(
+          currentLocation,
+          req,
+          resource.speedKmH,
+          undefined,
+          resource.type,
+        );
+        if (est.blocked || !Number.isFinite(est.durationMinutes)) {
+          continue;
+        }
         let minShelterDuration = Number.POSITIVE_INFINITY;
         for (const sh of shelters) {
-          const shelterEst = provider.getTravelEstimate(req, sh, resource.speedKmH, undefined, resource.type);
-          if (shelterEst.durationMinutes < minShelterDuration) {
+          const shelterEst = provider.getTravelEstimate(
+            req,
+            sh,
+            resource.speedKmH,
+            undefined,
+            resource.type,
+          );
+          if (
+            !shelterEst.blocked &&
+            Number.isFinite(shelterEst.durationMinutes) &&
+            shelterEst.durationMinutes < minShelterDuration
+          ) {
             minShelterDuration = shelterEst.durationMinutes;
           }
+        }
+        if (!Number.isFinite(minShelterDuration)) {
+          continue;
         }
         if (currentMinutes + est.durationMinutes + minShelterDuration > maxShiftMinutes) break;
 
@@ -219,9 +272,19 @@ export function solveClarkeWrightBaseline(
         let bestShelter = shelters[0]!;
         let minShelterDist = Number.POSITIVE_INFINITY;
         for (const sh of shelters) {
-          const d = provider.getTravelEstimate(currentLocation, sh, resource.speedKmH, undefined, resource.type).distanceKm;
-          if (Number.isFinite(d) && d < minShelterDist) {
-            minShelterDist = d;
+          const shelterEst = provider.getTravelEstimate(
+            currentLocation,
+            sh,
+            resource.speedKmH,
+            undefined,
+            resource.type,
+          );
+          if (
+            !shelterEst.blocked &&
+            Number.isFinite(shelterEst.distanceKm) &&
+            shelterEst.distanceKm < minShelterDist
+          ) {
+            minShelterDist = shelterEst.distanceKm;
             bestShelter = sh;
           }
         }
@@ -230,6 +293,8 @@ export function solveClarkeWrightBaseline(
           currentLocation,
           bestShelter,
           resource.speedKmH,
+          undefined,
+          resource.type,
         );
         currentMinutes += shelterEst.durationMinutes;
         currentDistanceKm += shelterEst.distanceKm;
@@ -267,12 +332,20 @@ export function solveClarkeWrightBaseline(
   const maxResourceCapacity = Math.max(0, ...scenario.resources.map((r) => r.capacity));
   for (const [id, req] of unservedRequests.entries()) {
     const isTooLarge = req.peopleCount > maxResourceCapacity;
+    const isHazardUnreachable =
+      !isTooLarge && !hasFiniteRoundTrip(req, availableResources, shelters, provider);
     unservedList.push({
       requestId: id,
-      reason: isTooLarge ? 'GROUP_LARGER_THAN_ANY_VEHICLE' : 'SHIFT_LIMIT_REACHED',
+      reason: isTooLarge
+        ? 'GROUP_LARGER_THAN_ANY_VEHICLE'
+        : isHazardUnreachable
+          ? 'UNREACHABLE_DUE_TO_HAZARD'
+          : 'SHIFT_LIMIT_REACHED',
       details: isTooLarge
         ? `Request of ${req.peopleCount} passengers exceeds maximum vehicle capacity (${maxResourceCapacity})`
-        : `Request of ${req.peopleCount} passengers could not be assigned within shift limits in Clarke-Wright baseline`,
+        : isHazardUnreachable
+          ? `Request of ${req.peopleCount} passengers is unreachable due to active blocked hazard zones`
+          : `Request of ${req.peopleCount} passengers could not be assigned within shift limits in Clarke-Wright baseline`,
     });
   }
 

@@ -369,6 +369,7 @@ describe('OpenAPI Specification Integrity & Anti-Drift Tests', () => {
         'ISOLATED_ZONE',
         'GROUP_LARGER_THAN_ANY_VEHICLE',
         'SHIFT_LIMIT_REACHED',
+        'UNREACHABLE_DUE_TO_HAZARD',
       ];
       expect(openApiUnserved).toEqual(expected);
     });

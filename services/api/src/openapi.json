@@ -962,7 +962,8 @@
           "TIME_WINDOW_EXCEEDED",
           "ISOLATED_ZONE",
           "GROUP_LARGER_THAN_ANY_VEHICLE",
-          "SHIFT_LIMIT_REACHED"
+          "SHIFT_LIMIT_REACHED",
+          "UNREACHABLE_DUE_TO_HAZARD"
         ]
       },
       "UnservedRequest": {

@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import type { BlockedZone, GeoPoint, RescueRequest, SolverPlan } from '@floodrelay/shared';
+import type {
+  BlockedZone,
+  GeoPoint,
+  RescueRequest,
+  Scenario,
+  SolverPlan,
+} from '@floodrelay/shared';
 import {
   pointInPolygon,
   segmentsIntersect,
@@ -10,11 +16,15 @@ import {
   legImpedanceMultiplier,
   findRequestsInBlockedZones,
   flagPlanHazards,
+  hasFiniteRoundTrip,
 } from './blockedZones.js';
 import { HazardAwareTravelTimeProvider } from './hazardAwareTravelTime.js';
 import { StraightLineTravelTimeProvider } from './travelTime.js';
 import { generateScenario } from '../generator.js';
 import { solveNearestFirst } from '../baselines/nearestFirst.js';
+import { solveClarkeWrightBaseline } from '../baselines/clarkeWrightBaseline.js';
+import { solveClusterAllocation } from '../heuristics/clusterAllocation.js';
+import { validateSolverPlan } from '../planValidator.js';
 
 describe('BlockedZones & Geometry Helpers', () => {
   // Rectangle: lat [28.0, 28.2], lng [77.0, 77.2]
@@ -547,6 +557,207 @@ describe('BlockedZones & Geometry Helpers', () => {
       expect(plan.metrics.servedRequestsCount).toBeGreaterThan(0);
       // Confirms bounding-box prefilter and per-leg cache execute well within standard timeout
       expect(elapsed).toBeLessThan(5000);
+    });
+  });
+
+  describe('Item 4: UNREACHABLE_DUE_TO_HAZARD and Plan Validation across all Solvers', () => {
+    const enclosingZone: BlockedZone = {
+      id: 'enclosing-zone',
+      severity: 'BLOCKED',
+      polygon: [
+        { lat: 28.69, lng: 77.29 },
+        { lat: 28.71, lng: 77.29 },
+        { lat: 28.71, lng: 77.31 },
+        { lat: 28.69, lng: 77.31 },
+      ],
+    };
+
+    const testScenario: Scenario = {
+      id: 'hazard-unreachable-test',
+      metadata: {
+        id: 'hazard-unreachable-test',
+        name: 'Hazard Unreachable Scenario',
+        region: 'Delhi',
+        createdAt: '2026-11-01T00:00:00Z',
+        bounds: { minLat: 28.4, maxLat: 28.8, minLng: 77.0, maxLng: 77.4 },
+      },
+      shelters: [
+        {
+          id: 'shelter-1',
+          name: 'Main Shelter',
+          lat: 28.5,
+          lng: 77.1,
+          capacity: 100,
+        },
+      ],
+      resources: [
+        {
+          id: 'res-hwv-1',
+          name: 'HWV Alpha',
+          type: 'HIGH_WATER_VEHICLE',
+          capacity: 5,
+          speedKmH: 30,
+          lat: 28.5,
+          lng: 77.1,
+          status: 'AVAILABLE',
+        },
+      ],
+      requests: [
+        {
+          id: 'req-reachable',
+          lat: 28.52,
+          lng: 77.12,
+          peopleCount: 2,
+          urgency: 'HIGH',
+          createdAt: '2026-11-01T00:00:00Z',
+          source: 'SIMULATED',
+        },
+        {
+          id: 'req-unreachable',
+          lat: 28.7, // enclosed inside enclosingZone
+          lng: 77.3,
+          peopleCount: 2,
+          urgency: 'HIGH',
+          createdAt: '2026-11-01T00:00:00Z',
+          source: 'SIMULATED',
+        },
+      ],
+      blockedZones: [enclosingZone],
+    };
+
+    const hazardProvider = new HazardAwareTravelTimeProvider(
+      new StraightLineTravelTimeProvider(),
+      [enclosingZone],
+      { blockedPolicy: 'INFINITE' },
+    );
+
+    it('proves hasFiniteRoundTrip identifies enclosed requests correctly', () => {
+      const reachableRoundTrip = hasFiniteRoundTrip(
+        testScenario.requests[0]!,
+        testScenario.resources,
+        testScenario.shelters,
+        hazardProvider,
+      );
+      expect(reachableRoundTrip).toBe(true);
+
+      const unreachableRoundTrip = hasFiniteRoundTrip(
+        testScenario.requests[1]!,
+        testScenario.resources,
+        testScenario.shelters,
+        hazardProvider,
+      );
+      expect(unreachableRoundTrip).toBe(false);
+    });
+
+    it('Nearest-First solver marks enclosed request as UNREACHABLE_DUE_TO_HAZARD and serves reachable request', () => {
+      const plan = solveNearestFirst(testScenario, { travelTimeProvider: hazardProvider });
+
+      expect(plan.routes[0]?.servedRequestIds).toContain('req-reachable');
+      const unserved = plan.unserved.find((u) => u.requestId === 'req-unreachable');
+      expect(unserved).toBeDefined();
+      expect(unserved?.reason).toBe('UNREACHABLE_DUE_TO_HAZARD');
+
+      // Validator check: no leg crosses blocked zone under INFINITE
+      const valResult = validateSolverPlan(testScenario, plan, {
+        travelTimeProvider: hazardProvider,
+      });
+      expect(valResult.valid).toBe(true);
+      expect(valResult.errors).toHaveLength(0);
+    });
+
+    it('Urgency-batched savings (Clarke-Wright) marks enclosed request as UNREACHABLE_DUE_TO_HAZARD and serves reachable request', () => {
+      const plan = solveClarkeWrightBaseline(testScenario, { travelTimeProvider: hazardProvider });
+
+      expect(plan.routes[0]?.servedRequestIds).toContain('req-reachable');
+      const unserved = plan.unserved.find((u) => u.requestId === 'req-unreachable');
+      expect(unserved).toBeDefined();
+      expect(unserved?.reason).toBe('UNREACHABLE_DUE_TO_HAZARD');
+
+      // Validator check: no leg crosses blocked zone under INFINITE
+      const valResult = validateSolverPlan(testScenario, plan, {
+        travelTimeProvider: hazardProvider,
+      });
+      expect(valResult.valid).toBe(true);
+      expect(valResult.errors).toHaveLength(0);
+    });
+
+    it('Cluster-Allocation marks enclosed request as UNREACHABLE_DUE_TO_HAZARD and serves reachable request', () => {
+      const plan = solveClusterAllocation(testScenario, { travelTimeProvider: hazardProvider });
+
+      expect(plan.routes[0]?.servedRequestIds).toContain('req-reachable');
+      const unserved = plan.unserved.find((u) => u.requestId === 'req-unreachable');
+      expect(unserved).toBeDefined();
+      expect(unserved?.reason).toBe('UNREACHABLE_DUE_TO_HAZARD');
+
+      // Validator check: no leg crosses blocked zone under INFINITE
+      const valResult = validateSolverPlan(testScenario, plan, {
+        travelTimeProvider: hazardProvider,
+      });
+      expect(valResult.valid).toBe(true);
+      expect(valResult.errors).toHaveLength(0);
+    });
+
+    it('validateSolverPlan detects and rejects any route leg that crosses an impassable hazard zone under INFINITE policy', () => {
+      // Construct an invalid plan that attempts to visit the enclosed request
+      const illegalPlan: SolverPlan = {
+        scenarioId: testScenario.id,
+        calculatedAt: '2026-11-01T00:00:00Z',
+        routes: [
+          {
+            resourceId: 'res-hwv-1',
+            stops: [
+              {
+                stopNumber: 1,
+                type: 'PICKUP',
+                targetId: 'req-unreachable',
+                lat: 28.7,
+                lng: 77.3,
+                passengersPickedUp: 2,
+                passengersDroppedOff: 0,
+                estimatedArrivalMinutes: 50,
+              },
+              {
+                stopNumber: 2,
+                type: 'DROPOFF',
+                targetId: 'shelter-1',
+                lat: 28.5,
+                lng: 77.1,
+                passengersPickedUp: 0,
+                passengersDroppedOff: 2,
+                estimatedArrivalMinutes: 100,
+              },
+            ],
+            totalDurationMinutes: 100,
+            totalTravelDistanceKm: 50,
+            servedRequestIds: ['req-unreachable'],
+          },
+        ],
+        unserved: [
+          {
+            requestId: 'req-reachable',
+            reason: 'SHIFT_LIMIT_REACHED',
+          },
+        ],
+        metrics: {
+          coveragePercent: 50,
+          totalTravelDistanceKm: 50,
+          totalTravelTimeMinutes: 100,
+          highPriorityWaitTimeMinutes: 50,
+          solveDurationMs: 10,
+          servedRequestsCount: 1,
+          unservedRequestsCount: 1,
+        },
+      };
+
+      const valResult = validateSolverPlan(testScenario, illegalPlan, {
+        travelTimeProvider: hazardProvider,
+      });
+      expect(valResult.valid).toBe(false);
+      expect(
+        valResult.errors.some((err) =>
+          err.includes('crosses an impassable hazard zone under INFINITE policy'),
+        ),
+      ).toBe(true);
     });
   });
 });

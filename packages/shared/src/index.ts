@@ -131,6 +131,7 @@ export type UnservedReason =
   | 'ISOLATED_ZONE'
   | 'GROUP_LARGER_THAN_ANY_VEHICLE'
   | 'SHIFT_LIMIT_REACHED'
+  | 'UNREACHABLE_DUE_TO_HAZARD'
   | 'UNASSIGNED';
 
 export const VALID_UNSERVED_REASONS: ReadonlySet<UnservedReason> = new Set([
@@ -140,6 +141,7 @@ export const VALID_UNSERVED_REASONS: ReadonlySet<UnservedReason> = new Set([
   'ISOLATED_ZONE',
   'GROUP_LARGER_THAN_ANY_VEHICLE',
   'SHIFT_LIMIT_REACHED',
+  'UNREACHABLE_DUE_TO_HAZARD',
   'UNASSIGNED',
 ]);
 

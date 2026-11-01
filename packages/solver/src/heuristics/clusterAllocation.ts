@@ -8,6 +8,7 @@ import type {
 } from '@floodrelay/shared';
 import { clusterRequests } from '../clustering/dbscan.js';
 import { calculatePlanMetrics } from '../metrics.js';
+import { hasFiniteRoundTrip } from '../routing/blockedZones.js';
 import { StraightLineTravelTimeProvider, type TravelTimeProvider } from '../routing/travelTime.js';
 
 export interface ClusterAllocationOptions {
@@ -161,18 +162,35 @@ export function solveClusterAllocation(
         const availableCap = res.capacity - state.currentLoad;
 
         if (req.peopleCount <= availableCap) {
-          const estimate = provider.getTravelEstimate(state.currentLocation, req, res.speedKmH, undefined, res.type);
+          const estimate = provider.getTravelEstimate(
+            state.currentLocation,
+            req,
+            res.speedKmH,
+            undefined,
+            res.type,
+          );
+          if (estimate.blocked || !Number.isFinite(estimate.durationMinutes)) {
+            continue;
+          }
           const arrival = state.currentMinutes + estimate.durationMinutes;
 
           let minShelterToReq = Number.POSITIVE_INFINITY;
           for (const sh of shelters) {
-            const d = provider.getTravelEstimate(req, sh, res.speedKmH, undefined, res.type).durationMinutes;
-            if (Number.isFinite(d) && d < minShelterToReq) {
-              minShelterToReq = d;
+            const shEst = provider.getTravelEstimate(req, sh, res.speedKmH, undefined, res.type);
+            if (
+              !shEst.blocked &&
+              Number.isFinite(shEst.durationMinutes) &&
+              shEst.durationMinutes < minShelterToReq
+            ) {
+              minShelterToReq = shEst.durationMinutes;
             }
           }
 
-          if (arrival < earliestArrival && arrival + minShelterToReq <= maxShiftMinutes) {
+          if (
+            Number.isFinite(minShelterToReq) &&
+            arrival < earliestArrival &&
+            arrival + minShelterToReq <= maxShiftMinutes
+          ) {
             earliestArrival = arrival;
             bestResId = res.id;
             bestEstimate = estimate;
@@ -191,27 +209,66 @@ export function solveClusterAllocation(
             let nearestShelter = shelters[0]!;
             let minShelterDist = Number.POSITIVE_INFINITY;
             for (const sh of shelters) {
-              const d = provider.getTravelEstimate(state.currentLocation, sh, res.speedKmH, undefined, res.type).distanceKm;
-              if (Number.isFinite(d) && d < minShelterDist) {
-                minShelterDist = d;
+              const shEst = provider.getTravelEstimate(
+                state.currentLocation,
+                sh,
+                res.speedKmH,
+                undefined,
+                res.type,
+              );
+              if (
+                !shEst.blocked &&
+                Number.isFinite(shEst.distanceKm) &&
+                shEst.distanceKm < minShelterDist
+              ) {
+                minShelterDist = shEst.distanceKm;
                 nearestShelter = sh;
               }
             }
 
-            const shelterEst = provider.getTravelEstimate(state.currentLocation, nearestShelter, res.speedKmH, undefined, res.type);
-            const reqEst = provider.getTravelEstimate(nearestShelter, req, res.speedKmH, undefined, res.type);
+            const shelterEst = provider.getTravelEstimate(
+              state.currentLocation,
+              nearestShelter,
+              res.speedKmH,
+              undefined,
+              res.type,
+            );
+            const reqEst = provider.getTravelEstimate(
+              nearestShelter,
+              req,
+              res.speedKmH,
+              undefined,
+              res.type,
+            );
+            if (
+              shelterEst.blocked ||
+              reqEst.blocked ||
+              !Number.isFinite(shelterEst.durationMinutes) ||
+              !Number.isFinite(reqEst.durationMinutes)
+            ) {
+              continue;
+            }
+
             const arrival =
               state.currentMinutes + shelterEst.durationMinutes + reqEst.durationMinutes;
 
             let minShelterToReq = Number.POSITIVE_INFINITY;
             for (const sh of shelters) {
-              const d = provider.getTravelEstimate(req, sh, res.speedKmH, undefined, res.type).durationMinutes;
-              if (d < minShelterToReq) {
-                minShelterToReq = d;
+              const shEst = provider.getTravelEstimate(req, sh, res.speedKmH, undefined, res.type);
+              if (
+                !shEst.blocked &&
+                Number.isFinite(shEst.durationMinutes) &&
+                shEst.durationMinutes < minShelterToReq
+              ) {
+                minShelterToReq = shEst.durationMinutes;
               }
             }
 
-            if (arrival < earliestArrival && arrival + minShelterToReq <= maxShiftMinutes) {
+            if (
+              Number.isFinite(minShelterToReq) &&
+              arrival < earliestArrival &&
+              arrival + minShelterToReq <= maxShiftMinutes
+            ) {
               earliestArrival = arrival;
               bestResId = res.id;
             }
@@ -228,14 +285,30 @@ export function solveClusterAllocation(
           let nearestShelter = shelters[0]!;
           let minShelterDist = Number.POSITIVE_INFINITY;
           for (const sh of shelters) {
-            const d = provider.getTravelEstimate(state.currentLocation, sh, res.speedKmH, undefined, res.type).distanceKm;
-            if (Number.isFinite(d) && d < minShelterDist) {
-              minShelterDist = d;
+            const shEst = provider.getTravelEstimate(
+              state.currentLocation,
+              sh,
+              res.speedKmH,
+              undefined,
+              res.type,
+            );
+            if (
+              !shEst.blocked &&
+              Number.isFinite(shEst.distanceKm) &&
+              shEst.distanceKm < minShelterDist
+            ) {
+              minShelterDist = shEst.distanceKm;
               nearestShelter = sh;
             }
           }
 
-          const shelterEst = provider.getTravelEstimate(state.currentLocation, nearestShelter, res.speedKmH, undefined, res.type);
+          const shelterEst = provider.getTravelEstimate(
+            state.currentLocation,
+            nearestShelter,
+            res.speedKmH,
+            undefined,
+            res.type,
+          );
           state.currentMinutes += shelterEst.durationMinutes;
           state.currentDistanceKm += shelterEst.distanceKm;
           state.currentLocation = { lat: nearestShelter.lat, lng: nearestShelter.lng };
@@ -252,7 +325,13 @@ export function solveClusterAllocation(
           });
 
           state.currentLoad = 0;
-          bestEstimate = provider.getTravelEstimate(state.currentLocation, req, res.speedKmH, undefined, res.type);
+          bestEstimate = provider.getTravelEstimate(
+            state.currentLocation,
+            req,
+            res.speedKmH,
+            undefined,
+            res.type,
+          );
         }
 
         // Add pickup stop
@@ -285,14 +364,30 @@ export function solveClusterAllocation(
       let nearestShelter = shelters[0]!;
       let minShelterDist = Number.POSITIVE_INFINITY;
       for (const sh of shelters) {
-        const d = provider.getTravelEstimate(state.currentLocation, sh, res.speedKmH, undefined, res.type).distanceKm;
-        if (Number.isFinite(d) && d < minShelterDist) {
-          minShelterDist = d;
+        const shEst = provider.getTravelEstimate(
+          state.currentLocation,
+          sh,
+          res.speedKmH,
+          undefined,
+          res.type,
+        );
+        if (
+          !shEst.blocked &&
+          Number.isFinite(shEst.distanceKm) &&
+          shEst.distanceKm < minShelterDist
+        ) {
+          minShelterDist = shEst.distanceKm;
           nearestShelter = sh;
         }
       }
 
-      const shelterEst = provider.getTravelEstimate(state.currentLocation, nearestShelter, res.speedKmH, undefined, res.type);
+      const shelterEst = provider.getTravelEstimate(
+        state.currentLocation,
+        nearestShelter,
+        res.speedKmH,
+        undefined,
+        res.type,
+      );
       state.currentMinutes += shelterEst.durationMinutes;
       state.currentDistanceKm += shelterEst.distanceKm;
 
@@ -328,12 +423,20 @@ export function solveClusterAllocation(
   const maxResourceCapacity = Math.max(0, ...scenario.resources.map((r) => r.capacity));
   for (const [id, req] of remainingRequests.entries()) {
     const isTooLarge = req.peopleCount > maxResourceCapacity;
+    const isHazardUnreachable =
+      !isTooLarge && !hasFiniteRoundTrip(req, availableResources, shelters, provider);
     unservedList.push({
       requestId: id,
-      reason: isTooLarge ? 'GROUP_LARGER_THAN_ANY_VEHICLE' : 'SHIFT_LIMIT_REACHED',
+      reason: isTooLarge
+        ? 'GROUP_LARGER_THAN_ANY_VEHICLE'
+        : isHazardUnreachable
+          ? 'UNREACHABLE_DUE_TO_HAZARD'
+          : 'SHIFT_LIMIT_REACHED',
       details: isTooLarge
         ? `Request for ${req.peopleCount} people exceeds maximum vehicle capacity (${maxResourceCapacity})`
-        : `Request for ${req.peopleCount} people could not be scheduled within shift constraints`,
+        : isHazardUnreachable
+          ? `Request for ${req.peopleCount} people is unreachable due to active blocked hazard zones`
+          : `Request for ${req.peopleCount} people could not be scheduled within shift constraints`,
     });
   }
 

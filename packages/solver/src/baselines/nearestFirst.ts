@@ -7,6 +7,7 @@ import type {
 } from '@floodrelay/shared';
 import { calculatePlanMetrics } from '../metrics.js';
 import { StraightLineTravelTimeProvider, type TravelTimeProvider } from '../routing/travelTime.js';
+import { hasFiniteRoundTrip } from '../routing/blockedZones.js';
 
 export interface NearestFirstOptions {
   travelTimeProvider?: TravelTimeProvider;
@@ -76,8 +77,18 @@ export function solveNearestFirst(scenario: Scenario, options?: NearestFirstOpti
 
       for (const [reqId, req] of unservedRequests.entries()) {
         if (req.peopleCount <= remainingCapacity) {
-          const estimate = provider.getTravelEstimate(currentLocation, req, resource.speedKmH, undefined, resource.type);
-          if (Number.isFinite(estimate.distanceKm) && estimate.distanceKm < minDistance) {
+          const estimate = provider.getTravelEstimate(
+            currentLocation,
+            req,
+            resource.speedKmH,
+            undefined,
+            resource.type,
+          );
+          if (
+            !estimate.blocked &&
+            Number.isFinite(estimate.distanceKm) &&
+            estimate.distanceKm < minDistance
+          ) {
             minDistance = estimate.distanceKm;
             nearestReqId = reqId;
           }
@@ -86,18 +97,37 @@ export function solveNearestFirst(scenario: Scenario, options?: NearestFirstOpti
 
       if (nearestReqId) {
         const req = unservedRequests.get(nearestReqId)!;
-        const estimate = provider.getTravelEstimate(currentLocation, req, resource.speedKmH, undefined, resource.type);
+        const estimate = provider.getTravelEstimate(
+          currentLocation,
+          req,
+          resource.speedKmH,
+          undefined,
+          resource.type,
+        );
 
         let minShelterDuration = Number.POSITIVE_INFINITY;
         for (const sh of shelters) {
-          const shelterEst = provider.getTravelEstimate(req, sh, resource.speedKmH, undefined, resource.type);
-          if (shelterEst.durationMinutes < minShelterDuration) {
+          const shelterEst = provider.getTravelEstimate(
+            req,
+            sh,
+            resource.speedKmH,
+            undefined,
+            resource.type,
+          );
+          if (
+            !shelterEst.blocked &&
+            Number.isFinite(shelterEst.durationMinutes) &&
+            shelterEst.durationMinutes < minShelterDuration
+          ) {
             minShelterDuration = shelterEst.durationMinutes;
           }
         }
 
         // Check if travel to pickup + return to nearest shelter would exceed shift limit
-        if (currentMinutes + estimate.durationMinutes + minShelterDuration > maxShiftMinutes) {
+        if (
+          !Number.isFinite(minShelterDuration) ||
+          currentMinutes + estimate.durationMinutes + minShelterDuration > maxShiftMinutes
+        ) {
           break;
         }
 
@@ -126,14 +156,30 @@ export function solveNearestFirst(scenario: Scenario, options?: NearestFirstOpti
           let minShelterDist = Number.POSITIVE_INFINITY;
 
           for (const shelter of shelters) {
-            const dist = provider.getTravelEstimate(currentLocation, shelter, resource.speedKmH, undefined, resource.type).distanceKm;
-            if (Number.isFinite(dist) && dist < minShelterDist) {
-              minShelterDist = dist;
+            const shelterEst = provider.getTravelEstimate(
+              currentLocation,
+              shelter,
+              resource.speedKmH,
+              undefined,
+              resource.type,
+            );
+            if (
+              !shelterEst.blocked &&
+              Number.isFinite(shelterEst.distanceKm) &&
+              shelterEst.distanceKm < minShelterDist
+            ) {
+              minShelterDist = shelterEst.distanceKm;
               nearestShelter = shelter;
             }
           }
 
-          const shelterEstimate = provider.getTravelEstimate(currentLocation, nearestShelter, resource.speedKmH, undefined, resource.type);
+          const shelterEstimate = provider.getTravelEstimate(
+            currentLocation,
+            nearestShelter,
+            resource.speedKmH,
+            undefined,
+            resource.type,
+          );
           currentMinutes += shelterEstimate.durationMinutes;
           currentDistanceKm += shelterEstimate.distanceKm;
           currentLocation = { lat: nearestShelter.lat, lng: nearestShelter.lng };
@@ -162,13 +208,29 @@ export function solveNearestFirst(scenario: Scenario, options?: NearestFirstOpti
       let nearestShelter = shelters[0]!;
       let minShelterDist = Number.POSITIVE_INFINITY;
       for (const shelter of shelters) {
-        const dist = provider.getTravelEstimate(currentLocation, shelter, resource.speedKmH, undefined, resource.type).distanceKm;
-        if (Number.isFinite(dist) && dist < minShelterDist) {
-          minShelterDist = dist;
+        const shelterEst = provider.getTravelEstimate(
+          currentLocation,
+          shelter,
+          resource.speedKmH,
+          undefined,
+          resource.type,
+        );
+        if (
+          !shelterEst.blocked &&
+          Number.isFinite(shelterEst.distanceKm) &&
+          shelterEst.distanceKm < minShelterDist
+        ) {
+          minShelterDist = shelterEst.distanceKm;
           nearestShelter = shelter;
         }
       }
-      const shelterEstimate = provider.getTravelEstimate(currentLocation, nearestShelter, resource.speedKmH, undefined, resource.type);
+      const shelterEstimate = provider.getTravelEstimate(
+        currentLocation,
+        nearestShelter,
+        resource.speedKmH,
+        undefined,
+        resource.type,
+      );
       currentMinutes += shelterEstimate.durationMinutes;
       currentDistanceKm += shelterEstimate.distanceKm;
 
@@ -199,12 +261,20 @@ export function solveNearestFirst(scenario: Scenario, options?: NearestFirstOpti
   const maxResourceCapacity = Math.max(0, ...scenario.resources.map((r) => r.capacity));
   for (const [id, req] of unservedRequests.entries()) {
     const isTooLarge = req.peopleCount > maxResourceCapacity;
+    const isHazardUnreachable =
+      !isTooLarge && !hasFiniteRoundTrip(req, availableResources, shelters, provider);
     unservedList.push({
       requestId: id,
-      reason: isTooLarge ? 'GROUP_LARGER_THAN_ANY_VEHICLE' : 'SHIFT_LIMIT_REACHED',
+      reason: isTooLarge
+        ? 'GROUP_LARGER_THAN_ANY_VEHICLE'
+        : isHazardUnreachable
+          ? 'UNREACHABLE_DUE_TO_HAZARD'
+          : 'SHIFT_LIMIT_REACHED',
       details: isTooLarge
         ? `Request of ${req.peopleCount} passengers exceeds maximum vehicle capacity (${maxResourceCapacity})`
-        : `Request of ${req.peopleCount} passengers could not be assigned within resource capacity or shift limits`,
+        : isHazardUnreachable
+          ? `Request of ${req.peopleCount} passengers is unreachable due to active blocked hazard zones`
+          : `Request of ${req.peopleCount} passengers could not be assigned within resource capacity or shift limits`,
     });
   }
 
