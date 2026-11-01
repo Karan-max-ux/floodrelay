@@ -92,6 +92,11 @@ This file documents honest limitations of the system. Keep it updated as the pro
 - **Hazard polygon straight-line segment approximation:**
   The hazard evaluation functions (`pointInPolygon`, `segmentIntersectsPolygon`, `HazardAwareTravelTimeProvider`) evaluate straight-line geodesic segments connecting origin and destination coordinates against polygonal hazard zones. Real-world emergency vehicles navigate winding road networks; a physical road might detour around a hazard that the straight line crosses (false positive), or conversely curve through a hazard zone even if the Euclidean segment endpoints avoid it (false negative). Dynamic polygon avoidance within the road network requires edge-weight updates directly on the routing graph.
 
+- **Request-scoped hazard zones and frozen stop preservation:**
+  - **No entity persistence / No zone CRUD:** Hazard zones are supplied per-proposal as request-scoped parameters (`blockedZones`). They are not persisted as database entities, and there is no standalone Zone CRUD API (e.g. `POST /zones`).
+  - **Plan explainability and audit hashing:** To ensure dispatch decisions remain auditable and reproducible, the `ASSIGNMENT_PROPOSED` audit log records the validated `hazardZones` input and its SHA-256 canonical JSON hash (`hazardZonesHash`).
+  - **Frozen committed stops invariant:** Committed stops marked frozen (`is_frozen = true`) represent active rescue missions and are never rerouted or cancelled by subsequent proposals. If a newly introduced hazard zone intersects a frozen leg, the route is preserved as-is and a warning is emitted in `travelTime.warnings`.
+
 - **Google OR-Tools Python solver isolation:**
   The Google OR-Tools baseline runs in an independent Python subprocess (`tools/ortools-baseline/solver.py`) with internal distance calculations. It does not interface with TypeScript `TravelTimeProvider` implementations, meaning it cannot participate in `HazardAwareTravelTimeProvider`, `RiskAwareTravelTimeProvider`, or automated perturbation studies without reimplementing custom distance providers in Python.
 

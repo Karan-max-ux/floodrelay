@@ -453,7 +453,7 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
               polygon: [
                 { lat: 28.69, lng: 77.23 },
                 { lat: 28.69, lng: 77.23 },
-                { lat: 28.70, lng: 77.24 },
+                { lat: 28.7, lng: 77.24 },
               ],
             },
           ],
@@ -494,7 +494,7 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
               severity: 'WATER_SURGE',
               polygon: [
                 { lat: 28.69, lng: 77.23 },
-                { lat: 28.70, lng: 185.0 }, // lng > 180
+                { lat: 28.7, lng: 185.0 }, // lng > 180
                 { lat: 28.71, lng: 77.25 },
               ],
             },
@@ -516,9 +516,7 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
         ],
       }));
 
-      const res = await request(app)
-        .post('/assignments/propose')
-        .send({ blockedZones });
+      const res = await request(app).post('/assignments/propose').send({ blockedZones });
 
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
@@ -535,9 +533,7 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
         })),
       }));
 
-      const res = await request(app)
-        .post('/assignments/propose')
-        .send({ blockedZones });
+      const res = await request(app).post('/assignments/propose').send({ blockedZones });
 
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
@@ -564,6 +560,41 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
       expect(res.body.data.travelTime.hazardZoneCount).toBe(1);
+    });
+    it('stores validated hazardZones and SHA-256 hash in ASSIGNMENT_PROPOSED audit payload matching request input', async () => {
+      const sampleBlockedZones = [
+        {
+          id: 'zone-audit-1',
+          name: 'Audit Test Zone',
+          severity: 'BLOCKED' as const,
+          polygon: [
+            { lat: 28.685, lng: 77.225 },
+            { lat: 28.695, lng: 77.225 },
+            { lat: 28.695, lng: 77.235 },
+          ],
+        },
+      ];
+
+      const res = await request(app).post('/assignments/propose').send({
+        blockedZones: sampleBlockedZones,
+      });
+
+      expect(res.status).toBe(201);
+      const assignmentId = res.body.data.id;
+      expect(assignmentId).toBeDefined();
+
+      const proposedEvent = dbStub.auditEvents.find(
+        (e) => e.eventType === 'ASSIGNMENT_PROPOSED' && e.entityId === assignmentId,
+      );
+      expect(proposedEvent).toBeDefined();
+
+      const payload = proposedEvent!.payload as {
+        hazardZones: unknown;
+        hazardZonesHash: string;
+      };
+      // Stored hazardZones must equal request input
+      expect(payload.hazardZones).toEqual(sampleBlockedZones);
+      expect(payload.hazardZonesHash).toMatch(/^[a-f0-9]{64}$/);
     });
   });
 });

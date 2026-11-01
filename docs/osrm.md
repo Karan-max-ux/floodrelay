@@ -87,16 +87,15 @@ The live test verifies:
 
 ---
 
-
 ### Hazard Zone Policies & Leg Cost Semantics
 
 Operator-defined hazard polygons apply spatial impedance or outright exclusion to legs intersecting the polygon geometry. The resulting leg cost depends on the zone severity and the configured blocked policy:
 
-| Zone Type (`severity`) | Policy: `INFINITE` (Default) | Policy: `PENALTY` |
-| :--- | :--- | :--- |
-| `BLOCKED` | Leg blocked: `distance = Infinity`, `duration = Infinity`, `blocked = true`, `hazard = 'BLOCKED'` | Leg penalized: `baseCost * penaltyMultiplier` (default 10.0x), `blocked = true`, `hazard = 'BLOCKED'` |
-| `WATER_SURGE` | Leg impedance: `baseCost * ASSUMED_WATER_SURGE_IMPEDANCE_MULTIPLIER` (2.0x), `hazard = 'WATER_SURGE'` | Leg impedance: `baseCost * ASSUMED_WATER_SURGE_IMPEDANCE_MULTIPLIER` (2.0x), `hazard = 'WATER_SURGE'` |
-| `CAUTION` | Leg impedance: `baseCost * ASSUMED_CAUTION_IMPEDANCE_MULTIPLIER` (1.25x), `hazard = 'CAUTION'` | Leg impedance: `baseCost * ASSUMED_CAUTION_IMPEDANCE_MULTIPLIER` (1.25x), `hazard = 'CAUTION'` |
+| Zone Type (`severity`) | Policy: `INFINITE` (Default)                                                                          | Policy: `PENALTY`                                                                                     |
+| :--------------------- | :---------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------- |
+| `BLOCKED`              | Leg blocked: `distance = Infinity`, `duration = Infinity`, `blocked = true`, `hazard = 'BLOCKED'`     | Leg penalized: `baseCost * penaltyMultiplier` (default 10.0x), `blocked = true`, `hazard = 'BLOCKED'` |
+| `WATER_SURGE`          | Leg impedance: `baseCost * ASSUMED_WATER_SURGE_IMPEDANCE_MULTIPLIER` (2.0x), `hazard = 'WATER_SURGE'` | Leg impedance: `baseCost * ASSUMED_WATER_SURGE_IMPEDANCE_MULTIPLIER` (2.0x), `hazard = 'WATER_SURGE'` |
+| `CAUTION`              | Leg impedance: `baseCost * ASSUMED_CAUTION_IMPEDANCE_MULTIPLIER` (1.25x), `hazard = 'CAUTION'`        | Leg impedance: `baseCost * ASSUMED_CAUTION_IMPEDANCE_MULTIPLIER` (1.25x), `hazard = 'CAUTION'`        |
 
 Clear legs outside all hazard polygons receive unaltered baseline travel estimates (1.0x).
 
@@ -143,3 +142,7 @@ Every proposal generated via `POST /assignments/propose` includes a `travelTime`
 2. **Straight-Line Hazard Intersections**: Hazard collision detection (`zonesCrossedBySegment`) currently evaluates line segments connecting origin and destination coordinates, rather than the intermediate polyline of the road route.
 3. **Sequential Chunk Prefetching**: Prefetch chunks are requested sequentially to avoid overwhelming lightweight OSRM instances or hitting public rate limits.
 4. **Public Demo Server Limits**: Using public OSRM demo servers (`router.project-osrm.org`) in production is prohibited by their usage policy and rate limits. Always deploy a dedicated local instance via Docker Compose.
+5. **Request-Scoped Hazard Zones & Plan Explainability**:
+   - **No Entity Persistence / No Zone CRUD**: Hazard zones are supplied per-proposal as request-scoped inputs (`blockedZones`). They are not persisted as database entities, and there is no standalone Zone CRUD API (e.g. `POST /zones`).
+   - **Audit Logging of Hazard Input**: To ensure dispatch decisions remain explainable and reproducible, the `ASSIGNMENT_PROPOSED` audit log stores the validated `hazardZones` input and its SHA-256 canonical JSON hash (`hazardZonesHash`).
+   - **Frozen Committed Stops Invariant**: Committed stops marked frozen (`is_frozen = true`) represent active rescue missions and are never rerouted or cancelled by subsequent proposals. If a newly introduced hazard zone intersects a frozen leg, the route is preserved as-is and a warning is emitted in `travelTime.warnings`.
