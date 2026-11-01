@@ -1,8 +1,8 @@
 # Flood Rescue Resource Allocation Platform — Progress
 
-**Last updated:** 2026-10-30
+**Last updated:** 2026-11-01
 
-**Current focus:** Phase 2 Review Fixes Implemented & Under Review 🟡 — Concurrency Locking, Rollback Verification, Provenance Classification (Pending PR Review)
+**Current focus:** Phase 4 Review Follow-up Complete 🟡 (Routing Policy per Resource Type, Hazard Zones, Unreachable Requests, Explainable Plans, Uncertainty Model, 7 ADRs — Local Commits Ready for Review)
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -162,12 +162,12 @@ Incoming rescue requests
 
 ### Phase 4 — Road network and uncertainty
 
-| Task                                                                     | Owner | Status | Proving test(s)                                                                                                                                                                                                                                                                                                                                                                                   |
-| ------------------------------------------------------------------------ | ----- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| OSRM travel times (check the OSRM docs for the table request size limit) | —     | 🟡     | Provider is built and unit-tested against a local fake HTTP server (`osrmTravelTime.test.ts`, `osrmHttp.test.ts`), is wired into the API with graceful fallback (`assignmentsOsrm.test.ts`, `travelTimeFactory.test.ts`), and has not yet been verified against a real OSRM server. Marked 🟡 partly done; do not mark ✅ until `osrm-check.ts` and the LIVE test have run against a real server. |
-| Operator-marked blocked areas                                            | —     | ✅     | `packages/solver/src/routing/blockedZones.test.ts` (ray-casting point-in-polygon, segment intersection, `HazardAwareTravelTimeProvider` with INFINITE and PENALTY policies, request zone filtering, route hazard inspection)                                                                                                                                                                      |
-| Uncertainty features                                                     | —     | ✅     | `packages/solver/src/routing/uncertainty.test.ts` (lognormal travel time modeling with CV quadrature, Acklam rational quantile approximation, `RiskAwareTravelTimeProvider`, correlated-leg Monte Carlo route risk assessment)                                                                                                                                                                    |
-| Perturbation re-runs to report how often assignments change              | —     | ✅     | `packages/solver/src/evaluation/perturbation.test.ts` (`PerturbedTravelTimeProvider`, timestamp perturbation, plan churn metric computation, verified via `scenarios/perturb.ts` study script)                                                                                                                                                                                                    |
+| Task                                                                     | Owner | Status | Proving test(s)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------------------------------------------ | ----- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OSRM travel times (check the OSRM docs for the table request size limit) | —     | 🟡     | Provider is built and unit-tested against a local fake HTTP server (`osrmTravelTime.test.ts`, `osrmHttp.test.ts`), is wired into the API with graceful fallback (`assignmentsOsrm.test.ts`, `travelTimeFactory.test.ts`), and enforces per-resource routing policies (road vehicles only use OSRM; boats/helicopters use straight-line). Marked 🟡 in progress: Docker Desktop engine was unavailable in the local environment and unverified PBF extract was removed; live container verification remains pending. |
+| Operator-marked blocked areas                                            | —     | ✅     | `packages/solver/src/routing/blockedZones.test.ts` (34 passing tests: ray-casting point-in-polygon, segment intersection, `HazardAwareTravelTimeProvider` with INFINITE and PENALTY policies, impedance cost scaling table, bounding-box prefilter, 2000-vertex worst case, and `UNREACHABLE_DUE_TO_HAZARD` across all 3 solvers)                                                                                                                                                                                   |
+| Uncertainty features                                                     | —     | ✅     | `packages/solver/src/routing/uncertainty.test.ts` (14 passing tests: lognormal travel time modeling with CV quadrature, Acklam rational quantile approximation verified within 1e-6 tolerance and symmetry z(1-p) = -z(p), median = exp(mu), `RiskAwareTravelTimeProvider`, correlated-leg Monte Carlo route risk assessment)                                                                                                                                                                                       |
+| Perturbation re-runs to report how often assignments change              | —     | ✅     | `packages/solver/src/evaluation/perturbation.test.ts` (7 passing tests: `PerturbedTravelTimeProvider`, timestamp perturbation, plan churn metric computation, verified via `scenarios/perturb.ts` study script)                                                                                                                                                                                                                                                                                                     |
 
 ### Phase 5 — Incremental updates and live operations
 
@@ -201,7 +201,7 @@ Incoming rescue requests
 - **Phase 0:** Complete.
 - **Phase 1:** Complete (8 of 8 tasks complete ✅).
 - **Phase 2:** Under Review 🟡 (Pending PR review — review fixes implemented: deterministic resource row-level locking, late-stage transaction rollback verification with PostgreSQL triggers, explicit provenance classification for real/simulated/mixed scenarios, coordinate-derived regional metadata, and CI integration test enforcement with REQUIRE_DB=1; CI verification is pending final push).
-- **Phase 4:** Implementation complete on `feature/phase-4-road-network` (OSRM marked 🟡 partly done pending live server; hazard-aware routing, lognormal uncertainty with Monte Carlo risk assessment, and perturbation study complete with 82 unit tests passing).
+- **Phase 4:** Follow-up fixes complete on `fix/phase-4-review-followup` (OSRM marked 🟡 partly done pending live server due to local Docker unavailability; per-resource-type routing policy, hazard zones impedance semantics, UNREACHABLE_DUE_TO_HAZARD reason, explainable plan audit logging with SHA-256 hash, calibrated lognormal uncertainty model, and 7 ADRs complete with 105 unit tests passing across Phase 4 test suites).
 - Everything in Phase 3 and Phase 5+: not started.
 
 ---
@@ -237,6 +237,13 @@ Incoming rescue requests
 | Operator-committed assignments and stop-freezing lifecycle | Solver only proposes; operator action commits, freezes stops, marks requests ASSIGNED, subsequent replans preserve frozen stops (ADR-15)                                                                                                   |
 | OpenAPI 3.1 specification and anti-drift testing           | OpenAPI 3.1 spec served at /openapi.json and validated via automated route-introspection tests against Express handlers (ADR-16)                                                                                                           |
 | Deterministic resource locking and rollback verification   | Row-level SELECT FOR UPDATE in ascending order on resources, late statement rollback verification, explicit provenance (ADR-19)                                                                                                            |
+| Two-phase async prefetch with sync solvers                 | Decouple async HTTP I/O from tight synchronous solver loops via memory cache (ADR-20)                                                                                                                                                      |
+| Per-resource-type routing policy                           | Road vehicles follow OSRM road graph; boats and helicopters use straight-line geodesic calculations by design (ADR-21)                                                                                                                     |
+| Dual hazard policies (INFINITE vs PENALTY)                 | Strict safety exclusion under INFINITE (default); optional heavy impedance (10.0x) under PENALTY for triage overrides (ADR-22)                                                                                                             |
+| Lognormal risk model with quadrature                       | Multiplicative non-negative transit delays modeled via lognormal distribution and Acklam rational approximation (ADR-23)                                                                                                                   |
+| Request-scoped hazard zones & audit hashing                | Polygon zones provided per-proposal; SHA-256 canonical JSON hash logged in ASSIGNMENT_PROPOSED audit payload; frozen stops preserved (ADR-24)                                                                                              |
+| 500-point prefetch ceiling                                 | Bound OSRM table prefetch coordinates to prevent excessive API latency; Large scenario falls back to straight-line (ADR-25)                                                                                                                |
+| Deterministic perturbation noise model                     | Uniform noise in [1-m, 1+m] deterministic per (seed, from, to) pair to benchmark route and sequence churn reproducibly (ADR-26)                                                                                                            |
 
 ---
 
@@ -245,7 +252,7 @@ Incoming rescue requests
 - [ ] Confirm with faculty that a separate Node backend is acceptable alongside the mandatory Next.js and React.
 - [ ] Which district or river basin do we use for scenarios?
 - [ ] Who owns each role above?
-- [ ] How will boats be modelled, given OSRM has no boat profile?
+- [x] How will boats be modelled, given OSRM has no boat profile? Resolved in ADR-21: boats and helicopters use StraightLineTravelTimeProvider by design; only road vehicles query OSRM road distance.
 
 ---
 
