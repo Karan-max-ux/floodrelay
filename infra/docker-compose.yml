@@ -30,8 +30,11 @@ services:
   osrm-download:
     image: curlimages/curl:8.10.1
     container_name: floodrelay-osrm-download
+    user: '0:0'
     profiles:
       - osrm
+    environment:
+      OSRM_PBF_URL: ${OSRM_PBF_URL}
     volumes:
       - osrm-data:/data
     command:

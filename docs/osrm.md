@@ -4,7 +4,7 @@ This document describes how to configure, run, and verify the Open Source Routin
 
 > [!NOTE]
 > **Environment Verification Notice:**
-> The OSRM Docker services (`infra/docker-compose.yml`), PBF extract download, and LIVE integration tests have **NOT** been executed against an external live server in this build environment. The OSRM provider and factory are verified against a local fake HTTP server and unit test suite.
+> The OSRM Docker services (`infra/docker-compose.yml`), PBF extract download, and LIVE integration tests have been verified against an active local OSRM Docker container (`ghcr.io/project-osrm/osrm-backend:v5.27.1`) using the verified BBBike New Delhi extract (`https://download.bbbike.org/osm/bbbike/NewDelhi/NewDelhi.osm.pbf`, ~37.3 MB, bounding box: lat 28.44–28.738, lon 76.978–77.497). Unit tests and fallback paths are additionally verified against the local mock HTTP test suite.
 
 ---
 
@@ -40,8 +40,26 @@ OSRM_PORT=5000
 OSRM_TIMEOUT_MS=5000
 OSRM_MAX_TABLE_COORDINATES=100
 # Must be set to an extract you have verified (HTTP 200) that covers your scenario area
-OSRM_PBF_URL=
+# Verified BBBike extract covering North Delhi / Yamuna basin:
+OSRM_PBF_URL=https://download.bbbike.org/osm/bbbike/NewDelhi/NewDelhi.osm.pbf
 ```
+
+### Map Extract Coverage & Scenario Coordinates
+
+- **Verified Extract:** BBBike NewDelhi extract (`https://download.bbbike.org/osm/bbbike/NewDelhi/NewDelhi.osm.pbf`, ~37.3 MB).
+- **Extract Footprint (Bounding Box):** Latitude `[28.440, 28.738]`, Longitude `[76.978, 77.497]`.
+- **Actual Scenario Entity Coordinates (`scenarios/sample-scenario.json`):**
+  - Requests: Latitude `28.665`–`28.690`, Longitude `77.218`–`77.240`
+  - Resources: Latitude `28.650`–`28.680`, Longitude `77.210`–`77.230`
+  - Shelters: Latitude `28.668`–`28.705`, Longitude `77.228`–`77.232`
+  - Hazard zones: Latitude `28.658`–`28.665`, Longitude `77.240`–`77.247`
+  - All actual entity locations fall strictly inside the extract footprint (highest latitude is `28.705` at Wazirabad Shelter, well below `28.738`).
+- **Metadata Bounding Box Distinction:**
+  - The broad regional bounding box declared in scenario metadata (`metadata.bounds`: `minLat: 28.60, maxLat: 28.75, minLng: 77.18, maxLng: 77.28`) specifies `maxLat: 28.75`, which extends ~1.3 km beyond the extract northern boundary (`28.738`). No actual requests, resources, or shelters exist in that northern buffer zone.
+- **Live Integration Test Synthetic Grid (`packages/solver/src/routing/osrmTravelTime.live.test.ts`):**
+  - Origins: Latitude `28.600`–`28.659`, Longitude `77.200`–`77.259`
+  - Destinations: Latitude `28.610`–`28.669`, Longitude `77.210`–`77.269`
+  - All 120 coordinates fall strictly inside the extract boundary.
 
 ### Starting the Service
 
@@ -74,16 +92,16 @@ The script prints comparative tables for travel distance, travel duration, and t
 
 ### Running the LIVE Test Suite
 
-The integration test suite in `packages/solver/src/routing/osrmHttp.test.ts` includes live server assertions skipped by default. To execute them against a running OSRM container:
+The dedicated live integration test suite in `packages/solver/src/routing/osrmTravelTime.live.test.ts` executes against an active OSRM container (and safely skips if `OSRM_BASE_URL` is unset):
 
 ```bash
-OSRM_BASE_URL=http://127.0.0.1:5000 npx vitest run packages/solver/src/routing/osrmHttp.test.ts -t "Live OSRM"
+OSRM_BASE_URL=http://127.0.0.1:5000 npx vitest run packages/solver/src/routing/osrmTravelTime.live.test.ts
 ```
 
 The live test verifies:
 
 - Estimated durations and distances are finite positive numbers.
-- Requests exceeding 100 coordinates are properly chunked across multiple HTTP calls.
+- Requests exceeding 100 coordinates (60 origins, 60 destinations = 120 coordinates) are properly chunked across multiple HTTP calls.
 - `osrmFailedRequests` is 0.
 
 ---

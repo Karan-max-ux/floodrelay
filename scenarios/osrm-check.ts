@@ -129,7 +129,8 @@ export async function runOsrmCheck(): Promise<void> {
   console.log(`OSRM HTTP Requests:     ${finalReport.osrmRequests}`);
   console.log(`OSRM Failed Requests:   ${finalReport.osrmFailedRequests}`);
   console.log(`Lookups (OSRM Road):    ${finalReport.lookupsOsrm}`);
-  console.log(`Lookups (Fallback SL):  ${finalReport.lookupsStraightLine}`);
+  console.log(`Lookups (SL Policy):    ${finalReport.lookupsStraightLinePolicy}`);
+  console.log(`Lookups (Fallback SL):  ${finalReport.lookupsFallback}`);
   console.log(
     `Road Coverage:          ${
       finalReport.roadCoveragePercent !== null
