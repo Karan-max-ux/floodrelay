@@ -63,7 +63,7 @@ To evaluate algorithmic stability under travel-time estimation uncertainty, Floo
 
 ### Perturbation Methodology
 
-1. **Travel Time Noise:** Travel times between each pair of locations are scaled by a multiplicative factor drawn uniformly from [1 - m, 1 + m] for perturbation magnitude m in {0, 0.10, 0.25, 0.50}. The noise is deterministic per `(seed, from, to)` coordinate pair, generated via a 32-bit FNV-1a hash over the seed and coordinates.
+1. **Travel Time Noise:** Travel times between each pair of locations are scaled by a multiplicative factor drawn uniformly from [1 - m, 1 + m] for perturbation magnitude m in {0, 0.10, 0.25, 0.50}. Noise is independent per travel-time pair and deterministic per `(seed, from, to)` coordinate pair, generated via a 32-bit FNV-1a hash over the seed and coordinates.
 2. **Timestamp Jitter:** While `perturbRequestTimestamps` is provided to jitter request timestamps by ±m × 15 minutes, no current solver reads `createdAt`, so timestamp jitter cannot change plans. All observed churn is driven entirely by travel time perturbations.
 3. **Plan Churn Metrics:**
    - **Assignment Churn (%):** Percentage of requests assigned to a different vehicle resource (or left unserved) compared to the unperturbed baseline plan.
@@ -72,6 +72,13 @@ To evaluate algorithmic stability under travel-time estimation uncertainty, Floo
    - **Coverage Delta:** Change in the total number of served requests under perturbation (perturbed served count minus baseline served count).
 
 ### Perturbation Study Results (Generated Scenarios)
+
+> [!NOTE]
+> **SIMULATED**: All perturbation results are synthetic simulations generated under placeholder assumptions. Results vary with scenario seeds and noise draws. To regenerate these numbers, run:
+>
+> ```bash
+> npx tsx scenarios/perturb.ts
+> ```
 
 The primary evaluation runs across 20 distinct synthetic scenario seeds (seeds 2026–2045; 40 requests, 6 vehicles, 3 shelters) with 5 independent noise draws per seed (`seeds: [42, 1337, 2026, 7777, 9999]`), totaling 100 evaluation runs per cell:
 
@@ -120,6 +127,13 @@ A 5-request run on `scenarios/sample-scenario.json` (`scenario-delhi-yamuna-demo
    - Sequence churn (changes in immediate pickup predecessor) rose steadily from 52%–64% at 10% noise to 72%–88% at 50% noise across all solvers.
    - Even when Urgency-batched savings + 2-opt preserved vehicle-level request assignments (low assignment churn), the sequence of pickups within those routes still shifted under travel-time perturbations.
 3. **Coverage Invariance:**
-   - Coverage Delta remained +0.00 across all solvers and all perturbation magnitudes on the 40-request benchmark suite, confirming that travel-time perturbations within this range did not cause vehicles to drop unserved requests or breach shift limits.
+   - Coverage Delta remained +0.00 across all solvers and all perturbation magnitudes on the 40-request benchmark suite, showing that in these specific 40-request scenarios with generous shift budgets (480 minutes), total served count did not change despite route and sequence reorderings (this indicates that total requests served did not change on these evaluated runs, rather than proving that shift limits can never be breached under noise).
 4. **Google OR-Tools Exclusion:**
    - Google OR-Tools operates in an external Python child process (`tools/ortools-baseline/solver.py`) using its own internal distance calculations and cannot accept custom TypeScript `TravelTimeProvider` implementations. As a result, OR-Tools is excluded from the automated TypeScript perturbation study harness.
+
+## Road Network & Travel Time Evaluation Realities
+
+1. **500-Point Prefetch Limit & Large Scenario Fallback:**
+   The travel time provider factory (`prepareTravelTimeProvider`) enforces a safety ceiling of 500 total coordinates (`maxTableCoordinates = 500`). In the Large benchmark suite (500 requests + 30 resources + shelters = 530+ points), the coordinate count exceeds this ceiling, causing the factory to log a warning and fall back entirely to `StraightLineTravelTimeProvider`.
+2. **Road Snapping Artifacts for Off-Road Demands:**
+   OSRM table lookups snap all coordinates to the nearest navigable road segment in the OpenStreetMap road graph. In flood inundation zones where victims are stranded in open water, agricultural fields, or rooftop elevations far from navigable streets, snapping to the nearest road produces misleading road travel times that do not account for off-road access or water navigation.

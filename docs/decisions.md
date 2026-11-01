@@ -120,7 +120,7 @@ When recording a new decision, copy this template and fill it in:
 
 - **Date:** 2026-10-20
 - **Decision:** Model vehicle capacity constraints with intermediate shelter drop-off stops. When a rescue vehicle reaches its passenger capacity (or concludes servicing a localized cluster of requests), it routes to a designated safe shelter to disembark evacuees before servicing further requests or returning to its home depot.
-- **Context:** Rescue vehicles (inflatable boats, high-water trucks) have finite passenger capacities (typically 6–18 people). In severe flooding events with hundreds of stranded victims, a vehicle cannot execute a continuous tour without offloading evacuees. Routing models must explicitly account for intermediate shelter drop-off trips to guarantee passenger safety and avoid vehicle overloading.
+- **Context:** Rescue vehicles (inflatable boats, high-water trucks) have finite passenger capacities (typically 6–18 people). In severe flooding events with hundreds of stranded victims, a vehicle cannot execute a continuous tour without offloading evacuees. Routing models must explicitly account for intermediate shelter drop-off trips to protect passenger safety and avoid vehicle overloading.
 - **Alternatives considered:**
   - Single-trip routing: Each vehicle performs at most one pickup leg from depot, offloads once, and halts. (Rejected: extremely inefficient resource utilization during large-scale operations).
   - Infinite vehicle capacity: Route vehicles purely to minimize distance without capacity boundaries or shelter drop-offs. (Rejected: physically impossible and unsafe in real flood rescues).
@@ -210,7 +210,7 @@ When recording a new decision, copy this template and fill it in:
 - **Context:** The Nearest-First greedy heuristic and Clarke-Wright savings baseline construct route networks ab initio and do not model fixed initial partial routes or committed frozen waypoints. Allowing these baseline solvers to run while committed stops exist would either silently ignore the frozen stops (leading to disjoint dispatches and conflicting vehicle assignments) or fail downstream constraints. Explicit rejection provides unambiguous feedback to operators.
 - **Alternatives considered:**
   - Silently disregard frozen stops: Rejected because committed rescue units would have their active tasks dropped or reassigned, violating dispatch integrity.
-  - Artificially prepend frozen stops to baseline routes without re-optimizing: Rejected because greedy and savings heuristics cannot guarantee capacity or shift limit compliance when prepended with arbitrary prior routes.
+  - Artificially prepend frozen stops to baseline routes without re-optimizing: Rejected because greedy and savings heuristics cannot enforce capacity or shift limit compliance when prepended with arbitrary prior routes.
 - **Consequence:** Clear algorithm capability contracts: `cluster-allocation` supports incremental operations with frozen stops; `nearest-first` and `savings` serve as pure initial baselines.
 
 ---
@@ -292,7 +292,7 @@ When recording a new decision, copy this template and fill it in:
 
 - **Date:** 2026-11-01
 - **Decision:** Pass polygon hazard zones as request-scoped parameters (`blockedZones`) in the `POST /assignments/propose` payload rather than managing them via global database entity CRUD. Store the validated input and its SHA-256 canonical JSON hash (`hazardZonesHash`) in the `ASSIGNMENT_PROPOSED` audit log. Frozen committed stops are never rerouted; newly overlapping zones emit warnings.
-- **Context:** Disaster hazards evolve rapidly from minute to minute. Dispatchers test hypothetical scenarios ("what if bridge X is washed out?") without altering the shared operational environment for other dispatchers. Storing the full hazard input and its deterministic hash in audit logs guarantees that any generated plan can be audited, explained, and reproduced exactly as proposed.
+- **Context:** Disaster hazards evolve rapidly from minute to minute. Dispatchers test hypothetical scenarios ("what if bridge X is washed out?") without altering the shared operational environment for other dispatchers. Storing the full hazard input and its deterministic hash in audit logs ensures that any generated plan can be audited, explained, and reproduced exactly as proposed.
 - **Alternatives considered:**
   - _Persistent global HazardZone database entity with CRUD_: Store zones in a database table with CRUD endpoints. Rejected for Phase 4 to avoid state synchronization conflicts across concurrent dispatch simulations and because persistent zone lifecycle management is slated for subsequent phases.
   - _Ephemeral session state_: Store zones in a cache with a session token. Rejected due to added server statefulness and inability to reconstruct historical audit decisions easily.
@@ -304,11 +304,11 @@ When recording a new decision, copy this template and fill it in:
 
 - **Date:** 2026-11-01
 - **Decision:** Bound the prefetch input to a maximum of 500 distinct coordinates (`maxTableCoordinates = 500`) in `prepareTravelTimeProvider`. If a scenario exceeds 500 points (such as the Large benchmark suite), log a warning and fall back entirely to `StraightLineTravelTimeProvider`.
-- **Context:** Standard OSRM instances exhibit quadratic latency and memory consumption when computing large distance tables (O(N^2) distance computations). Chunking a 500+ coordinate scenario into 100 x 100 tables requires dozens of sequential HTTP requests, stalling dispatch generation for dozens of seconds and risking request timeouts. Bounding prefetch guarantees bounded API latency.
+- **Context:** Standard OSRM instances exhibit quadratic latency and memory consumption when computing large distance tables (O(N^2) distance computations). Chunking a 500+ coordinate scenario into 100 x 100 tables requires dozens of sequential HTTP requests, stalling dispatch generation for dozens of seconds and risking request timeouts. Bounding prefetch ensures bounded API latency.
 - **Alternatives considered:**
   - _Unbounded chunking with parallel requests_: Dispatch all sub-matrix chunks in parallel. Rejected because concurrent table queries overwhelm self-hosted OSRM instances and trigger HTTP 429 rate limiting on public servers.
   - _Hard 400 rejection_: Reject requests with > 500 points. Rejected because emergency relief systems must gracefully degrade to straight-line heuristics rather than outright failing during large-scale regional disasters.
-- **Consequence:** Large-scale scenarios execute reliably without hanging API gateways or exhausting OSRM container memory.
+- **Consequence:** Large-scale scenarios execute reliably without hanging API gateways or exhausting OSRM container memory, providing bounded API latency.
 
 ---
 
