@@ -68,7 +68,9 @@ export class StraightLineTravelTimeProvider implements TravelTimeProvider {
     resourceType?: ResourceType,
   ): TravelEstimate[][] {
     return origins.map((origin) =>
-      destinations.map((dest) => this.getTravelEstimate(origin, dest, speedKmH, undefined, resourceType)),
+      destinations.map((dest) =>
+        this.getTravelEstimate(origin, dest, speedKmH, undefined, resourceType),
+      ),
     );
   }
 }

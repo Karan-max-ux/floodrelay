@@ -29,9 +29,7 @@ export class HazardAwareTravelTimeProvider implements TravelTimeProvider {
     private readonly zones: BlockedZone[],
     private readonly options: HazardPolicyOptions = {},
   ) {
-    this.zoneBoxes = new Map(
-      zones.map((z) => [z.id, computeBoundingBox(z.polygon)]),
-    );
+    this.zoneBoxes = new Map(zones.map((z) => [z.id, computeBoundingBox(z.polygon)]));
   }
 
   getTravelEstimate(
@@ -125,7 +123,9 @@ export class HazardAwareTravelTimeProvider implements TravelTimeProvider {
     resourceType?: ResourceType,
   ): TravelEstimate[][] {
     return origins.map((origin) =>
-      destinations.map((dest) => this.getTravelEstimate(origin, dest, speedKmH, undefined, resourceType)),
+      destinations.map((dest) =>
+        this.getTravelEstimate(origin, dest, speedKmH, undefined, resourceType),
+      ),
     );
   }
 }

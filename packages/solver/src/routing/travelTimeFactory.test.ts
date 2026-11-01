@@ -394,7 +394,10 @@ describe('travelTimeFactory', () => {
       const { provider: roadProvider, report: roadReport } = await prepareTravelTimeProvider(
         roadScenario,
         {
-          osrm: { baseUrl: 'http://127.0.0.1:5000', fetchImpl: mockFetch as unknown as typeof fetch },
+          osrm: {
+            baseUrl: 'http://127.0.0.1:5000',
+            fetchImpl: mockFetch as unknown as typeof fetch,
+          },
         },
       );
       roadProvider.getTravelEstimate(
@@ -443,7 +446,10 @@ describe('travelTimeFactory', () => {
       const { provider: mixedProvider, report: mixedReport } = await prepareTravelTimeProvider(
         mixedScenario,
         {
-          osrm: { baseUrl: 'http://127.0.0.1:5000', fetchImpl: mockFetch as unknown as typeof fetch },
+          osrm: {
+            baseUrl: 'http://127.0.0.1:5000',
+            fetchImpl: mockFetch as unknown as typeof fetch,
+          },
         },
       );
       // One truck lookup, one boat lookup
