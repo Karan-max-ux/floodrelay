@@ -39,8 +39,12 @@ services:
       - -c
       - |
         if [ ! -f /data/region.osm.pbf ]; then
-          echo "Downloading OSM PBF from $${OSRM_PBF_URL:-https://download.geofabrik.de/asia/india/delhi-latest.osm.pbf}..."
-          curl -L -f -o /data/region.osm.pbf "$${OSRM_PBF_URL:-https://download.geofabrik.de/asia/india/delhi-latest.osm.pbf}"
+          if [ -z "$${OSRM_PBF_URL}" ]; then
+            echo "Error: OSRM_PBF_URL is not set. Please configure a valid OSM PBF URL in .env." >&2
+            exit 1
+          fi
+          echo "Downloading OSM PBF from $${OSRM_PBF_URL}..."
+          curl -L -f -o /data/region.osm.pbf "$${OSRM_PBF_URL}"
         else
           echo "OSM PBF already downloaded at /data/region.osm.pbf"
         fi
@@ -60,12 +64,12 @@ services:
       - -c
       - |
         if [ ! -f /data/region.osrm.partition ]; then
-          echo "Extracting, partitioning and customizing OSRM road graph..."
-          osrm-extract -p /opt/car.lua /data/region.osm.pbf && \
-          osrm-partition /data/region.osrm && \
+          echo "Running OSRM extract, partition, and customize on /data/region.osm.pbf..."
+          osrm-extract -p /opt/car.lua /data/region.osm.pbf
+          osrm-partition /data/region.osrm
           osrm-customize /data/region.osrm
         else
-          echo "OSRM graph files already prepped at /data/region.osrm"
+          echo "OSRM prep already completed for /data/region.osrm"
         fi
 
   osrm:
@@ -85,4 +89,6 @@ services:
 
 volumes:
   pgdata:
+    name: floodrelay-pgdata
   osrm-data:
+    name: floodrelay-osrm-data
