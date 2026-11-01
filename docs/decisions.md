@@ -232,3 +232,92 @@ When recording a new decision, copy this template and fill it in:
 - **Bidirectional Frozen-Stop Lineage:** Implemented three verification checks: Check 1 rejects frozen stops on resources with no prior commitments (defense-in-depth); Check 2 enforces preservation of all prior committed stops; Check 3 enforces lineage verification for both `PICKUP` and `DROPOFF` stops. Duplicate pickups for the same request across stops within a plan are rejected.
 - **Scoped Rollback Verification:** Rollback after partial writes is verified using a test-scoped PostgreSQL trigger (`trg_test_fail_audit`) and function (`fn_test_fail_audit()`) conditioned on the specific assignment ID. Cleanup is enforced in `beforeAll`, `finally`, and `afterAll`. Testing confirmed that omitting `ROLLBACK` on error was detected indirectly: the connection remained in aborted transaction state `25P02` and failed on subsequent query reuse rather than by an immediate outcome assertion.
 - **Known Limitations Recorded:** Acknowledged residual concurrency race in un-locked `modifyStop()`, ASCII-only lock order verification, deferred request lifecycle transitions (`IN_TRANSIT`, `RESCUED`), and absence of assignment retirement workflow prior to Phase 3.
+
+---
+
+### ADR-20: Two-Phase Async Prefetch with Synchronous Solvers
+
+- **Date:** 2026-11-01
+- **Decision:** Decouple travel-time retrieval from solver execution into two distinct phases: an asynchronous `prefetch()` phase that queries external routing engines (e.g., OSRM Table API) or caches to build an in-memory matrix cache, followed by synchronous solver execution where `getTravelEstimate()` lookups are purely synchronous reads from memory.
+- **Context:** Routing algorithms like Clarke-Wright savings, 2-opt local search, and greedy nearest-first perform hundreds of thousands of distance lookups in tight loops. Making solvers async or making an async I/O call per distance lookup would introduce massive async microtask overhead, context switching, and unpredictable network latency inside search loops. Solvers remain deterministic, easily testable pure functions without network dependencies.
+- **Alternatives considered:**
+  - _Async solvers_: Make all solver functions async and `await provider.getTravelEstimate(...)` on every leg evaluation. Rejected due to extreme performance degradation (network I/O in local search loops) and inability to maintain clean synchronous unit testing.
+  - _Full precomputation matrix_: Compute all N x N pairs upfront before every solve regardless of fleet size. Rejected because scenarios with hundreds of requests and resources would hit external API limits or consume unnecessary compute for points never considered.
+- **Consequence:** Solvers remain fast, synchronous, and pure. External network calls are isolated to a single prefetch step before routing begins.
+
+---
+
+### ADR-21: Per-Resource-Type Routing Policy
+
+- **Date:** 2026-11-01
+- **Decision:** Enforce routing policies partitioned strictly by physical resource capability: road vehicles (`HIGH_WATER_VEHICLE`, `AMBULANCE`) query OSRM road distance scaled by vehicle speed; marine craft (`BOAT`) and aerial craft (`HELICOPTER`) strictly use `StraightLineTravelTimeProvider` (geodesic distance with speed scaling) by design. Scenarios containing only marine or aerial resources dispatch zero OSRM requests.
+- **Context:** OSRM driving profiles snap coordinates to navigable roads and compute paths along street networks. In flood emergencies, boats navigate open water, flooded plains, or canal channels, while helicopters fly straight lines. Forcing boats or helicopters to follow road networks or scaling car durations by boat speeds produces absurd routes that follow switchbacks, one-way streets, or detours where open direct lines are physically traversed.
+- **Alternatives considered:**
+  - _Uniform OSRM routing with speed scaling_: Query OSRM for all vehicles and scale car duration by `roadDistance / resourceSpeed`. Rejected because boats and helicopters do not follow roads.
+  - _Multi-profile OSRM instances_: Deploy separate OSRM instances with custom maritime and aviation profiles. Rejected as unfeasible without hydrographic navigational data, elevation barriers, and air traffic control constraints.
+- **Consequence:** Dispatchers receive realistic travel estimates aligned with each resource's physical environment. Road coverage statistics evaluate road vehicles only.
+
+---
+
+### ADR-22: Hazard Policies (INFINITE vs PENALTY)
+
+- **Date:** 2026-11-01
+- **Decision:** Support two distinct operational policies for impassable hazard zones (`BLOCKED`):
+  1. `INFINITE` policy (default): Legs intersecting a blocked polygon receive `distance = Infinity`, `duration = Infinity`, and `blocked = true`. Solvers strictly reject these legs, and enclosed requests are marked `UNREACHABLE_DUE_TO_HAZARD`.
+  2. `PENALTY` policy: Impassable legs receive finite heavy impedance: `baseCost * penaltyMultiplier` (default 10.0x, placeholder), allowing routing if no safe alternative exists.
+     Mild hazards (`CAUTION` = 1.25x, `WATER_SURGE` = 2.0x) apply constant impedance multipliers under both policies.
+- **Context:** In flash floods, some routes are physically blocked (collapsed bridges, raging currents). Under strict safety constraints (`INFINITE`), dispatchers must never direct vehicles through lethal danger. However, in catastrophic triage emergencies where leaving people stranded is worse than taking a risky passable detour, operators may opt to evaluate high-cost paths under `PENALTY`.
+- **Alternatives considered:**
+  - _Single hard exclusion (infinite only)_: Make all blocked zones non-traversable without override. Rejected because emergency operations sometimes require soft penalties when road clearance teams accompany convoys.
+  - _Dynamic road re-weighting in OSRM_: Update OSRM graph edge weights dynamically. Rejected due to the operational complexity of live graph rebuilds or MLD cell customizations during active incidents.
+- **Consequence:** Solvers reliably distinguish between physical capacity exhaustion and geographic isolation due to hazards.
+
+---
+
+### ADR-23: Lognormal Travel Time Risk and Uncertainty Model
+
+- **Date:** 2026-11-01
+- **Decision:** Model emergency travel time variability using a lognormal distribution parameterized by planned mean duration and an effective coefficient of variation (CV_effective) computed via quadrature:
+  cv_effective = sqrt(cv_base^2 + cv_depth^2 + cv_weather^2 + cv_congestion^2 + cv_hazard^2).
+  Evaluate risk percentiles (e.g. P90, P95) using Peter J. Acklam's inverse standard normal CDF rational approximation (accurate to relative error ~ 1.15e-9).
+- **Context:** Emergency transit durations are strictly positive, right-skewed, and exhibit heavy tails due to water surges, debris, and congestion. Gaussian models incorrectly assign non-zero probability to negative travel times. The lognormal distribution naturally models multiplicative delays while preserving non-negativity. Quadrature combination allows orthogonal environmental factors to contribute smoothly to variance.
+- **Alternatives considered:**
+  - _Gaussian / Normal distribution_: Rejected because standard deviations for high-uncertainty legs can produce negative travel durations.
+  - _Empirical Monte Carlo sampling_: Draw random delay factors from empirical distributions. Rejected for real-time routing because quantile evaluations must be fast and closed-form during dispatch proposals.
+- **Consequence:** Risk percentiles and buffer times are computed analytically without Monte Carlo sampling overhead during real-time dispatch generation.
+
+---
+
+### ADR-24: Request-Scoped Hazard Zones and Audit Explainability
+
+- **Date:** 2026-11-01
+- **Decision:** Pass polygon hazard zones as request-scoped parameters (`blockedZones`) in the `POST /assignments/propose` payload rather than managing them via global database entity CRUD. Store the validated input and its SHA-256 canonical JSON hash (`hazardZonesHash`) in the `ASSIGNMENT_PROPOSED` audit log. Frozen committed stops are never rerouted; newly overlapping zones emit warnings.
+- **Context:** Disaster hazards evolve rapidly from minute to minute. Dispatchers test hypothetical scenarios ("what if bridge X is washed out?") without altering the shared operational environment for other dispatchers. Storing the full hazard input and its deterministic hash in audit logs guarantees that any generated plan can be audited, explained, and reproduced exactly as proposed.
+- **Alternatives considered:**
+  - _Persistent global HazardZone database entity with CRUD_: Store zones in a database table with CRUD endpoints. Rejected for Phase 4 to avoid state synchronization conflicts across concurrent dispatch simulations and because persistent zone lifecycle management is slated for subsequent phases.
+  - _Ephemeral session state_: Store zones in a cache with a session token. Rejected due to added server statefulness and inability to reconstruct historical audit decisions easily.
+- **Consequence:** Operators gain flexible "what-if" hazard simulation capabilities while maintaining audit fidelity and reproducible decision records.
+
+---
+
+### ADR-25: 500-Point Matrix Limit for OSRM Prefetching
+
+- **Date:** 2026-11-01
+- **Decision:** Bound the prefetch input to a maximum of 500 distinct coordinates (`maxTableCoordinates = 500`) in `prepareTravelTimeProvider`. If a scenario exceeds 500 points (such as the Large benchmark suite), log a warning and fall back entirely to `StraightLineTravelTimeProvider`.
+- **Context:** Standard OSRM instances exhibit quadratic latency and memory consumption when computing large distance tables (O(N^2) distance computations). Chunking a 500+ coordinate scenario into 100 x 100 tables requires dozens of sequential HTTP requests, stalling dispatch generation for dozens of seconds and risking request timeouts. Bounding prefetch guarantees bounded API latency.
+- **Alternatives considered:**
+  - _Unbounded chunking with parallel requests_: Dispatch all sub-matrix chunks in parallel. Rejected because concurrent table queries overwhelm self-hosted OSRM instances and trigger HTTP 429 rate limiting on public servers.
+  - _Hard 400 rejection_: Reject requests with > 500 points. Rejected because emergency relief systems must gracefully degrade to straight-line heuristics rather than outright failing during large-scale regional disasters.
+- **Consequence:** Large-scale scenarios execute reliably without hanging API gateways or exhausting OSRM container memory.
+
+---
+
+### ADR-26: Deterministic Perturbation Noise Model for Route Robustness
+
+- **Date:** 2026-11-01
+- **Decision:** Model scenario perturbations using uniform multiplicative noise in [1 - m, 1 + m] generated deterministically per `(seed, from, to)` coordinate pair. Evaluate algorithm stability by measuring route churn (whether a vehicle's ordered pickup list changes) and sequence churn (whether a request's immediate predecessor changes) across noise draws.
+- **Context:** Travel times in flood emergencies fluctuate. Evaluating whether dispatch algorithms produce wildly divergent fleet routes under small travel-time noise is critical for field stability. Deterministic PRNG seeding ensures perturbation experiments are strictly reproducible across machines and benchmark runs.
+- **Alternatives considered:**
+  - _Non-deterministic runtime jitter_: Add random noise using `Math.random()`. Rejected because benchmark results cannot be independently reproduced, verified, or compared across solver commits.
+  - _Node-level perturbation only_: Jitter request locations or urgency scores rather than edge travel times. Rejected because road network inundation primarily affects transit duration between fixed physical rescue points.
+- **Consequence:** Solver resilience under real-world transit noise can be quantified, compared, and reproduced deterministically across CI and evaluation environments.
