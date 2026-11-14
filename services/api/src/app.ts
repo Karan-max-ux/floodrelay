@@ -150,13 +150,19 @@ export function createApp(deps?: AppDependencies): Express {
   });
 
   // Global error handler
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((err: Error, _req: Request, res: Response, next: NextFunction) => {
+    if (res.headersSent) {
+      return next(err);
+    }
+
+    // Keep the original exception in server-side diagnostics.
     console.error('API Error:', err);
+
+    // Never expose unexpected exception details to API clients.
     res.status(500).json({
       error: {
         code: 'INTERNAL_ERROR',
-        message: err.message || 'An unexpected internal server error occurred',
+        message: 'An unexpected internal server error occurred',
         timestamp: new Date().toISOString(),
       },
     });

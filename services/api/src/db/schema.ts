@@ -312,6 +312,7 @@ export function dbToRescueResource(row: DbResource): RescueResource {
     lng: geo.lng,
     status: row.status,
     depotId: row.depot_id ?? undefined,
+    source: (row.source as 'SIMULATED' | 'REAL') ?? undefined,
   };
 }
 
@@ -339,6 +340,7 @@ export function dbToShelter(row: DbShelter): Shelter {
     lng: geo.lng,
     capacity: row.capacity,
     currentOccupancy: row.current_occupancy,
+    source: (row.source as 'SIMULATED' | 'REAL') ?? undefined,
   };
 }
 

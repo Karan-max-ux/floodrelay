@@ -9,6 +9,13 @@ import { useOperatorAuth } from '@/lib/auth/OperatorAuthContext';
 import { hasPermission } from '@/lib/auth/permissions';
 import type { AssignmentRecord } from '@/lib/api/types';
 import RepairComparison from '@/components/operator/repair/RepairComparison';
+import {
+  formatDistanceKm,
+  formatDurationMinutes,
+  getRouteDisplayMetrics,
+  getRouteSourceLabel,
+  summarizeAssignmentRoutes,
+} from '@/components/operator/map/routeDisplay';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -95,6 +102,28 @@ export default function AssignmentReviewPage({ params }: PageProps) {
           setCommitError(
             'One or more requests in this plan have already been assigned to another plan. Please generate a fresh proposal.',
           );
+        } else if (err.code === 'SIMULATED_RESOURCE_FORBIDDEN') {
+          setCommitError(
+            'Operational Commitment Forbidden (409): Cannot commit an assignment plan containing simulated resources in operational dispatch mode. Ensure all plan assets are authentic registered operational vehicles.',
+          );
+        } else if (err.code === 'SIMULATED_REQUEST_FORBIDDEN') {
+          setCommitError(
+            'Operational Commitment Forbidden (409): Cannot commit an assignment plan containing simulated requests in operational dispatch mode. Operational plans must serve authentic reported requests.',
+          );
+        } else if (err.code === 'SIMULATED_SHELTER_FORBIDDEN') {
+          setCommitError(
+            'Operational Commitment Forbidden (409): Cannot commit an assignment plan containing simulated destination shelters in operational dispatch mode. Ensure all drop-off destinations are authentic registered emergency shelters.',
+          );
+        } else if (err.code === 'SHELTER_UNAVAILABLE') {
+          setCommitError(`Shelter Unavailable (409): ${err.message}`);
+        } else if (err.code === 'SHELTER_NOT_FOUND') {
+          setCommitError(`Shelter Not Found (409): ${err.message}`);
+        } else if (err.code === 'SHELTER_CAPACITY_EXCEEDED') {
+          setCommitError(`Shelter Capacity Exceeded (409): ${err.message}`);
+        } else if (err.code === 'RESOURCE_UNAVAILABLE') {
+          setCommitError(`Resource Unavailable (409): ${err.message}`);
+        } else if (err.code === 'RESOURCE_NOT_FOUND') {
+          setCommitError(`Resource Not Found (409): ${err.message}`);
         } else {
           setCommitError(err.message);
         }
@@ -142,8 +171,17 @@ export default function AssignmentReviewPage({ params }: PageProps) {
   }
 
   const isProposed = plan.status === 'PROPOSED';
+  const isSimulatedPlan =
+    plan.provenance === 'SIMULATED' ||
+    plan.provenance === 'MIXED' ||
+    Boolean(plan.hasSimulatedResources) ||
+    Boolean(plan.hasSimulatedRequests) ||
+    Boolean(plan.hasSimulatedShelters) ||
+    Boolean(plan.hasUnresolvedProvenance);
+
   const allChecked =
     checklist.draftClearance && checklist.shelterCapacity && checklist.medicalProtocol;
+  const canCommitPlan = isProposed && allChecked && canCommit && !isSimulatedPlan;
   const routes = plan.routes || [];
   const unserved = plan.unserved || [];
 
@@ -238,6 +276,17 @@ export default function AssignmentReviewPage({ params }: PageProps) {
               <span className="text-xs font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
                 Scenario: {plan.scenario_id ?? plan.scenarioId ?? 'scenario-delhi-yamuna-demo'}
               </span>
+              {isSimulatedPlan ? (
+                <span className="text-xs font-mono font-bold text-amber-900 bg-amber-100 px-2 py-0.5 rounded border border-amber-300 flex items-center gap-1">
+                  <span className="material-symbols-outlined text-xs">science</span>
+                  <span>{plan.provenance === 'MIXED' ? 'MIXED PROVENANCE' : 'SIMULATED PLAN'}</span>
+                </span>
+              ) : (
+                <span className="text-xs font-mono font-bold text-teal-900 bg-teal-100 px-2 py-0.5 rounded border border-teal-300 flex items-center gap-1">
+                  <span className="material-symbols-outlined text-xs">verified</span>
+                  <span>REAL FLEET PLAN</span>
+                </span>
+              )}
               {plan.committed_by && (
                 <span className="text-xs font-mono text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-semibold">
                   Committed by: {plan.committed_by} ({formattedCommitted})
@@ -271,7 +320,7 @@ export default function AssignmentReviewPage({ params }: PageProps) {
             {isProposed ? (
               <button
                 type="button"
-                disabled={!allChecked || !canCommit}
+                disabled={!canCommitPlan}
                 onClick={() => {
                   setCommitError(null);
                   setShowCommitModal(true);
@@ -279,12 +328,14 @@ export default function AssignmentReviewPage({ params }: PageProps) {
                 title={
                   !canCommit
                     ? 'Dispatcher or Admin authorization required to commit assignment plans'
-                    : !allChecked
-                      ? 'Complete all safety checklist items before committing'
-                      : 'Commit assignment plan'
+                    : isSimulatedPlan
+                      ? 'Operational commitment is disabled for plans incorporating simulated assets, synthetic requests, or test shelters'
+                      : !allChecked
+                        ? 'Complete all safety checklist items before committing'
+                        : 'Commit assignment plan'
                 }
                 className={`h-9 px-4 rounded text-xs font-bold transition-all flex items-center gap-2 shadow-sm ${
-                  allChecked && canCommit
+                  canCommitPlan
                     ? 'bg-teal-700 hover:bg-teal-800 text-white ring-2 ring-teal-500/30'
                     : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                 }`}
@@ -302,6 +353,30 @@ export default function AssignmentReviewPage({ params }: PageProps) {
             )}
           </div>
         </div>
+
+        {/* Simulation / Reference Plan Warning */}
+        {isSimulatedPlan && (
+          <div className="bg-amber-50 border-l-4 border-amber-600 rounded-r-lg p-3 sm:p-4 flex items-start gap-3">
+            <span className="material-symbols-outlined text-amber-700 text-2xl shrink-0 mt-0.5">
+              warning
+            </span>
+            <div className="flex-1 text-xs">
+              <div className="font-bold text-amber-900 flex items-center gap-2">
+                <span>Simulation / Reference Plan</span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-200 text-amber-900 border border-amber-300">
+                  {plan.provenance ?? 'SIMULATED'}
+                </span>
+              </div>
+              <p className="text-amber-800 mt-1 leading-relaxed">
+                This plan incorporates simulated assets, synthetic requests, or test destination
+                shelters. Operational commitment is disabled to prevent simulated data from
+                contaminating live mission dispatch state. To execute an operational commitment,
+                ensure all participating resources, requests, and destination shelters are verified
+                authentic database entities.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Human-in-the-Loop Safeguard Notice */}
         <div className="bg-slate-50 border-l-4 border-teal-700 rounded-r-lg p-3 sm:p-4 flex items-start gap-3">
@@ -386,8 +461,13 @@ export default function AssignmentReviewPage({ params }: PageProps) {
             </div>
           ) : (
             routes.map((route, routeIdx) => {
-              const pickupsCount = route.stops.filter((s) => s.type === 'PICKUP').length;
-              const dropoffsCount = route.stops.filter((s) => s.type === 'DROPOFF').length;
+              const routeMetrics = getRouteDisplayMetrics(route);
+              const sourceBadgeClass =
+                routeMetrics.source === 'OSRM'
+                  ? 'bg-blue-50 text-blue-800 border-blue-200'
+                  : routeMetrics.source === 'MIXED'
+                    ? 'bg-sky-50 text-sky-800 border-sky-200'
+                    : 'bg-slate-100 text-slate-700 border-slate-200';
 
               return (
                 <article
@@ -395,34 +475,49 @@ export default function AssignmentReviewPage({ params }: PageProps) {
                   className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden"
                 >
                   {/* Header Bar */}
-                  <div className="bg-slate-50 border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between">
+                  <div className="bg-slate-50 border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between gap-3 flex-wrap">
                     <div className="flex items-center gap-2.5">
                       <span className="p-1 rounded bg-teal-700 text-white">
                         <span className="material-symbols-outlined text-lg">sailing</span>
                       </span>
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <h2 className="text-sm font-bold text-slate-900">
                             Craft: {route.resourceId}
                           </h2>
                           <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-teal-100 text-teal-800 font-bold border border-teal-200">
                             Route #{routeIdx + 1}
                           </span>
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold border ${sourceBadgeClass}`}
+                          >
+                            {getRouteSourceLabel(routeMetrics.source)}
+                          </span>
                         </div>
                         <div className="text-[11px] text-slate-500 font-mono">
-                          {pickupsCount} Pickups • {dropoffsCount} Drop-offs • {route.stops.length}{' '}
-                          Total Stops
+                          {routeMetrics.pickupsCount} Pickups • {routeMetrics.dropoffsCount}{' '}
+                          Drop-offs • {routeMetrics.stopsCount} Total Stops
                         </div>
                       </div>
                     </div>
 
-                    {/* Duration / Route Metric */}
-                    <div className="text-right">
-                      <div className="text-[10px] text-slate-500 uppercase font-mono tracking-wider">
-                        Est. Duration
+                    {/* Distance / Duration Route Metrics */}
+                    <div className="flex items-center gap-4 text-right">
+                      <div>
+                        <div className="text-[10px] text-slate-500 uppercase font-mono tracking-wider">
+                          Distance
+                        </div>
+                        <div className="text-xs font-bold text-slate-900 font-mono">
+                          {formatDistanceKm(routeMetrics.distanceKm)}
+                        </div>
                       </div>
-                      <div className="text-xs font-bold text-slate-900 font-mono">
-                        ~{Math.round(route.totalDurationMinutes)} min
+                      <div>
+                        <div className="text-[10px] text-slate-500 uppercase font-mono tracking-wider">
+                          Est. Duration
+                        </div>
+                        <div className="text-xs font-bold text-slate-900 font-mono">
+                          {formatDurationMinutes(routeMetrics.durationMinutes)}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -638,15 +733,29 @@ export default function AssignmentReviewPage({ params }: PageProps) {
                     Status: {plan.status}
                   </span>
                 </div>
-                <div className="bg-slate-900/95 text-slate-200 border border-slate-700 p-2 rounded text-[11px] font-mono max-w-[280px]">
-                  <div className="font-bold text-teal-300">
-                    {routes.length} Route(s) • {plan.metrics?.servedRequestsCount ?? 0} Requests
-                    Allocated
-                  </div>
-                  <div className="text-[10px] text-slate-400">
-                    Est. Travel: ~{Math.round(plan.metrics?.totalTravelTimeMinutes ?? 0)}m | Wait: ~
-                    {Math.round(plan.metrics?.highPriorityWaitTimeMinutes ?? 0)}m
-                  </div>
+                <div className="bg-slate-900/95 text-slate-200 border border-slate-700 p-2 rounded text-[11px] font-mono max-w-[320px]">
+                  {(() => {
+                    const summary = summarizeAssignmentRoutes(routes);
+                    const totalKm =
+                      summary.totalDistanceKm > 0
+                        ? summary.totalDistanceKm
+                        : (plan.metrics?.totalTravelDistanceKm ?? 0);
+                    return (
+                      <>
+                        <div className="font-bold text-teal-300">
+                          {routes.length} Route(s) • {plan.metrics?.servedRequestsCount ?? 0}{' '}
+                          Requests Allocated ({getRouteSourceLabel(summary.overallSource)})
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          Dist: {formatDistanceKm(totalKm)} | Travel: ~
+                          {Math.round(
+                            plan.metrics?.totalTravelTimeMinutes ?? summary.totalDurationMinutes,
+                          )}
+                          m | Wait: ~{Math.round(plan.metrics?.highPriorityWaitTimeMinutes ?? 0)}m
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             </div>

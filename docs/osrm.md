@@ -131,8 +131,17 @@ Every proposal generated via `POST /assignments/propose` includes a `travelTime`
   "lookupsOsrm": 18,
   "lookupsStraightLinePolicy": 0,
   "lookupsFallback": 0,
+  "lookupsOutsideCoverage": 0,
   "roadCoveragePercent": 100.0,
   "hazardZoneCount": 1,
+  "regions": [
+    {
+      "id": "default",
+      "requests": 1,
+      "failedRequests": 0,
+      "lookupsOsrm": 18
+    }
+  ],
   "warnings": []
 }
 ```
@@ -141,17 +150,84 @@ Every proposal generated via `POST /assignments/propose` includes a `travelTime`
 
 - **`effectiveSource`**:
   - `'OSRM'`: All solver lookups were resolved using OSRM road graph cells.
-  - `'STRAIGHT_LINE'`: OSRM was unconfigured or failed completely; straight-line estimates used.
-  - `'MIXED'`: Some legs resolved via OSRM, while unroutable coordinates or failed chunks fell back to straight-line.
-- **`osrmConfigured`**: `true` if `OSRM_BASE_URL` was provided.
-- **`osrmRequests`**: Total HTTP table requests dispatched to OSRM.
-- **`osrmFailedRequests`**: Total HTTP requests that failed (timeout, network error, 4xx/5xx).
-- **`lookupsOsrm`**: Number of pairwise distance queries served from cached OSRM road network cells.
+  - `'STRAIGHT_LINE'`: OSRM was unconfigured, failed completely, or no road lookups resolved via OSRM (for example, all scenario points fell outside every configured region); straight-line estimates used.
+  - `'MIXED'`: Some legs resolved via OSRM, while `BOAT`/`HELICOPTER` policy legs, unroutable/failed fallbacks, cross-region legs, or outside-coverage legs used straight-line estimates.
+- **`osrmConfigured`**: `true` if `OSRM_REGIONS` or `OSRM_BASE_URL` produced at least one active OSRM region configuration.
+- **`osrmRequests`**: Total HTTP table requests dispatched across all configured OSRM regions.
+- **`osrmFailedRequests`**: Total HTTP requests that failed across all configured OSRM regions (timeout, network error, 4xx/5xx).
+- **`lookupsOsrm`**: Number of pairwise distance queries served from cached OSRM road network cells across all regions.
 - **`lookupsStraightLinePolicy`**: Number of pairwise distance queries served via straight-line policy by design (for `BOAT` and `HELICOPTER` resources).
-- **`lookupsFallback`**: Number of pairwise road-vehicle distance queries that fell back to straight-line due to OSRM cache misses, unroutable coordinates, or network failure.
-- **`roadCoveragePercent`**: `(lookupsOsrm / (lookupsOsrm + lookupsFallback)) * 100` evaluated strictly over road-vehicle queries. Returns `null` when there are no road vehicles or no road queries; `0` if configured but all road queries fell back.
+- **`lookupsFallback`**: Number of pairwise road-vehicle distance queries inside a region's bbox that fell back to straight-line due to OSRM cache misses, unroutable coordinates, or network failure.
+- **`lookupsOutsideCoverage`**: Number of pairwise road-vehicle distance queries served via straight-line because at least one endpoint fell outside every configured region's bbox, or because the leg crossed from one region into another.
+- **`roadCoveragePercent`**: `(lookupsOsrm / (lookupsOsrm + lookupsFallback + lookupsOutsideCoverage)) * 100` evaluated strictly over road-vehicle queries (`lookupsOutsideCoverage` counts as non-road-routed in the denominator; `BOAT` and `HELICOPTER` policy lookups are excluded). Returns `null` when there are no road-vehicle queries; `0` if configured but all road queries fell back or were outside coverage.
 - **`hazardZoneCount`**: Number of active blocked or hazard zones evaluated.
-- **`warnings`**: List of any warnings encountered during prefetch (e.g. chunk failure or point limit truncation).
+- **`regions`**: Per-region breakdown (`id`, `requests`, `failedRequests`, `lookupsOsrm`) in configuration order (`[]` when OSRM is unconfigured; `"default"` when configured via `OSRM_BASE_URL`).
+- **`warnings`**: List of any warnings encountered during preparation or prefetch (for example, out-of-coverage scenario points, chunk failure, or per-scenario point limit truncation).
+
+---
+
+## India zones
+
+All six India sub-region extracts listed on `https://download.geofabrik.de/asia/india.html` were verified via `curl.exe -IL` on **2026-11-12** (`307 Temporary Redirect` → dated extract file returning `HTTP/1.1 200 OK`):
+
+| Compose Profile  | Zone               | Verified Download URL (`-latest.osm.pbf`)                                    | HTTP Status (`curl.exe -IL`) | `Content-Length` (bytes / page MB) | `.poly` Coordinate Extent (`minLat..maxLat`, `minLng..maxLng`) |
+| :--------------- | :----------------- | :--------------------------------------------------------------------------- | :--------------------------- | :--------------------------------- | :------------------------------------------------------------- |
+| `osrm-north`     | Northern Zone      | `https://download.geofabrik.de/asia/india/northern-zone-latest.osm.pbf`      | `307` → `200 OK`             | `224,864,535` (`214 MB`)           | lat `23.0469..35.7309`, lng `69.4391..79.4888`                 |
+| `osrm-south`     | Southern Zone      | `https://download.geofabrik.de/asia/india/southern-zone-latest.osm.pbf`      | `307` → `200 OK`             | `559,594,968` (`533 MB`)           | lat `5.9439..19.9227`, lng `70.2079..95.5138`                  |
+| `osrm-central`   | Central Zone       | `https://download.geofabrik.de/asia/india/central-zone-latest.osm.pbf`       | `307` → `200 OK`             | `352,234,209` (`335 MB`)           | lat `17.7709..31.4908`, lng `74.0149..84.6466`                 |
+| `osrm-east`      | Eastern Zone       | `https://download.geofabrik.de/asia/india/eastern-zone-latest.osm.pbf`       | `307` → `200 OK`             | `247,694,659` (`236 MB`)           | lat `17.7806..27.5284`, lng `81.3675..89.9183`                 |
+| `osrm-west`      | Western Zone       | `https://download.geofabrik.de/asia/india/western-zone-latest.osm.pbf`       | `307` → `200 OK`             | `222,190,887` (`211 MB`)           | lat `14.3893..24.7176`, lng `67.6746..80.9136`                 |
+| `osrm-northeast` | North-Eastern Zone | `https://download.geofabrik.de/asia/india/north-eastern-zone-latest.osm.pbf` | `307` → `200 OK`             | `109,984,098` (`104 MB`)           | lat `21.9271..29.4288`, lng `88.0085..97.4199`                 |
+
+_(Snapshot `Last-Modified` observed from headers: `Wed, 11 Nov 2026 23:54–23:55 GMT`.)_
+
+> **Coverage note:** Geofabrik's India HTML pages display zone boundaries interactively via `.kml`/`.poly` files and do not publish a prose state-by-state list on the web pages. Because `.poly` polygons are non-rectangular, their outer axis-aligned extents overlap across neighboring zones; inspect the corresponding Geofabrik zone KML map and re-verify URLs with `curl.exe -IL <url>` before choosing `OSRM_REGIONS` bounding boxes for production scenarios.
+
+---
+
+## Running more than one region
+
+- **One extract per container**: Each OSRM server container loads one preprocessed road graph (`/data/region.osm.pbf` → `/data/region.osrm`). A single OSRM container cannot merge two separate extracts cleanly.
+- **Regional Compose profiles**: [infra/docker-compose.yml](file:///d:/INT227_project/infra/docker-compose.yml) keeps the default Delhi `osrm` profile on port `5000` unchanged and adds six isolated zone profiles:
+  - `osrm-north` (`port 5001`, volume `floodrelay-osrm-data-north`, `OSRM_PBF_URL_NORTH`)
+  - `osrm-south` (`port 5002`, volume `floodrelay-osrm-data-south`, `OSRM_PBF_URL_SOUTH`)
+  - `osrm-central` (`port 5003`, volume `floodrelay-osrm-data-central`, `OSRM_PBF_URL_CENTRAL`)
+  - `osrm-east` (`port 5004`, volume `floodrelay-osrm-data-east`, `OSRM_PBF_URL_EAST`)
+  - `osrm-west` (`port 5005`, volume `floodrelay-osrm-data-west`, `OSRM_PBF_URL_WEST`)
+  - `osrm-northeast` (`port 5006`, volume `floodrelay-osrm-data-northeast`, `OSRM_PBF_URL_NORTHEAST`)
+- **Start only the zones you need**:
+  ```bash
+  docker compose -f infra/docker-compose.yml --profile osrm-north up -d
+  ```
+  Download init containers fail fast (exit code `1`) with an explicit message if that zone's `OSRM_PBF_URL_*` variable is blank.
+- **Updating or switching a region's extract**: Changing `OSRM_PBF_URL` or `OSRM_PBF_URL_*` alone does **not** re-download or rebuild the routing graph because `osrm-download*` skips when `/data/region.osm.pbf` already exists in the named volume and `osrm-prep*` skips when `/data/region.osrm.partition` already exists. To replace an extract:
+  1. `docker compose -f infra/docker-compose.yml --profile <profile> down`
+  2. `docker volume rm <volume>` _(for example `floodrelay-osrm-data` or `floodrelay-osrm-data-north`; this deletes the currently loaded map and prepared graph)_
+  3. Update the `OSRM_PBF_URL*` and matching `OSRM_REGIONS` / `OSRM_COVERAGE_BBOX` values in `.env`
+  4. `docker compose -f infra/docker-compose.yml --profile <profile> up -d`
+- **Memory planning**:
+  - OSRM keeps the processed MLD graph resident in RAM (`osrm-routed --algorithm mld`).
+  - Measured fact from this repository's setup: for the **35.6 MiB New Delhi extract**, the `osrm-prep` log reported a peak of about **632 MB RAM**. Larger extracts scale roughly with `.osm.pbf` file size (estimate only).
+  - Running all six India zones simultaneously (`~1.6 GB` total compressed `.osm.pbf`) needs a server with **much more RAM than a 16 GB laptop**. Start only the specific regional profile(s) required for your operational sector, measure actual peak RAM during `osrm-prep*` (`docker stats --no-stream` / container logs) for each loaded zone, and record the observed numbers.
+- **Why explicit coverage bounding boxes matter (snapping & cross-region legs)**:
+  - By default, OSRM snaps any queried coordinate—even hundreds of kilometers away—to the nearest road node in its loaded extract, which can return misleading road distances and times for out-of-area points.
+  - With `OSRM_REGIONS` (or `OSRM_BASE_URL` + `OSRM_COVERAGE_BBOX`), `RegionalTravelTimeProvider` routes a road leg (`HIGH_WATER_VEHICLE`, `AMBULANCE`) via a region's OSRM container **only when BOTH endpoints lie inside that region's inclusive bounding box**.
+  - Points outside every configured region are excluded from all OSRM table prefetches (zero HTTP requests if no scenario point falls in any region).
+  - **Cross-region routes (spanning two zones)** and **outside-coverage legs** automatically fall back to straight-line estimation (`source: 'STRAIGHT_LINE'`), increment `lookupsOutsideCoverage`, and trigger `"N of M scenario points are outside every configured OSRM region; straight-line estimates used"` when `N > 0`.
+
+---
+
+## Road-Following Route Geometry (`RouteGeometry`)
+
+While OSRM `/table/v1/` supplies fast travel-time and distance matrices during optimization, road-following polylines (`RouteGeometry` on `ResourceRoute.geometry`) are fetched separately after route construction via `enrichRoutesWithGeometry` ([packages/solver/src/routing/routeGeometry.ts](file:///d:/INT227_project/packages/solver/src/routing/routeGeometry.ts)):
+
+1. **Endpoint Query & Format**: For each covered road leg (`from -> to`), `OsrmTravelTimeProvider.fetchRouteLegGeometry` queries `GET /route/v1/{profile}/{lng1},{lat1};{lng2},{lat2}?overview=full&geometries=geojson&steps=false` and converts GeoJSON `[lng, lat]` vertices to `[lat, lng]` pairs.
+2. **Waypoint Ordering & Vertex Deduplication**: Routes whose first stop is not a `DEPOT` begin at the assigned resource's starting `(lat, lng)` (`fromStopNumber: 0`). Consecutive leg polylines are concatenated with duplicate boundary vertices removed.
+3. **Policy & Coverage Isolation**:
+   - `BOAT` and `HELICOPTER` routes remain straight-line (`source: 'STRAIGHT_LINE'`) with zero `/route/v1/` HTTP calls.
+   - Road legs with either endpoint outside every configured region's bounding box (or spanning two different regions) fall back to two-point straight-line segments (`source: 'STRAIGHT_LINE'`) without contacting OSRM; mixed routes report `source: 'MIXED'`.
+4. **Distance, Duration & Hazard Scaling**: Road legs honor `useResourceSpeed` (`(distanceKm / speedKmH) * 60` when enabled) and apply active `blockedZones` impedance multipliers via `HazardAwareTravelTimeProvider`.
+5. **Proposal, Repair & Retrieval Hydration**: `AssignmentService.proposeAssignment`, `IncrementalRepairSolverAdapter`, and `AssignmentService.getAssignment` attach `RouteGeometry` (storing snapshots in `ASSIGNMENT_PROPOSED` / `REPAIR_PROPOSAL_GENERATED` audit payloads and recomputing whenever stops are modified or uncached) while populating accurate per-route `totalTravelDistanceKm`.
 
 ---
 

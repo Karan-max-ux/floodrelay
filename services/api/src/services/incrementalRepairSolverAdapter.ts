@@ -30,6 +30,7 @@ import { dbToRouteStop } from '../db/schema.js';
 import {
   repairIncrementally,
   prepareTravelTimeProvider,
+  enrichRoutesWithGeometry,
   osrmConfigFromEnv,
   type OsrmProviderOptions,
 } from '@floodrelay/solver';
@@ -444,9 +445,19 @@ export class IncrementalRepairSolverAdapter implements RepairSolver {
       };
     }
 
+    const geometryResult = await enrichRoutesWithGeometry(solverResult.repairedPlan.routes, {
+      resources: scenarioSnapshot.resources,
+      osrm: osrmOptions,
+      blockedZones: scenarioSnapshot.blockedZones,
+      travelTimeProvider,
+    });
+
     return {
       status: 'PROPOSED',
-      proposedPlan: solverResult.repairedPlan,
+      proposedPlan: {
+        ...solverResult.repairedPlan,
+        routes: geometryResult.routes,
+      },
       unservedRequestIds: solverResult.unservedRequestIds,
       warnings: [...routingWarnings, ...solverResult.warnings],
       baselineVersion: expectedVersion,

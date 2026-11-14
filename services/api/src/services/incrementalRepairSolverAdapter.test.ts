@@ -504,4 +504,28 @@ describe('IncrementalRepairSolverAdapter', () => {
     // Warning explains the unhandled/missing event entity
     expect(result.warnings.length).toBeGreaterThan(0);
   });
+
+  it('attaches straight-line route geometry on proposed repair plan when OSRM is disabled', async () => {
+    vi.mocked(repo.getOperationalEvent).mockResolvedValue(
+      makeDbEvent('REQUEST_CREATED', 'req-1') as never,
+    );
+
+    const input: RepairInput = {
+      eventId: 'evt-repair-geom',
+      baselineAssignmentId: null,
+      scenarioSnapshot: SCENARIO,
+      frozenStops: [],
+      affectedRequestIds: ['req-1'],
+      affectedResourceIds: [],
+    };
+
+    const result = await adapter.solveRepair(input);
+    expect(result.status).toBe('PROPOSED');
+    expect(result.proposedPlan?.routes.length).toBeGreaterThan(0);
+    const geom = result.proposedPlan!.routes[0]!.geometry;
+    expect(geom).toBeDefined();
+    expect(geom!.source).toBe('STRAIGHT_LINE');
+    expect(geom!.coordinates.length).toBeGreaterThanOrEqual(2);
+    expect(geom!.legs?.length).toBeGreaterThanOrEqual(1);
+  });
 });

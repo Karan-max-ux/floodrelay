@@ -8,12 +8,18 @@ import { hasPermission } from '@/lib/auth/permissions';
 
 export interface ResourceStatusPanelProps {
   resources: RescueResource[];
+  isLoading?: boolean;
+  error?: string | null;
+  isStale?: boolean;
   onResourceUpdated?: () => void;
   className?: string;
 }
 
 export function ResourceStatusPanel({
   resources,
+  isLoading = false,
+  error = null,
+  isStale = false,
   onResourceUpdated,
   className = '',
 }: ResourceStatusPanelProps) {
@@ -37,12 +43,7 @@ export function ResourceStatusPanel({
   const [showDirectForm, setShowDirectForm] = useState<boolean>(false);
 
   const isSimulatedResource = (res: RescueResource) => {
-    return (
-      res.source === 'SIMULATED' ||
-      res.id.startsWith('boat_') ||
-      res.id.startsWith('truck_') ||
-      res.id.startsWith('helo_')
-    );
+    return res.source === 'SIMULATED';
   };
 
   const handleOpenDialog = (res: RescueResource) => {
@@ -96,13 +97,10 @@ export function ResourceStatusPanel({
     const cleanId = directResourceId.trim();
     if (!cleanId || !canManageStatus) return;
 
-    if (
-      cleanId.startsWith('boat_') ||
-      cleanId.startsWith('truck_') ||
-      cleanId.startsWith('helo_')
-    ) {
+    const knownResource = resources.find((r) => r.id === cleanId);
+    if (knownResource && isSimulatedResource(knownResource)) {
       setDirectError(
-        'Mutations against simulated reference IDs are blocked. Enter an authentic operational resource UUID.',
+        'Mutations against simulated resources are blocked. Enter an authentic operational resource ID.',
       );
       return;
     }
@@ -179,8 +177,8 @@ export function ResourceStatusPanel({
             <h3 className="font-manrope text-base font-bold text-on-surface">
               Rescue Fleet & Resource Roster
             </h3>
-            <span className="text-[11px] font-mono text-amber-500 font-bold">
-              [REFERENCE / SIMULATED ASSETS]
+            <span className="text-[11px] font-mono text-emerald-500 font-bold">
+              [AUTHORITATIVE ROSTER]
             </span>
           </div>
         </div>
@@ -203,25 +201,31 @@ export function ResourceStatusPanel({
         </div>
       </div>
 
-      {/* Authoritative Resource Inventory Endpoint Missing Disclosure Banner */}
-      <div className="p-3 bg-amber-950/30 border border-amber-500/40 rounded-lg text-xs text-amber-200 flex items-start gap-2.5">
-        <span className="material-symbols-outlined text-amber-400 text-base shrink-0 mt-0.5">
-          info
-        </span>
-        <div className="space-y-1">
-          <div className="font-bold text-amber-300">
-            Authoritative Resource Read Endpoint Pending (GET /operations/resources)
+      {/* Connection Error Banner */}
+      {error && (
+        <div
+          className="p-3 bg-rose-950/30 border border-rose-500/40 rounded-lg text-xs text-rose-200 flex items-start gap-2.5"
+          role="alert"
+        >
+          <span className="material-symbols-outlined text-rose-400 text-base shrink-0 mt-0.5">
+            error
+          </span>
+          <div className="space-y-1">
+            <div className="font-bold text-rose-300">Resource Inventory Connection Error</div>
+            <p className="text-rose-200/90 leading-relaxed text-[11px]">{error}</p>
           </div>
-          <p className="text-amber-200/90 leading-relaxed text-[11px]">
-            The backend API currently provides status mutation via{' '}
-            <code>PATCH /operations/resources/:id/status</code>, but does not yet provide an
-            authoritative resource inventory read endpoint. The roster below displays static
-            reference / simulated assets. Direct mutation against simulated IDs is disabled to
-            prevent database errors. Dispatchers can override authentic database vehicle IDs using
-            the tool below.
-          </p>
         </div>
-      </div>
+      )}
+
+      {/* Stale Cache Notice */}
+      {!error && isStale && (
+        <div className="p-2.5 bg-amber-950/20 border border-amber-500/30 rounded-lg text-xs text-amber-300 flex items-center gap-2">
+          <span className="material-symbols-outlined text-amber-400 text-sm shrink-0">history</span>
+          <span className="text-[11px]">
+            Displaying cached resource roster. Reconnecting to live inventory...
+          </span>
+        </div>
+      )}
 
       {/* Direct DB Resource Status Override Form */}
       {showDirectForm && canManageStatus && (
@@ -325,68 +329,85 @@ export function ResourceStatusPanel({
         </form>
       )}
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-xs border-collapse">
-          <thead>
-            <tr className="border-b border-outline-variant/30 text-on-surface-variant font-mono text-[11px]">
-              <th className="pb-2.5 font-semibold">Asset ID & Name</th>
-              <th className="pb-2.5 font-semibold">Type</th>
-              <th className="pb-2.5 font-semibold">Capacity</th>
-              <th className="pb-2.5 font-semibold">Speed</th>
-              <th className="pb-2.5 font-semibold">Status</th>
-              <th className="pb-2.5 font-semibold text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-outline-variant/15 font-mono text-xs">
-            {resources.map((res) => {
-              const simulated = isSimulatedResource(res);
-              return (
-                <tr className="hover:bg-surface-container/50 transition-colors" key={res.id}>
-                  <td className="py-2.5 font-bold text-on-surface">
-                    <span className="block font-sans text-xs">{res.name || res.id}</span>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-[10px] text-on-surface-variant font-mono">
-                        {res.id}
-                      </span>
-                      {simulated && (
-                        <span className="text-[9px] font-mono px-1 rounded bg-amber-950/60 text-amber-400 border border-amber-600/40">
-                          REFERENCE
+      {isLoading && resources.length === 0 ? (
+        <div className="py-12 text-center text-on-surface-variant font-mono text-xs flex flex-col items-center justify-center gap-2">
+          <span className="material-symbols-outlined animate-spin text-lg text-primary">
+            progress_activity
+          </span>
+          <span>Loading authoritative rescue fleet roster...</span>
+        </div>
+      ) : resources.length === 0 ? (
+        <div className="py-12 text-center text-on-surface-variant font-mono text-xs border border-dashed border-outline-variant/30 rounded-xl">
+          No rescue resources registered in database.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-outline-variant/30 text-on-surface-variant font-mono text-[11px]">
+                <th className="pb-2.5 font-semibold">Asset ID & Name</th>
+                <th className="pb-2.5 font-semibold">Type</th>
+                <th className="pb-2.5 font-semibold">Capacity</th>
+                <th className="pb-2.5 font-semibold">Speed</th>
+                <th className="pb-2.5 font-semibold">Status</th>
+                <th className="pb-2.5 font-semibold text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-outline-variant/15 font-mono text-xs">
+              {resources.map((res) => {
+                const simulated = isSimulatedResource(res);
+                return (
+                  <tr className="hover:bg-surface-container/50 transition-colors" key={res.id}>
+                    <td className="py-2.5 font-bold text-on-surface">
+                      <span className="block font-sans text-xs">{res.name || res.id}</span>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[10px] text-on-surface-variant font-mono">
+                          {res.id}
+                        </span>
+                        {res.source === 'REAL' ? (
+                          <span className="text-[9px] font-mono px-1 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-600/40">
+                            REAL
+                          </span>
+                        ) : res.source === 'SIMULATED' ? (
+                          <span className="text-[9px] font-mono px-1 rounded bg-amber-950/60 text-amber-400 border border-amber-600/40">
+                            SIMULATED
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className="py-2.5 text-on-surface-variant">{res.type}</td>
+                    <td className="py-2.5 text-on-surface">{res.capacity} pax</td>
+                    <td className="py-2.5 text-on-surface">{res.speedKmH} km/h</td>
+                    <td className="py-2.5">{getStatusBadge(res.status)}</td>
+                    <td className="py-2.5 text-right font-sans">
+                      {simulated ? (
+                        <span
+                          className="text-[10px] font-mono text-on-surface-variant/70 italic px-2 py-0.5 rounded bg-surface-container"
+                          title="Simulated resource — status cannot be updated in database"
+                        >
+                          Read-only (Simulated)
+                        </span>
+                      ) : canManageStatus ? (
+                        <button
+                          className="px-2.5 py-1 rounded border border-outline-variant hover:bg-surface-variant font-semibold text-[11px] text-primary transition-colors"
+                          onClick={() => handleOpenDialog(res)}
+                          type="button"
+                        >
+                          Update
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-on-surface-variant/60 italic">
+                          Read-only
                         </span>
                       )}
-                    </div>
-                  </td>
-                  <td className="py-2.5 text-on-surface-variant">{res.type}</td>
-                  <td className="py-2.5 text-on-surface">{res.capacity} pax</td>
-                  <td className="py-2.5 text-on-surface">{res.speedKmH} km/h</td>
-                  <td className="py-2.5">{getStatusBadge(res.status)}</td>
-                  <td className="py-2.5 text-right font-sans">
-                    {simulated ? (
-                      <span
-                        className="text-[10px] font-mono text-on-surface-variant/70 italic px-2 py-0.5 rounded bg-surface-container"
-                        title="Simulated reference asset — status cannot be updated in database"
-                      >
-                        Read-only (Reference)
-                      </span>
-                    ) : canManageStatus ? (
-                      <button
-                        className="px-2.5 py-1 rounded border border-outline-variant hover:bg-surface-variant font-semibold text-[11px] text-primary transition-colors"
-                        onClick={() => handleOpenDialog(res)}
-                        type="button"
-                      >
-                        Update
-                      </button>
-                    ) : (
-                      <span className="text-[10px] text-on-surface-variant/60 italic">
-                        Read-only
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Resource Status Mutation Modal */}
       {selectedResource && (

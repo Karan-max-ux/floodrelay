@@ -7,6 +7,13 @@ import { MapContainer, TileLayer, Marker, Polyline, Polygon, Popup, useMap } fro
 import type { RescueRequest, BlockedZone, FloodForecastContext } from '@floodrelay/shared';
 import type { AssignmentRecord, RouteStop } from '@/lib/api/types';
 import { getTileConfig } from './tileConfig';
+import {
+  formatDistanceKm,
+  formatDurationMinutes,
+  getRouteDisplayMetrics,
+  getRouteSegmentsForRendering,
+  getRouteSourceLabel,
+} from './routeDisplay';
 
 export interface StagedAsset {
   id: string;
@@ -286,21 +293,16 @@ export default function LeafletMapCanvas({
   // Tile layer configuration
   const tileConfig = getTileConfig(tileTheme);
 
-  // Assignment polyline vectors
-  const routePolylines = useMemo(() => {
+  // Assignment polyline vectors (road-following OSRM segments when available, straight-line fallback/policy)
+  const renderedRoutes = useMemo(() => {
     if (!layers.routes || !selectedAssignment?.routes) return [];
 
-    return selectedAssignment.routes.map((route) => {
-      const latlngs: [number, number][] = route.stops
-        .filter((s: RouteStop) => typeof s.lat === 'number' && typeof s.lng === 'number')
-        .map((s: RouteStop) => [s.lat, s.lng]);
-
-      return {
-        resourceId: route.resourceId,
-        latlngs,
-      };
-    });
-  }, [layers.routes, selectedAssignment]);
+    return selectedAssignment.routes.map((route) => ({
+      resourceId: route.resourceId,
+      metrics: getRouteDisplayMetrics(route),
+      segments: getRouteSegmentsForRendering(route, tileTheme),
+    }));
+  }, [layers.routes, selectedAssignment, tileTheme]);
 
   return (
     <div className="w-full h-full relative z-0">
@@ -308,7 +310,11 @@ export default function LeafletMapCanvas({
         center={defaultCenter}
         zoom={12}
         scrollWheelZoom={true}
-        style={{ width: '100%', height: '100%', backgroundColor: '#0b1320' }}
+        style={{
+          width: '100%',
+          height: '100%',
+          backgroundColor: tileTheme === 'dark' ? '#0b1320' : '#e8eef5',
+        }}
         zoomControl={false}
       >
         <TileLayer
@@ -411,18 +417,39 @@ export default function LeafletMapCanvas({
 
         {/* 4. ASSIGNMENT ROUTE POLYLINES */}
         {layers.routes &&
-          routePolylines.map((route, idx) => (
-            <Polyline
-              key={`${route.resourceId}-${idx}`}
-              positions={route.latlngs}
-              pathOptions={{
-                color: '#14b8a6',
-                weight: 3,
-                dashArray: '6, 8',
-                opacity: 0.85,
-              }}
-            />
-          ))}
+          renderedRoutes.map((routeItem) =>
+            routeItem.segments.map((seg) => (
+              <Polyline
+                key={seg.key}
+                positions={seg.positions}
+                pathOptions={{
+                  color: seg.style.color,
+                  weight: seg.style.weight,
+                  opacity: seg.style.opacity,
+                  ...(seg.style.dashArray ? { dashArray: seg.style.dashArray } : {}),
+                }}
+              >
+                <Popup>
+                  <div className="text-xs p-1 space-y-1">
+                    <div className="font-mono font-bold text-slate-900">
+                      Unit: {routeItem.resourceId}
+                    </div>
+                    <div className="text-[11px] font-semibold text-blue-700">
+                      {getRouteSourceLabel(routeItem.metrics.source)}
+                    </div>
+                    <div className="text-[11px] font-mono text-slate-700">
+                      {formatDistanceKm(routeItem.metrics.distanceKm)} •{' '}
+                      {formatDurationMinutes(routeItem.metrics.durationMinutes)}
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      {routeItem.metrics.pickupsCount} Pickup(s) • {routeItem.metrics.dropoffsCount}{' '}
+                      Drop-off(s) • {routeItem.metrics.vertexCount} vertices
+                    </div>
+                  </div>
+                </Popup>
+              </Polyline>
+            )),
+          )}
 
         {/* 5. ROAD HAZARDS & FLOOD SURGE ZONES */}
         {layers.blockages &&

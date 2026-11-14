@@ -47,7 +47,62 @@ export function createAuthRouter(authService: AuthService): Router {
           });
           return;
         }
-        throw err;
+
+        const errMsg = (err as Error)?.message || '';
+        const errCode = (err as { code?: string })?.code;
+
+        // Check for PostgreSQL connectivity failures
+        const isConnError =
+          errCode === 'ECONNREFUSED' ||
+          errCode === '57P01' ||
+          errCode === '57P02' ||
+          errCode === '57P03' ||
+          /connect ECONNREFUSED|connection refused|timeout/i.test(errMsg);
+
+        // Check for missing database tables/migrations
+        const isSchemaError = errCode === '42P01' || /relation ".*" does not exist/i.test(errMsg);
+
+        if (isConnError) {
+          console.error(
+            '[Auth Diagnostic] Database connection unavailable during operator login:',
+            err,
+          );
+          res.status(503).json({
+            error: {
+              code: 'DATABASE_UNAVAILABLE',
+              message:
+                'Database is currently unavailable. Please verify PostgreSQL is running and reachable.',
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        if (isSchemaError) {
+          console.error(
+            '[Auth Diagnostic] Database schema error during operator login: missing operators or operator_sessions table. Run database migrations (`npm run migrate`).',
+            err,
+          );
+          res.status(503).json({
+            error: {
+              code: 'SCHEMA_ERROR',
+              message:
+                'Authentication schema is not initialized. Please ensure database migrations have run.',
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        console.error('[Auth Diagnostic] Unexpected error during operator authentication:', err);
+        res.status(500).json({
+          error: {
+            code: 'INTERNAL_ERROR',
+            message: 'An unexpected internal server error occurred',
+            timestamp: new Date().toISOString(),
+          },
+        });
+        return;
       }
 
       const isProd = process.env.NODE_ENV === 'production';

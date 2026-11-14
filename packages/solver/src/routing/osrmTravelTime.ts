@@ -1,4 +1,4 @@
-import type { GeoPoint, ResourceType } from '@floodrelay/shared';
+import type { BoundingBox, GeoPoint, ResourceType } from '@floodrelay/shared';
 import {
   StraightLineTravelTimeProvider,
   type TravelEstimate,
@@ -21,6 +21,13 @@ export interface OsrmStats {
   lookupsFallback: number;
 }
 
+export interface OsrmRegionConfig {
+  id: string;
+  baseUrl: string;
+  bbox?: BoundingBox;
+  profile?: string;
+}
+
 export interface OsrmProviderOptions {
   baseUrl?: string;
   profile?: string;
@@ -29,6 +36,45 @@ export interface OsrmProviderOptions {
   fallbackProvider?: TravelTimeProvider;
   fetchImpl?: typeof fetch;
   useResourceSpeed?: boolean;
+  coverageBbox?: BoundingBox;
+  regions?: OsrmRegionConfig[];
+}
+
+export interface OsrmRouteLegResult {
+  distanceKm: number;
+  durationMinutes: number;
+  /** Ordered path vertices for the leg as [lat, lng] decimal degrees. */
+  coordinates: [number, number][];
+}
+
+/**
+ * Resolves effective OSRM region definitions from explicit overrides or provider options.
+ */
+export function resolveOsrmRegionConfigs(
+  osrm?: OsrmProviderOptions | null,
+  overrideRegions?: OsrmRegionConfig[],
+): OsrmRegionConfig[] {
+  if (!osrm && (!overrideRegions || overrideRegions.length === 0)) {
+    return [];
+  }
+
+  const configuredRegions = overrideRegions ?? osrm?.regions;
+  if (configuredRegions && configuredRegions.length > 0) {
+    return [...configuredRegions];
+  }
+
+  if (osrm?.baseUrl?.trim()) {
+    return [
+      {
+        id: 'default',
+        baseUrl: osrm.baseUrl,
+        bbox: osrm.coverageBbox,
+        profile: osrm.profile,
+      },
+    ];
+  }
+
+  return [];
 }
 
 interface OsrmTableResponse {
@@ -36,6 +82,19 @@ interface OsrmTableResponse {
   message?: string;
   durations?: Array<Array<number | null>>;
   distances?: Array<Array<number | null>>;
+}
+
+interface OsrmRouteResponse {
+  code: string;
+  message?: string;
+  routes?: Array<{
+    distance?: number;
+    duration?: number;
+    geometry?: {
+      type?: string;
+      coordinates?: unknown;
+    };
+  }>;
 }
 
 function getCoord(point: GeoPoint): { lat: number; lng: number } {
@@ -68,6 +127,7 @@ export class OsrmTravelTimeProvider implements TravelTimeProvider {
   private readonly useResourceSpeed: boolean;
 
   private readonly cache = new Map<string, TravelEstimate>();
+  private readonly routeLegCache = new Map<string, OsrmRouteLegResult | null>();
   private readonly stats: OsrmStats = {
     requests: 0,
     failedRequests: 0,
@@ -155,6 +215,97 @@ export class OsrmTravelTimeProvider implements TravelTimeProvider {
 
   clearCache(): void {
     this.cache.clear();
+    this.routeLegCache.clear();
+  }
+
+  /**
+   * Queries the OSRM Route API (`overview=full&geometries=geojson`) for a single leg,
+   * converting GeoJSON [lng, lat] pairs to [lat, lng] coordinates and caching the result.
+   * Returns null when the route cannot be fetched or parsed cleanly.
+   */
+  async fetchRouteLegGeometry(
+    from: GeoPoint,
+    to: GeoPoint,
+    speedKmH?: number,
+  ): Promise<OsrmRouteLegResult | null> {
+    const key = pairKey(from, to);
+    let cached = this.routeLegCache.get(key);
+
+    if (cached === undefined) {
+      const fromCoord = getCoord(from);
+      const toCoord = getCoord(to);
+      const coordString = `${fromCoord.lng},${fromCoord.lat};${toCoord.lng},${toCoord.lat}`;
+      const url = `${this.baseUrl}/route/v1/${this.profile}/${coordString}?overview=full&geometries=geojson&steps=false`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
+      let fetched: OsrmRouteLegResult | null = null;
+
+      try {
+        const res = await this.fetchFn(url, { signal: controller.signal });
+        if (res.ok) {
+          const data = (await res.json()) as OsrmRouteResponse;
+          const primaryRoute = Array.isArray(data?.routes) ? data.routes[0] : undefined;
+          const rawCoords = primaryRoute?.geometry?.coordinates;
+          if (
+            data?.code === 'Ok' &&
+            primaryRoute &&
+            typeof primaryRoute.distance === 'number' &&
+            Number.isFinite(primaryRoute.distance) &&
+            primaryRoute.distance >= 0 &&
+            typeof primaryRoute.duration === 'number' &&
+            Number.isFinite(primaryRoute.duration) &&
+            primaryRoute.duration >= 0 &&
+            Array.isArray(rawCoords)
+          ) {
+            const latLngs: [number, number][] = [];
+            for (const item of rawCoords) {
+              if (
+                Array.isArray(item) &&
+                item.length >= 2 &&
+                typeof item[0] === 'number' &&
+                Number.isFinite(item[0]) &&
+                typeof item[1] === 'number' &&
+                Number.isFinite(item[1])
+              ) {
+                // OSRM GeoJSON uses [lng, lat]; FloodRelay coordinates are [lat, lng].
+                latLngs.push([item[1], item[0]]);
+              }
+            }
+
+            if (latLngs.length >= 2) {
+              fetched = {
+                distanceKm: Number((primaryRoute.distance / 1000).toFixed(3)),
+                durationMinutes: Number((primaryRoute.duration / 60).toFixed(2)),
+                coordinates: latLngs,
+              };
+            }
+          }
+        }
+      } catch {
+        fetched = null;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
+      this.routeLegCache.set(key, fetched);
+      cached = fetched;
+    }
+
+    if (!cached) {
+      return null;
+    }
+
+    let durationMinutes = cached.durationMinutes;
+    if (this.useResourceSpeed && speedKmH !== undefined && speedKmH > 0) {
+      durationMinutes = Number(((cached.distanceKm / speedKmH) * 60).toFixed(2));
+    }
+
+    return {
+      distanceKm: cached.distanceKm,
+      durationMinutes,
+      coordinates: cached.coordinates.map(([lat, lng]) => [lat, lng]),
+    };
   }
 
   /**

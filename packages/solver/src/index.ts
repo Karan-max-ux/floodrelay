@@ -32,6 +32,8 @@ export * from './metrics.js';
 export * from './planValidator.js';
 export * from './routing/travelTime.js';
 export * from './routing/osrmTravelTime.js';
+export * from './routing/regionalTravelTime.js';
+export * from './routing/routeGeometry.js';
 export * from './routing/blockedZones.js';
 export * from './routing/hazardAwareTravelTime.js';
 export * from './routing/uncertainty.js';

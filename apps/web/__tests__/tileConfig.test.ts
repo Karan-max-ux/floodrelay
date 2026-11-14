@@ -84,6 +84,14 @@ describe('Operator Map Tile Configuration (tileConfig)', () => {
     expect(source.toLowerCase()).not.toContain('carto.com');
   });
 
+  it('uses light standard OSM theme by default when no theme argument is passed', () => {
+    const config = getTileConfig();
+    expect(config.url).toBe(DEFAULT_OSM_TILE_URL);
+    expect(config.className).toBeUndefined();
+    expect(config.maxZoom).toBe(19);
+    expect(config.attribution).toBe(DEFAULT_OSM_ATTRIBUTION);
+  });
+
   it('asserts globals.css has exactly one rule block for the dark-tactical-tiles filter without targeting .leaflet-tile', () => {
     const globalsCssPath = path.resolve(__dirname, '../app/globals.css');
     const cssContent = fs.readFileSync(globalsCssPath, 'utf8');

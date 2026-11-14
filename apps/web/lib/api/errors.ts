@@ -23,3 +23,22 @@ export class ApiClientError extends Error {
     this.isNetworkError = Boolean(params.isNetworkError);
   }
 }
+
+/**
+ * Checks whether an error represents an intentional fetch or DOM abort.
+ */
+export function isAbortError(err: unknown): boolean {
+  if (!err) return false;
+  if (err instanceof Error) {
+    if (err.name === 'AbortError') return true;
+    if (err.message && /aborted/i.test(err.message)) return true;
+  }
+  if (
+    typeof DOMException !== 'undefined' &&
+    err instanceof DOMException &&
+    err.name === 'AbortError'
+  ) {
+    return true;
+  }
+  return false;
+}

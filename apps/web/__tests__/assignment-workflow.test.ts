@@ -322,6 +322,149 @@ describe('Phase 3 Milestone 5 — Solver Proposal & Human-Supervised Assignment 
   });
 
   describe('4. Critical Safety & Human-in-the-Loop Constraints', () => {
+    it('enforces plan commitment eligibility: simulated or mixed plans cannot be committed', () => {
+      function isPlanCommitEligible(plan: AssignmentRecord): boolean {
+        return !(
+          plan.provenance === 'SIMULATED' ||
+          plan.provenance === 'MIXED' ||
+          Boolean(plan.hasSimulatedResources) ||
+          Boolean(plan.hasSimulatedRequests) ||
+          Boolean(plan.hasSimulatedShelters) ||
+          Boolean(plan.hasUnresolvedProvenance)
+        );
+      }
+
+      const realPlan: AssignmentRecord = {
+        id: 'assign_real',
+        status: 'PROPOSED',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        provenance: 'REAL',
+        hasSimulatedResources: false,
+        hasSimulatedRequests: false,
+        hasSimulatedShelters: false,
+        hasUnresolvedProvenance: false,
+      };
+
+      const simPlan: AssignmentRecord = {
+        id: 'assign_sim',
+        status: 'PROPOSED',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        provenance: 'SIMULATED',
+        hasSimulatedResources: true,
+        hasSimulatedRequests: false,
+      };
+
+      const mixedPlan: AssignmentRecord = {
+        id: 'assign_mixed',
+        status: 'PROPOSED',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        provenance: 'MIXED',
+        hasSimulatedResources: true,
+        hasSimulatedRequests: true,
+      };
+
+      const simShelterPlan: AssignmentRecord = {
+        id: 'assign_sim_shelter',
+        status: 'PROPOSED',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        provenance: 'REAL',
+        hasSimulatedResources: false,
+        hasSimulatedRequests: false,
+        hasSimulatedShelters: true,
+      };
+
+      const unresolvedProvenancePlan: AssignmentRecord = {
+        id: 'assign_unresolved',
+        status: 'PROPOSED',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        provenance: 'REAL',
+        hasSimulatedResources: false,
+        hasSimulatedRequests: false,
+        hasUnresolvedProvenance: true,
+      };
+
+      expect(isPlanCommitEligible(realPlan)).toBe(true);
+      expect(isPlanCommitEligible(simPlan)).toBe(false);
+      expect(isPlanCommitEligible(mixedPlan)).toBe(false);
+      expect(isPlanCommitEligible(simShelterPlan)).toBe(false);
+      expect(isPlanCommitEligible(unresolvedProvenancePlan)).toBe(false);
+    });
+
+    it('handles SIMULATED_RESOURCE_FORBIDDEN and SIMULATED_REQUEST_FORBIDDEN error responses from API client', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: async () => ({
+          error: {
+            code: 'SIMULATED_RESOURCE_FORBIDDEN',
+            message:
+              'Cannot commit assignment plan containing simulated resource "res_sim_01" in operational dispatch mode',
+          },
+        }),
+      });
+
+      try {
+        await client.commitAssignment('assign_sim_test', {
+          operatorId: 'OPERATOR_1',
+        });
+        expect.unreachable('Should have thrown ApiClientError');
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiClientError);
+        const apiErr = err as ApiClientError;
+        expect(apiErr.statusCode).toBe(409);
+        expect(apiErr.code).toBe('SIMULATED_RESOURCE_FORBIDDEN');
+      }
+    });
+
+    it('handles shelter safety errors (SIMULATED_SHELTER_FORBIDDEN, SHELTER_UNAVAILABLE, SHELTER_NOT_FOUND, SHELTER_CAPACITY_EXCEEDED)', async () => {
+      const errorCases = [
+        {
+          code: 'SIMULATED_SHELTER_FORBIDDEN',
+          message:
+            'Cannot commit assignment plan containing simulated destination shelter "sh_sim" in operational dispatch mode',
+        },
+        {
+          code: 'SHELTER_UNAVAILABLE',
+          message: 'Shelter "sh_closed" is inactive and cannot accept evacuees',
+        },
+        {
+          code: 'SHELTER_NOT_FOUND',
+          message: 'Shelter "sh_missing" referenced in assignment dropoff stop does not exist',
+        },
+        {
+          code: 'SHELTER_CAPACITY_EXCEEDED',
+          message:
+            'Shelter "sh_full" capacity exceeded: capacity is 10, current occupancy is 8, incoming evacuees are 4',
+        },
+      ];
+
+      for (const errorCase of errorCases) {
+        global.fetch = vi.fn().mockResolvedValue({
+          ok: false,
+          status: 409,
+          json: async () => ({
+            error: errorCase,
+          }),
+        });
+
+        try {
+          await client.commitAssignment('assign_test', { operatorId: 'OPERATOR_1' });
+          expect.unreachable(`Should have thrown ApiClientError for ${errorCase.code}`);
+        } catch (err) {
+          expect(err).toBeInstanceOf(ApiClientError);
+          const apiErr = err as ApiClientError;
+          expect(apiErr.statusCode).toBe(409);
+          expect(apiErr.code).toBe(errorCase.code);
+          expect(apiErr.message).toBe(errorCase.message);
+        }
+      }
+    });
+
     it('enforces safety checklist invariant: all 3 items required before plan commit', () => {
       function canCommit(checklist: {
         draftClearance: boolean;

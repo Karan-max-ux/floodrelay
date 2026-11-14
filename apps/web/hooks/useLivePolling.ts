@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ApiClientError } from '@/lib/api/errors';
+import { ApiClientError, isAbortError } from '@/lib/api/errors';
 
 export type LivePollingStatus =
   | 'INITIAL_LOADING'
@@ -150,7 +150,7 @@ export function useLivePolling<T>(
         }
 
         // Ignore intentional aborts on unmount or cancellation
-        if (controller.signal.aborted) {
+        if (controller.signal.aborted || isAbortError(err)) {
           return;
         }
 
@@ -188,23 +188,27 @@ export function useLivePolling<T>(
           optionsRef.current.maxBackoffMs,
         );
       } finally {
-        isPollingRef.current = false;
-        abortControllerRef.current = null;
+        // Only the active/latest polling execution manages lifecycle state and scheduling.
+        // Prevents cancelled, unmounted, or superseded polls from resetting refs or double-scheduling timers.
+        if (currentSeq === seqRef.current) {
+          isPollingRef.current = false;
+          abortControllerRef.current = null;
 
-        // Schedule next polling cycle if still mounted, enabled, and not terminated by auth failure
-        if (
-          isMountedRef.current &&
-          optionsRef.current.enabled &&
-          statusRef.current !== 'UNAUTHORIZED' &&
-          statusRef.current !== 'FORBIDDEN'
-        ) {
-          const isHidden = typeof document !== 'undefined' && document.hidden;
-          if (!optionsRef.current.pauseWhenHidden || !isHidden) {
-            clearTimer();
-            const delay = isManual ? optionsRef.current.intervalMs : backoffDelayRef.current;
-            timeoutIdRef.current = setTimeout(() => {
-              void executePoll(false);
-            }, delay);
+          // Schedule next polling cycle if still mounted, enabled, and not terminated by auth failure
+          if (
+            isMountedRef.current &&
+            optionsRef.current.enabled &&
+            statusRef.current !== 'UNAUTHORIZED' &&
+            statusRef.current !== 'FORBIDDEN'
+          ) {
+            const isHidden = typeof document !== 'undefined' && document.hidden;
+            if (!optionsRef.current.pauseWhenHidden || !isHidden) {
+              clearTimer();
+              const delay = isManual ? optionsRef.current.intervalMs : backoffDelayRef.current;
+              timeoutIdRef.current = setTimeout(() => {
+                void executePoll(false);
+              }, delay);
+            }
           }
         }
       }

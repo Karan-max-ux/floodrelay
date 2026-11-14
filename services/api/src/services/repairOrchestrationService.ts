@@ -18,6 +18,7 @@ import {
   computeBoundingBoxFromPoints,
   deriveRegionFromCoordinates,
   classifyScenarioProvenance,
+  serializeRouteGeometries,
 } from './assignmentService.js';
 
 export interface RepairSolver {
@@ -547,6 +548,7 @@ export class RepairOrchestrationService {
             scenarioId,
             eventId,
             metrics: plan.metrics,
+            routeGeometries: serializeRouteGeometries(plan.routes),
           },
         });
       }

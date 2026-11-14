@@ -5,7 +5,7 @@ const nextConfig = {
   transpilePackages: ['@floodrelay/shared'],
   async rewrites() {
     const backendUrl =
-      process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+      process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
     return [
       {
         source: '/api/:path*',
@@ -36,8 +36,36 @@ const nextConfig = {
         destination: `${backendUrl}/assignments`,
       },
       {
+        source: '/operations/:path*',
+        destination: `${backendUrl}/operations/:path*`,
+      },
+      {
+        source: '/operations',
+        destination: `${backendUrl}/operations`,
+      },
+      {
+        source: '/audit/:path*',
+        destination: `${backendUrl}/audit/:path*`,
+      },
+      {
+        source: '/audit',
+        destination: `${backendUrl}/audit`,
+      },
+      {
+        source: '/forecast/:path*',
+        destination: `${backendUrl}/forecast/:path*`,
+      },
+      {
+        source: '/forecast',
+        destination: `${backendUrl}/forecast`,
+      },
+      {
         source: '/health',
         destination: `${backendUrl}/health`,
+      },
+      {
+        source: '/openapi.json',
+        destination: `${backendUrl}/openapi.json`,
       },
     ];
   },

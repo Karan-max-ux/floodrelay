@@ -8,6 +8,7 @@ import { ApiClientError } from '@/lib/api/errors';
 import { useOperatorAuth } from '@/lib/auth/OperatorAuthContext';
 import { hasPermission } from '@/lib/auth/permissions';
 import { OperationalEventCard } from './OperationalEventCard';
+import { AffectedScopePanel } from './AffectedScopePanel';
 import RepairComparison from './repair/RepairComparison';
 
 export interface OperationalEventFeedProps {
@@ -214,69 +215,12 @@ export function OperationalEventFeed({
               )}
 
               {affectedScope && (
-                <div className="space-y-3 text-xs">
-                  <p className="text-on-surface-variant italic">Reason: {affectedScope.reason}</p>
-
-                  <div className="grid grid-cols-2 gap-2 font-mono text-[11px]">
-                    <div className="p-2.5 bg-surface rounded-lg border border-outline-variant/30">
-                      <span className="text-on-surface-variant block">Affected Requests</span>
-                      <span className="text-sm font-bold text-on-surface">
-                        {affectedScope.affectedRequestIds.length}
-                      </span>
-                      {affectedScope.affectedRequestIds.length > 0 && (
-                        <span className="text-[10px] text-on-surface-variant block truncate">
-                          {affectedScope.affectedRequestIds.join(', ')}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="p-2.5 bg-surface rounded-lg border border-outline-variant/30">
-                      <span className="text-on-surface-variant block">Affected Resources</span>
-                      <span className="text-sm font-bold text-on-surface">
-                        {affectedScope.affectedResourceIds.length}
-                      </span>
-                      {affectedScope.affectedResourceIds.length > 0 && (
-                        <span className="text-[10px] text-on-surface-variant block truncate">
-                          {affectedScope.affectedResourceIds.join(', ')}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="p-2.5 bg-surface rounded-lg border border-outline-variant/30">
-                      <span className="text-on-surface-variant block">
-                        Proposed Plans Needing Attention
-                      </span>
-                      <span className="text-sm font-bold text-primary">
-                        {affectedScope.affectedProposedAssignmentIds.length}
-                      </span>
-                    </div>
-
-                    <div className="p-2.5 bg-surface rounded-lg border border-outline-variant/30">
-                      <span className="text-on-surface-variant block">
-                        Committed Missions Requiring Review
-                      </span>
-                      <span className="text-sm font-bold text-amber-600">
-                        {affectedScope.committedAssignmentsRequiringReview.length}
-                      </span>
-                    </div>
-                  </div>
-
-                  {affectedScope.committedAssignmentsRequiringReview.length > 0 && (
-                    <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-800 dark:text-amber-300 flex items-start gap-2">
-                      <span className="material-symbols-outlined text-base shrink-0 mt-0.5">
-                        warning
-                      </span>
-                      <div>
-                        <span className="font-bold block">Committed Rescue Missions Impacted</span>
-                        <span>
-                          Active committed missions (
-                          {affectedScope.committedAssignmentsRequiringReview.join(', ')}) are
-                          affected by this incident. Human dispatcher intervention is required.
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <AffectedScopePanel
+                  scope={affectedScope}
+                  onTriggerRepair={() => handleTriggerRepair(selectedEvent.id)}
+                  isRepairing={isRepairing}
+                  canRequestRepair={canRequestRepair}
+                />
               )}
             </div>
 

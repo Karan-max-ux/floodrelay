@@ -32,6 +32,11 @@ export const ListAuditEventsFilterSchema = z.object({
   offset: z.coerce.number().int().min(0).max(10000).default(0),
 });
 
+export const ListResourcesFilterSchema = z.object({
+  status: z.enum(['AVAILABLE', 'ASSIGNED', 'EN_ROUTE', 'MAINTENANCE', 'OFFLINE']).optional(),
+  type: z.enum(['BOAT', 'HIGH_WATER_VEHICLE', 'AMBULANCE', 'HELICOPTER']).optional(),
+});
+
 export const UpdateResourceStatusSchema = z.object({
   status: z.enum(['AVAILABLE', 'ASSIGNED', 'EN_ROUTE', 'MAINTENANCE', 'OFFLINE']),
   reason: z.string().max(256).optional(),

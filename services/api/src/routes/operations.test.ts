@@ -194,7 +194,20 @@ class MockOperationsQueryable implements Queryable {
     }
 
     if (sql.includes('FROM resources')) {
-      const rows = Array.from(this.resources.values()).map((r) => ({
+      let rows = Array.from(this.resources.values());
+      const statusMatch = sql.match(/status = \$(\d+)/);
+      if (statusMatch && statusMatch[1]) {
+        const idx = parseInt(statusMatch[1], 10) - 1;
+        const filterVal = vals[idx];
+        rows = rows.filter((r) => r.status === filterVal);
+      }
+      const typeMatch = sql.match(/type = \$(\d+)/);
+      if (typeMatch && typeMatch[1]) {
+        const idx = parseInt(typeMatch[1], 10) - 1;
+        const filterVal = vals[idx];
+        rows = rows.filter((r) => r.type === filterVal);
+      }
+      const mapped = rows.map((r) => ({
         id: r.id,
         name: r.name,
         type: r.type,
@@ -207,9 +220,9 @@ class MockOperationsQueryable implements Queryable {
         source: r.source,
       }));
       return {
-        rows: rows as unknown as R[],
+        rows: mapped as unknown as R[],
         command: 'SELECT',
-        rowCount: rows.length,
+        rowCount: mapped.length,
         oid: 0,
         fields: [],
       };
@@ -357,6 +370,21 @@ describe('Phase 5 Part 1: Operations API Endpoints, RBAC & Audit', () => {
       updated_at: new Date(),
     });
 
+    mockQueryable.resources.set('res-sim-1', {
+      id: 'res-sim-1',
+      name: 'Simulated 4x4',
+      type: 'HIGH_WATER_VEHICLE',
+      capacity: 4,
+      speed_km_h: 40,
+      location: 'POINT(77.3 28.7)',
+      status: 'MAINTENANCE',
+      depot_id: null,
+      shift_max_duration_min: 360,
+      source: 'SIMULATED',
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+
     // Seed test requests
     mockQueryable.requests.set('req-test-1', {
       id: 'req-test-1',
@@ -424,6 +452,62 @@ describe('Phase 5 Part 1: Operations API Endpoints, RBAC & Audit', () => {
   }, 30000);
 
   describe('Authentication & RBAC Guards', () => {
+    it('rejects anonymous access to /operations/resources with 401', async () => {
+      const res = await request(app).get('/operations/resources');
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe('UNAUTHORIZED');
+    });
+
+    it('allows OPERATOR role to list resources and preserves source provenance', async () => {
+      const res = await request(app)
+        .get('/operations/resources')
+        .set('Authorization', `Bearer ${operatorToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.count).toBe(2);
+      expect(Array.isArray(res.body.data)).toBe(true);
+
+      const real = res.body.data.find((r: { id: string }) => r.id === 'res-boat-1');
+      expect(real).toBeDefined();
+      expect(real.source).toBe('REAL');
+      expect(real.type).toBe('BOAT');
+
+      const sim = res.body.data.find((r: { id: string }) => r.id === 'res-sim-1');
+      expect(sim).toBeDefined();
+      expect(sim.source).toBe('SIMULATED');
+      expect(sim.status).toBe('MAINTENANCE');
+    });
+
+    it('allows DISPATCHER and ADMIN roles to list resources with status/type filters', async () => {
+      // Test DISPATCHER with status filter
+      const dispRes = await request(app)
+        .get('/operations/resources?status=AVAILABLE')
+        .set('Authorization', `Bearer ${dispatcherToken}`);
+
+      expect(dispRes.status).toBe(200);
+      expect(dispRes.body.count).toBe(1);
+      expect(dispRes.body.data[0].id).toBe('res-boat-1');
+
+      // Test ADMIN with type filter
+      const adminRes = await request(app)
+        .get('/operations/resources?type=HIGH_WATER_VEHICLE')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(adminRes.status).toBe(200);
+      expect(adminRes.body.count).toBe(1);
+      expect(adminRes.body.data[0].id).toBe('res-sim-1');
+    });
+
+    it('rejects invalid filter query parameters on /operations/resources with 400 VALIDATION_ERROR', async () => {
+      const res = await request(app)
+        .get('/operations/resources?status=INVALID_STATUS')
+        .set('Authorization', `Bearer ${operatorToken}`);
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
     it('rejects anonymous access to /operations/events with 401', async () => {
       const res = await request(app).get('/operations/events');
       expect(res.status).toBe(401);
@@ -498,6 +582,56 @@ describe('Phase 5 Part 1: Operations API Endpoints, RBAC & Audit', () => {
 
       expect(adminRes.status).toBe(200);
       expect(adminRes.body.data.resource.status).toBe('AVAILABLE');
+    });
+
+    it('rejects status mutation on simulated resource with 409 SIMULATED_RESOURCE_MUTATION_BLOCKED', async () => {
+      const res = await request(app)
+        .patch('/operations/resources/res-sim-1/status')
+        .set('Authorization', `Bearer ${dispatcherToken}`)
+        .send({ status: 'AVAILABLE', reason: 'Attempt to activate test vehicle' });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('SIMULATED_RESOURCE_MUTATION_BLOCKED');
+      expect(res.body.error.message).toContain(
+        'Cannot modify operational status of simulated resource',
+      );
+    });
+
+    it('permits status mutation on authentic real resource with boat_ prefix', async () => {
+      mockQueryable.resources.set('boat_01', {
+        id: 'boat_01',
+        name: 'Boat 01 Real Rescue',
+        type: 'BOAT',
+        capacity: 8,
+        speed_km_h: 22,
+        location: 'POINT(77.21 28.61)',
+        status: 'AVAILABLE',
+        depot_id: null,
+        shift_max_duration_min: 480,
+        source: 'REAL',
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      const res = await request(app)
+        .patch('/operations/resources/boat_01/status')
+        .set('Authorization', `Bearer ${dispatcherToken}`)
+        .send({ status: 'OFFLINE', reason: 'Propeller maintenance' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.resource.status).toBe('OFFLINE');
+      expect(res.body.data.resource.id).toBe('boat_01');
+    });
+
+    it('rejects status mutation on non-existent resource with 404 NOT_FOUND', async () => {
+      const res = await request(app)
+        .patch('/operations/resources/non-existent-craft/status')
+        .set('Authorization', `Bearer ${dispatcherToken}`)
+        .send({ status: 'AVAILABLE', reason: 'Does not exist' });
+
+      expect(res.status).toBe(404);
+      expect(res.body.error.code).toBe('NOT_FOUND');
     });
 
     it('allows DISPATCHER to create and reopen a road hazard zone with events', async () => {

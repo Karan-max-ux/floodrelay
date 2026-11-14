@@ -223,6 +223,19 @@ spec.components.schemas.OperationalEventDetailResponse = {
   },
 };
 
+spec.components.schemas.ListResourcesResponse = {
+  type: 'object',
+  required: ['success', 'count', 'data'],
+  properties: {
+    success: { type: 'boolean', example: true },
+    count: { type: 'integer', example: 1 },
+    data: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/RescueResourceResponse' },
+    },
+  },
+};
+
 spec.components.schemas.AffectedScopeResult = {
   type: 'object',
   required: [
@@ -715,6 +728,54 @@ spec.paths['/operations/events/{id}/affected-scope'] = {
   },
 };
 
+spec.paths['/operations/resources'] = {
+  get: {
+    summary: 'List operational rescue resources',
+    description:
+      'Retrieves list of registered rescue resources with optional status and type filters. Accessible to all authenticated operator roles.',
+    parameters: [
+      {
+        name: 'status',
+        in: 'query',
+        required: false,
+        schema: {
+          type: 'string',
+          enum: ['AVAILABLE', 'ASSIGNED', 'EN_ROUTE', 'MAINTENANCE', 'OFFLINE'],
+        },
+        description: 'Filter resources by operational status',
+      },
+      {
+        name: 'type',
+        in: 'query',
+        required: false,
+        schema: {
+          type: 'string',
+          enum: ['BOAT', 'HIGH_WATER_VEHICLE', 'AMBULANCE', 'HELICOPTER'],
+        },
+        description: 'Filter resources by vehicle type',
+      },
+    ],
+    responses: {
+      '200': {
+        description: 'List of resources retrieved successfully',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/ListResourcesResponse' },
+          },
+        },
+      },
+      '400': {
+        description: 'Validation failure on filter query parameters',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/ErrorResponse' },
+          },
+        },
+      },
+    },
+  },
+};
+
 spec.paths['/operations/resources/{id}/status'] = {
   patch: {
     summary: 'Update resource operational status',
@@ -929,6 +990,7 @@ const protectedRoutes: Array<{ path: string; method: string }> = [
   { path: '/operations/events', method: 'get' },
   { path: '/operations/events/{id}', method: 'get' },
   { path: '/operations/events/{id}/affected-scope', method: 'get' },
+  { path: '/operations/resources', method: 'get' },
   { path: '/operations/resources/{id}/status', method: 'patch' },
   { path: '/operations/road-zones', method: 'post' },
   { path: '/operations/road-zones/{id}', method: 'delete' },

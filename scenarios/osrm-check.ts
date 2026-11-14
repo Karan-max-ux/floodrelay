@@ -3,6 +3,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Scenario, SolverPlan } from '@floodrelay/shared';
 import {
+  enrichRoutesWithGeometry,
+  osrmConfigFromEnv,
   prepareTravelTimeProvider,
   solveNearestFirst,
   solveClarkeWrightBaseline,
@@ -21,14 +23,22 @@ function loadScenario(filename: string): Scenario {
 }
 
 export async function runOsrmCheck(): Promise<void> {
+  const envConfig = osrmConfigFromEnv(process.env);
   const baseUrl = process.env.OSRM_BASE_URL || 'http://127.0.0.1:5000';
   const profile = process.env.OSRM_PROFILE || 'driving';
+  const osrmOptions = envConfig ?? { baseUrl, profile };
 
   console.log('='.repeat(70));
   console.log('FloodRelay OSRM Integration & Road Network Verification');
   console.log('='.repeat(70));
-  console.log(`OSRM Base URL: ${baseUrl}`);
-  console.log(`OSRM Profile:  ${profile}`);
+  if (osrmOptions.regions && osrmOptions.regions.length > 0) {
+    console.log(
+      `OSRM Regions:  ${osrmOptions.regions.map((r) => `${r.id} -> ${r.baseUrl}`).join(', ')}`,
+    );
+  } else {
+    console.log(`OSRM Base URL: ${osrmOptions.baseUrl ?? baseUrl}`);
+    console.log(`OSRM Profile:  ${osrmOptions.profile ?? profile}`);
+  }
 
   const scenario = loadScenario('sample-scenario.json');
   console.log(`Scenario:      ${scenario.metadata?.name ?? scenario.id}`);
@@ -39,10 +49,7 @@ export async function runOsrmCheck(): Promise<void> {
 
   console.log('\n[1/3] Preparing OSRM travel time provider and prefetching table...');
   const { provider: osrmProvider, report } = await prepareTravelTimeProvider(scenario, {
-    osrm: {
-      baseUrl,
-      profile,
-    },
+    osrm: osrmOptions,
   });
 
   const straightLineProvider = new StraightLineTravelTimeProvider();
@@ -79,9 +86,13 @@ export async function runOsrmCheck(): Promise<void> {
     osrmServed: number;
   }> = [];
 
+  let clusterOsrmPlan: SolverPlan | null = null;
   for (const alg of algorithms) {
     const slPlan = alg.run(straightLineProvider);
     const osrmPlan = alg.run(osrmProvider);
+    if (alg.name.startsWith('Cluster-Allocation')) {
+      clusterOsrmPlan = osrmPlan;
+    }
 
     const slDist = slPlan.metrics.totalTravelDistanceKm;
     const osrmDist = osrmPlan.metrics.totalTravelDistanceKm;
@@ -131,6 +142,7 @@ export async function runOsrmCheck(): Promise<void> {
   console.log(`Lookups (OSRM Road):    ${finalReport.lookupsOsrm}`);
   console.log(`Lookups (SL Policy):    ${finalReport.lookupsStraightLinePolicy}`);
   console.log(`Lookups (Fallback SL):  ${finalReport.lookupsFallback}`);
+  console.log(`Lookups (Outside BBox): ${finalReport.lookupsOutsideCoverage}`);
   console.log(
     `Road Coverage:          ${
       finalReport.roadCoveragePercent !== null
@@ -139,6 +151,13 @@ export async function runOsrmCheck(): Promise<void> {
     }`,
   );
   console.log(`Hazard Zones:           ${finalReport.hazardZoneCount}`);
+  if (finalReport.regions.length > 0) {
+    for (const r of finalReport.regions) {
+      console.log(
+        `Region [${r.id}]:        requests=${r.requests}, failed=${r.failedRequests}, lookupsOsrm=${r.lookupsOsrm}`,
+      );
+    }
+  }
   if (finalReport.warnings.length > 0) {
     console.log('Warnings:');
     for (const w of finalReport.warnings) {
@@ -146,6 +165,31 @@ export async function runOsrmCheck(): Promise<void> {
     }
   }
   console.log('='.repeat(70));
+
+  if (clusterOsrmPlan) {
+    const geomResult = await enrichRoutesWithGeometry(clusterOsrmPlan.routes, {
+      resources: scenario.resources,
+      osrm: osrmOptions,
+      blockedZones: scenario.blockedZones,
+      travelTimeProvider: osrmProvider,
+    });
+    console.log('Route Geometry Report (Cluster-Allocation):');
+    console.log(
+      `  Route Requests: ${geomResult.stats.osrmRouteRequests} (failed=${geomResult.stats.osrmRouteFailedRequests}), ` +
+        `Legs OSRM=${geomResult.stats.legsOsrm}, SL-Policy=${geomResult.stats.legsStraightLinePolicy}, ` +
+        `Outside=${geomResult.stats.legsOutsideCoverage}, Fallback=${geomResult.stats.legsFallback}`,
+    );
+    for (const route of geomResult.routes) {
+      const g = route.geometry;
+      if (g) {
+        console.log(
+          `  Route [${route.resourceId}]: source=${g.source}, vertices=${g.coordinates.length}, ` +
+            `distance=${g.distanceKm.toFixed(2)} km, duration=${g.durationMinutes.toFixed(1)} min`,
+        );
+      }
+    }
+    console.log('='.repeat(70));
+  }
 }
 
 // Self-executing CLI

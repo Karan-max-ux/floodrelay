@@ -313,4 +313,116 @@ describe('Phase 5 Part 3 — Actual React useLivePolling Hook Lifecycle Suite', 
 
     renderedHook.unmount();
   });
+
+  it('10. ignores AbortError on cancellation without marking error or setting offline/stale status', async () => {
+    const onError = vi.fn();
+    const fetcher = vi.fn().mockImplementation((signal: AbortSignal) => {
+      return new Promise((_, reject) => {
+        signal.addEventListener('abort', () => {
+          reject(new DOMException('signal is aborted without reason', 'AbortError'));
+        });
+      });
+    });
+
+    const renderedHook = renderHook(() => useLivePolling(fetcher, { intervalMs: 10000, onError }));
+
+    // Unmount while request is in flight
+    renderedHook.unmount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(renderedHook.result.current.error).toBeNull();
+  });
+
+  it('11. cancels in-flight poll on manual refresh and cleanly adopts fresh result', async () => {
+    let callCount = 0;
+    const fetcher = vi.fn().mockImplementation((signal: AbortSignal) => {
+      callCount++;
+      const currentCall = callCount;
+      return new Promise((resolve, reject) => {
+        signal.addEventListener('abort', () => {
+          reject(new DOMException('signal is aborted without reason', 'AbortError'));
+        });
+        if (currentCall === 2) {
+          resolve(['fresh-data']);
+        }
+      });
+    });
+
+    const renderedHook = renderHook(() => useLivePolling(fetcher, { intervalMs: 10000 }));
+
+    // Trigger manual refresh while initial poll is still pending
+    await act(async () => {
+      await renderedHook.result.current.refresh();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(renderedHook.result.current.data).toEqual(['fresh-data']);
+    expect(renderedHook.result.current.status).toBe('UP_TO_DATE');
+    expect(renderedHook.result.current.error).toBeNull();
+
+    renderedHook.unmount();
+  });
+
+  it('12. handles React Strict Mode mount -> unmount -> remount lifecycle safely', async () => {
+    const onError = vi.fn();
+    const fetcher = vi.fn().mockImplementation((signal: AbortSignal) => {
+      return new Promise((resolve, reject) => {
+        signal.addEventListener('abort', () => {
+          reject(new DOMException('signal is aborted without reason', 'AbortError'));
+        });
+        setTimeout(() => {
+          if (!signal.aborted) resolve(['strict-mode-data']);
+        }, 50);
+      });
+    });
+
+    // Simulating React Strict Mode: mount 1
+    const hook1 = renderHook(() => useLivePolling(fetcher, { intervalMs: 10000, onError }));
+    // Immediate unmount
+    hook1.unmount();
+
+    // Immediate remount
+    const hook2 = renderHook(() => useLivePolling(fetcher, { intervalMs: 10000, onError }));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(hook2.result.current.data).toEqual(['strict-mode-data']);
+    expect(hook2.result.current.status).toBe('UP_TO_DATE');
+    expect(hook2.result.current.error).toBeNull();
+
+    hook2.unmount();
+  });
+
+  it('13. ensures subsequent polling succeeds after an aborted initial cycle', async () => {
+    const fetcher = vi
+      .fn()
+      .mockImplementationOnce((signal: AbortSignal) => {
+        return new Promise((_, reject) => {
+          signal.addEventListener('abort', () => {
+            reject(new DOMException('signal is aborted without reason', 'AbortError'));
+          });
+        });
+      })
+      .mockResolvedValueOnce(['subsequent-success']);
+
+    const renderedHook = renderHook(() => useLivePolling(fetcher, { intervalMs: 5000 }));
+
+    // Abort initial cycle via manual refresh
+    await act(async () => {
+      await renderedHook.result.current.refresh();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(renderedHook.result.current.data).toEqual(['subsequent-success']);
+    expect(renderedHook.result.current.status).toBe('UP_TO_DATE');
+    expect(renderedHook.result.current.error).toBeNull();
+
+    renderedHook.unmount();
+  });
 });

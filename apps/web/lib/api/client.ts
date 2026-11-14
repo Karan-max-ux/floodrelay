@@ -1,4 +1,5 @@
-import { ApiClientError } from './errors';
+import { ApiClientError, isAbortError } from './errors';
+export { ApiClientError, isAbortError } from './errors';
 import type {
   ApiResponse,
   CreateRequestInput,
@@ -14,10 +15,13 @@ import type {
   LoginResult,
   OperationalEvent,
   AffectedScopeResult,
+  AffectedScopeResponse,
   RepairResult,
   ListOperationalEventsFilter,
   ListAuditEventsFilter,
+  ListResourcesFilter,
   AuditEventRecord,
+  RescueResource,
   UpdateResourceStatusInput,
   UpdateResourceStatusResult,
   CreateRoadZoneInput,
@@ -77,6 +81,10 @@ export class FloodRelayApiClient {
         headers,
       });
     } catch (err) {
+      // Preserve intentional abort/cancellation semantics rather than wrapping as NETWORK_ERROR
+      if (options.signal?.aborted || isAbortError(err)) {
+        throw err;
+      }
       throw new ApiClientError({
         message: `Failed to connect to FloodRelay API at ${url}: ${(err as Error).message}`,
         statusCode: 0,
@@ -88,7 +96,10 @@ export class FloodRelayApiClient {
     let payload: unknown;
     try {
       payload = await response.json();
-    } catch {
+    } catch (err) {
+      if (options.signal?.aborted || isAbortError(err)) {
+        throw err;
+      }
       payload = null;
     }
 
@@ -330,6 +341,13 @@ export class FloodRelayApiClient {
     return res.data || [];
   }
 
+  async getOperationalEvents(
+    filter?: ListOperationalEventsFilter,
+    signal?: AbortSignal,
+  ): Promise<OperationalEvent[]> {
+    return this.listOperationalEvents(filter, signal);
+  }
+
   async getOperationalEvent(id: string, signal?: AbortSignal): Promise<OperationalEvent> {
     const res = await this.request<OperationalEvent>(
       `/operations/events/${encodeURIComponent(id)}`,
@@ -342,13 +360,52 @@ export class FloodRelayApiClient {
   }
 
   async getAffectedScope(id: string, signal?: AbortSignal): Promise<AffectedScopeResult> {
-    const res = await this.request<AffectedScopeResult>(
+    const res = await this.request<AffectedScopeResponse>(
       `/operations/events/${encodeURIComponent(id)}/affected-scope`,
       {
         method: 'GET',
         signal,
       },
     );
+
+    const data = res?.data;
+    const scope = data?.affectedScope;
+
+    if (
+      !data ||
+      !scope ||
+      !Array.isArray(scope.affectedRequestIds) ||
+      !Array.isArray(scope.affectedResourceIds) ||
+      !Array.isArray(scope.affectedProposedAssignmentIds) ||
+      !Array.isArray(scope.committedAssignmentsRequiringReview)
+    ) {
+      throw new ApiClientError({
+        message:
+          'Unexpected affected-scope response shape: missing affectedScope or required array fields',
+        statusCode: 500,
+        code: 'MALFORMED_RESPONSE',
+      });
+    }
+
+    return scope;
+  }
+
+  async listResources(
+    filter?: ListResourcesFilter,
+    signal?: AbortSignal,
+  ): Promise<RescueResource[]> {
+    const params = new URLSearchParams();
+    if (filter?.status) {
+      params.set('status', filter.status);
+    }
+    if (filter?.type) {
+      params.set('type', filter.type);
+    }
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const res = await this.request<RescueResource[]>(`/operations/resources${query}`, {
+      method: 'GET',
+      signal,
+    });
     return res.data;
   }
 

@@ -1093,6 +1093,74 @@
         ]
       }
     },
+    "/operations/resources": {
+      "get": {
+        "summary": "List operational rescue resources",
+        "description": "Retrieves list of registered rescue resources with optional status and type filters. Accessible to all authenticated operator roles.",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["AVAILABLE", "ASSIGNED", "EN_ROUTE", "MAINTENANCE", "OFFLINE"]
+            },
+            "description": "Filter resources by operational status"
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["BOAT", "HIGH_WATER_VEHICLE", "AMBULANCE", "HELICOPTER"]
+            },
+            "description": "Filter resources by vehicle type"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of resources retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResourcesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failure on filter query parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Operator authentication required or session expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "CookieAuth": []
+          }
+        ]
+      }
+    },
     "/operations/resources/{id}/status": {
       "patch": {
         "summary": "Update resource operational status",
@@ -1966,6 +2034,91 @@
             "items": {
               "type": "string"
             }
+          },
+          "geometry": {
+            "$ref": "#/components/schemas/RouteGeometry"
+          }
+        }
+      },
+      "RouteGeometrySource": {
+        "type": "string",
+        "enum": ["OSRM", "STRAIGHT_LINE", "MIXED"]
+      },
+      "RouteLegGeometry": {
+        "type": "object",
+        "required": [
+          "fromStopNumber",
+          "toStopNumber",
+          "distanceKm",
+          "durationMinutes",
+          "source",
+          "coordinates"
+        ],
+        "properties": {
+          "fromStopNumber": {
+            "type": "integer",
+            "example": 0
+          },
+          "toStopNumber": {
+            "type": "integer",
+            "example": 1
+          },
+          "distanceKm": {
+            "type": "number",
+            "example": 3.46
+          },
+          "durationMinutes": {
+            "type": "number",
+            "example": 5.19
+          },
+          "source": {
+            "type": "string",
+            "enum": ["OSRM", "STRAIGHT_LINE"]
+          },
+          "coordinates": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      },
+      "RouteGeometry": {
+        "type": "object",
+        "required": ["coordinates", "distanceKm", "durationMinutes", "source"],
+        "properties": {
+          "coordinates": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number"
+              }
+            }
+          },
+          "distanceKm": {
+            "type": "number",
+            "example": 8.4
+          },
+          "durationMinutes": {
+            "type": "number",
+            "example": 45.2
+          },
+          "source": {
+            "$ref": "#/components/schemas/RouteGeometrySource"
+          },
+          "legs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RouteLegGeometry"
+            }
           }
         }
       },
@@ -2204,6 +2357,27 @@
           }
         }
       },
+      "TravelTimeRegionReport": {
+        "type": "object",
+        "required": ["id", "requests", "failedRequests", "lookupsOsrm"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "requests": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failedRequests": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lookupsOsrm": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "TravelTimeReport": {
         "type": "object",
         "required": [
@@ -2214,7 +2388,9 @@
           "lookupsOsrm",
           "lookupsStraightLinePolicy",
           "lookupsFallback",
+          "lookupsOutsideCoverage",
           "hazardZoneCount",
+          "regions",
           "warnings"
         ],
         "properties": {
@@ -2245,6 +2421,11 @@
             "type": "integer",
             "minimum": 0
           },
+          "lookupsOutsideCoverage": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of pairwise road-vehicle distance queries served via straight-line because at least one endpoint lies outside every configured OSRM region or the leg crosses between regions"
+          },
           "roadCoveragePercent": {
             "type": "number",
             "nullable": true,
@@ -2254,6 +2435,12 @@
           "hazardZoneCount": {
             "type": "integer",
             "minimum": 0
+          },
+          "regions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TravelTimeRegionReport"
+            }
           },
           "warnings": {
             "type": "array",
@@ -2939,6 +3126,26 @@
           }
         }
       },
+      "ListResourcesResponse": {
+        "type": "object",
+        "required": ["success", "count", "data"],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "count": {
+            "type": "integer",
+            "example": 1
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RescueResourceResponse"
+            }
+          }
+        }
+      },
       "FloodForecastResponse": {
         "type": "object",
         "required": ["success", "data", "timestamp"],
@@ -3101,6 +3308,9 @@
           },
           "disclaimer": {
             "type": "string"
+          }
+        }
+      }
           }
         }
       }

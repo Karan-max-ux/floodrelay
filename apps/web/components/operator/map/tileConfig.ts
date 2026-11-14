@@ -14,10 +14,10 @@ export const DARK_TACTICAL_TILE_CLASS = 'dark-tactical-tiles';
 
 /**
  * Pure helper providing basemap tile configuration for the Operator Tactical Map.
- * Uses public OpenStreetMap raster tiles by default, avoiding watermarked commercial endpoints.
+ * Uses public OpenStreetMap raster tiles by default (light standard view, optional dark mode).
  * Supports environment variable overrides for custom or self-hosted tile providers.
  */
-export function getTileConfig(theme: TileTheme = 'dark'): TileConfig {
+export function getTileConfig(theme: TileTheme = 'standard'): TileConfig {
   const customUrl = process.env.NEXT_PUBLIC_MAP_TILE_URL;
   const customAttribution = process.env.NEXT_PUBLIC_MAP_TILE_ATTRIBUTION;
 

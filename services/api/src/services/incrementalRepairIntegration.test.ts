@@ -80,17 +80,17 @@ describe.runIf(shouldRun)('Live PostGIS Incremental Repair Pipeline (Scenarios A
       await client.query(`
         INSERT INTO shelters (id, name, location, capacity, current_occupancy, source)
         VALUES 
-          ('test-shelter-1', 'Test Shelter North', ST_SetSRID(ST_MakePoint(77.25, 28.55), 4326), 100, 0, 'SIMULATED'),
-          ('test-shelter-2', 'Test Shelter South', ST_SetSRID(ST_MakePoint(77.30, 28.50), 4326), 100, 0, 'SIMULATED')
-        ON CONFLICT (id) DO NOTHING;
+          ('test-shelter-1', 'Test Shelter North', ST_SetSRID(ST_MakePoint(77.25, 28.55), 4326), 100, 0, 'REAL'),
+          ('test-shelter-2', 'Test Shelter South', ST_SetSRID(ST_MakePoint(77.30, 28.50), 4326), 100, 0, 'REAL')
+        ON CONFLICT (id) DO UPDATE SET source = 'REAL';
       `);
 
       await client.query(`
         INSERT INTO resources (id, name, type, capacity, speed_km_h, status, location, source)
         VALUES 
-          ('test-res-boat-1', 'Alpha Boat', 'BOAT', 4, 25, 'AVAILABLE', ST_SetSRID(ST_MakePoint(77.20, 28.50), 4326), 'SIMULATED'),
-          ('test-res-van-2', 'Bravo HighWater', 'HIGH_WATER_VEHICLE', 6, 40, 'AVAILABLE', ST_SetSRID(ST_MakePoint(77.22, 28.52), 4326), 'SIMULATED')
-        ON CONFLICT (id) DO UPDATE SET status = 'AVAILABLE';
+          ('test-res-boat-1', 'Alpha Boat', 'BOAT', 4, 25, 'AVAILABLE', ST_SetSRID(ST_MakePoint(77.20, 28.50), 4326), 'REAL'),
+          ('test-res-van-2', 'Bravo HighWater', 'HIGH_WATER_VEHICLE', 6, 40, 'AVAILABLE', ST_SetSRID(ST_MakePoint(77.22, 28.52), 4326), 'REAL')
+        ON CONFLICT (id) DO UPDATE SET status = 'AVAILABLE', source = 'REAL';
       `);
     } finally {
       client.release();
@@ -158,7 +158,7 @@ describe.runIf(shouldRun)('Live PostGIS Incremental Repair Pipeline (Scenarios A
         lng: 77.21,
         peopleCount: 2,
         urgency: 'HIGH',
-        source: 'SIMULATED',
+        source: 'REPORTED',
         createdAt: new Date().toISOString(),
       },
       { verificationStatus: 'VERIFIED' },
@@ -255,7 +255,7 @@ describe.runIf(shouldRun)('Live PostGIS Incremental Repair Pipeline (Scenarios A
           lng: 77.21,
           peopleCount: 2,
           urgency: 'HIGH',
-          source: 'SIMULATED',
+          source: 'REPORTED',
           createdAt: new Date().toISOString(),
         },
         { verificationStatus: 'VERIFIED' },
@@ -267,7 +267,7 @@ describe.runIf(shouldRun)('Live PostGIS Incremental Repair Pipeline (Scenarios A
           lng: 77.22,
           peopleCount: 2,
           urgency: 'MEDIUM',
-          source: 'SIMULATED',
+          source: 'REPORTED',
           createdAt: new Date().toISOString(),
         },
         { verificationStatus: 'VERIFIED' },
@@ -453,7 +453,7 @@ describe.runIf(shouldRun)('Live PostGIS Incremental Repair Pipeline (Scenarios A
         lng: 77.21,
         peopleCount: 3,
         urgency: 'HIGH',
-        source: 'SIMULATED',
+        source: 'REPORTED',
         createdAt: new Date().toISOString(),
       },
       { verificationStatus: 'UNVERIFIED', isFlaggedDuplicate: true },
@@ -503,7 +503,7 @@ describe.runIf(shouldRun)('Live PostGIS Incremental Repair Pipeline (Scenarios A
         lng: 77.21,
         peopleCount: 1,
         urgency: 'LOW',
-        source: 'SIMULATED',
+        source: 'REPORTED',
         createdAt: new Date().toISOString(),
       },
       { verificationStatus: 'VERIFIED' },
@@ -550,7 +550,7 @@ describe.runIf(shouldRun)('Live PostGIS Incremental Repair Pipeline (Scenarios A
           lng: 77.21,
           peopleCount: 1,
           urgency: 'LOW',
-          source: 'SIMULATED',
+          source: 'REPORTED',
           createdAt: new Date().toISOString(),
         },
         { verificationStatus: 'VERIFIED' },

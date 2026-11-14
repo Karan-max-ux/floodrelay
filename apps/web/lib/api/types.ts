@@ -4,10 +4,14 @@ import type {
   RequestStatus,
   VerificationStatus,
   RescueResource,
+  ResourceType,
   ResourceStatus,
   Shelter,
   RouteStop,
   ResourceRoute,
+  RouteGeometry,
+  RouteLegGeometry,
+  RouteGeometrySource,
   UnservedRequest,
   SolverMetrics,
   ScenarioProvenance,
@@ -31,10 +35,14 @@ export type {
   RequestStatus,
   VerificationStatus,
   RescueResource,
+  ResourceType,
   ResourceStatus,
   Shelter,
   RouteStop,
   ResourceRoute,
+  RouteGeometry,
+  RouteLegGeometry,
+  RouteGeometrySource,
   UnservedRequest,
   SolverMetrics,
   ScenarioProvenance,
@@ -98,6 +106,11 @@ export interface AssignmentRecord {
   created_at?: string;
   updatedAt: string;
   updated_at?: string;
+  provenance?: 'REAL' | 'SIMULATED' | 'MIXED';
+  hasSimulatedResources?: boolean;
+  hasSimulatedRequests?: boolean;
+  hasSimulatedShelters?: boolean;
+  hasUnresolvedProvenance?: boolean;
 }
 
 export interface ProposeAssignmentInput {
@@ -168,6 +181,11 @@ export interface ListAuditEventsFilter {
   offset?: number;
 }
 
+export interface ListResourcesFilter {
+  status?: ResourceStatus;
+  type?: ResourceType;
+}
+
 export interface AuditEventRecord {
   id?: string;
   entityType?: string;
@@ -192,6 +210,11 @@ export interface UpdateResourceStatusResult {
   resource: RescueResource;
   event: OperationalEvent | null;
   affectedScope: AffectedScopeResult | null;
+}
+
+export interface AffectedScopeResponse {
+  event: OperationalEvent;
+  affectedScope: AffectedScopeResult;
 }
 
 export interface CreateRoadZoneInput {

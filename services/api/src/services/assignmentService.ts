@@ -6,6 +6,7 @@ import {
   type RescueRequest,
   type RescueResource,
   type ResourceRoute,
+  type RouteGeometry,
   type RouteStop,
   type Scenario,
   type ScenarioProvenance,
@@ -20,12 +21,14 @@ import {
   solveNearestFirst,
   solveClarkeWrightBaseline,
   prepareTravelTimeProvider,
+  enrichRoutesWithGeometry,
   osrmConfigFromEnv,
   type OsrmProviderOptions,
   type TravelTimeReport,
 } from '@floodrelay/solver';
 import { PostgisRepository } from '../db/repository.js';
 import {
+  dbToBlockedZone,
   dbToRouteStop,
   routeStopToDb,
   type AssignmentStatus,
@@ -51,10 +54,155 @@ export interface AssignmentDetailResponse {
   createdAt: string;
   updatedAt: string;
   travelTime?: TravelTimeReport;
+  provenance?: ScenarioProvenance;
+  hasSimulatedResources?: boolean;
+  hasSimulatedRequests?: boolean;
+  hasSimulatedShelters?: boolean;
+  hasUnresolvedProvenance?: boolean;
+}
+
+export interface PlanProvenanceAnalysis {
+  provenance: ScenarioProvenance;
+  hasSimulatedResources: boolean;
+  hasSimulatedRequests: boolean;
+  hasSimulatedShelters: boolean;
+  hasUnresolvedProvenance: boolean;
+}
+
+export function analyzePlanProvenance(
+  routes: ResourceRoute[],
+  resourceMap: Map<string, { source?: 'SIMULATED' | 'REAL' }>,
+  requestMap: Map<string, { source?: string }>,
+  shelterMap: Map<string, { source?: 'SIMULATED' | 'REAL' }>,
+): PlanProvenanceAnalysis {
+  const assignedResourceIds = Array.from(new Set(routes.map((r) => r.resourceId)));
+  const allStops = routes.flatMap((r) => r.stops || []);
+  const pickupRequestIds = Array.from(
+    new Set(allStops.filter((s) => s.type === 'PICKUP' && s.targetId).map((s) => s.targetId!)),
+  );
+  const dropoffShelterIds = Array.from(
+    new Set(allStops.filter((s) => s.type === 'DROPOFF' && s.targetId).map((s) => s.targetId!)),
+  );
+
+  let realCount = 0;
+  let simulatedCount = 0;
+  let unresolvedCount = 0;
+  let hasSimulatedResources = false;
+  let hasSimulatedRequests = false;
+  let hasSimulatedShelters = false;
+
+  for (const resId of assignedResourceIds) {
+    const res = resourceMap.get(resId);
+    if (!res || !res.source) {
+      unresolvedCount++;
+    } else if (res.source === 'SIMULATED') {
+      simulatedCount++;
+      hasSimulatedResources = true;
+    } else if (res.source === 'REAL') {
+      realCount++;
+    } else {
+      unresolvedCount++;
+    }
+  }
+
+  for (const reqId of pickupRequestIds) {
+    const req = requestMap.get(reqId);
+    if (!req || !req.source) {
+      unresolvedCount++;
+    } else if (req.source === 'SIMULATED') {
+      simulatedCount++;
+      hasSimulatedRequests = true;
+    } else if (
+      req.source === 'REPORTED' ||
+      (req as unknown as { source?: string }).source === 'REAL'
+    ) {
+      realCount++;
+    } else {
+      unresolvedCount++;
+    }
+  }
+
+  for (const shId of dropoffShelterIds) {
+    const sh = shelterMap.get(shId);
+    if (!sh || !sh.source) {
+      unresolvedCount++;
+    } else if (sh.source === 'SIMULATED') {
+      simulatedCount++;
+      hasSimulatedShelters = true;
+    } else if (sh.source === 'REAL') {
+      realCount++;
+    } else {
+      unresolvedCount++;
+    }
+  }
+
+  const hasUnresolvedProvenance = unresolvedCount > 0;
+  let provenance: ScenarioProvenance;
+
+  if (simulatedCount > 0 && realCount === 0 && unresolvedCount === 0) {
+    provenance = 'SIMULATED';
+  } else if (simulatedCount > 0 || unresolvedCount > 0) {
+    provenance = 'MIXED';
+  } else {
+    // Pure real plan or empty plan with no participating entities
+    provenance = 'REAL';
+  }
+
+  return {
+    provenance,
+    hasSimulatedResources,
+    hasSimulatedRequests,
+    hasSimulatedShelters,
+    hasUnresolvedProvenance,
+  };
 }
 
 export interface AssignmentServiceOptions {
   osrm?: OsrmProviderOptions | null;
+}
+
+export interface StoredRouteGeometryEntry {
+  geometry: RouteGeometry;
+  totalTravelDistanceKm: number;
+}
+
+export function serializeRouteGeometries(
+  routes: ResourceRoute[],
+): Record<string, StoredRouteGeometryEntry> {
+  const map: Record<string, StoredRouteGeometryEntry> = {};
+  for (const route of routes) {
+    if (route.geometry) {
+      map[route.resourceId] = {
+        geometry: route.geometry,
+        totalTravelDistanceKm: route.totalTravelDistanceKm,
+      };
+    }
+  }
+  return map;
+}
+
+function isStoredGeometryValidForRoute(
+  route: ResourceRoute,
+  entry: StoredRouteGeometryEntry | undefined,
+): entry is StoredRouteGeometryEntry {
+  if (!entry?.geometry || !Array.isArray(entry.geometry.coordinates)) {
+    return false;
+  }
+  const orderedStops = [...route.stops].sort((a, b) => a.stopNumber - b.stopNumber);
+  if (orderedStops.length === 0) {
+    return entry.geometry.coordinates.length <= 1;
+  }
+  const legs = entry.geometry.legs;
+  if (!Array.isArray(legs) || legs.length === 0) {
+    return orderedStops.length === 1 && orderedStops[0]!.type === 'DEPOT';
+  }
+  const firstFromDepot = orderedStops[0]!.type === 'DEPOT';
+  const expectedLegs = firstFromDepot ? orderedStops.length - 1 : orderedStops.length;
+  if (legs.length !== expectedLegs) {
+    return false;
+  }
+  const expectedTargets = firstFromDepot ? orderedStops.slice(1) : orderedStops;
+  return legs.every((leg, idx) => leg.toStopNumber === expectedTargets[idx]!.stopNumber);
 }
 
 export interface ProvenanceClassification {
@@ -321,11 +469,21 @@ export class AssignmentService {
       }
     }
 
+    // 6.5. Enrich routes with OSRM / straight-line route geometries
+    const geometryResult = await enrichRoutesWithGeometry(plan.routes, {
+      resources: availableResources,
+      osrm: osrmOptions,
+      blockedZones: input.blockedZones,
+      travelTimeProvider,
+    });
+    const enrichedRoutes = geometryResult.routes;
+    const routeGeometries = serializeRouteGeometries(enrichedRoutes);
+
     // 7. Store proposed assignment and stops in the database
     const assignmentId = `assign_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const dbStops: DbAssignmentStop[] = [];
 
-    for (const route of plan.routes) {
+    for (const route of enrichedRoutes) {
       for (const stop of route.stops) {
         const mapped = routeStopToDb(stop, assignmentId, route.resourceId);
         dbStops.push({
@@ -365,14 +523,21 @@ export class AssignmentService {
         scenarioId: input.scenarioId,
         algorithm: input.algorithm,
         metrics: plan.metrics,
-        routesCount: plan.routes.length,
+        routesCount: enrichedRoutes.length,
         unservedCount: plan.unserved.length,
         travelTime: travelTimeReport,
+        routeGeometries,
         hazardZones,
         hazardZonesHash,
         blockedZones: hazardZones,
       },
     });
+
+    const resMap = new Map(availableResources.map((r) => [r.id, r]));
+    const reqMap = new Map(requests.map((r) => [r.id, r]));
+    const shelterMap = new Map(shelters.map((s) => [s.id, s]));
+
+    const planProvenance = analyzePlanProvenance(enrichedRoutes, resMap, reqMap, shelterMap);
 
     return {
       id: assignmentId,
@@ -382,21 +547,143 @@ export class AssignmentService {
       committedBy: null,
       metrics: plan.metrics,
       unserved: plan.unserved,
-      routes: plan.routes,
+      routes: enrichedRoutes,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
       travelTime: travelTimeReport,
+      provenance: planProvenance.provenance,
+      hasSimulatedResources: planProvenance.hasSimulatedResources,
+      hasSimulatedRequests: planProvenance.hasSimulatedRequests,
+      hasSimulatedShelters: planProvenance.hasSimulatedShelters,
+      hasUnresolvedProvenance: planProvenance.hasUnresolvedProvenance,
     };
   }
 
   /**
-   * Retrieves an assignment by ID along with its routes and stops.
+   * Retrieves an assignment by ID along with its routes, stops, and route geometries.
    */
   async getAssignment(id: string): Promise<AssignmentDetailResponse | null> {
     const record = await this.repository.getAssignmentWithStops(id);
     if (!record) return null;
 
     const routes = this.reconstructRoutesFromStops(record.stops);
+    const osrmOptions =
+      this.options?.osrm === null ? null : (this.options?.osrm ?? osrmConfigFromEnv(process.env));
+
+    let savedGeometries: Record<string, StoredRouteGeometryEntry> | null = null;
+    let savedTravelTime: TravelTimeReport | undefined;
+
+    if (typeof this.repository.listAuditEvents === 'function') {
+      try {
+        const events = await this.repository.listAuditEvents({
+          entityType: 'ASSIGNMENT',
+          entityId: id,
+          limit: 20,
+        });
+        for (const ev of events) {
+          if (
+            (ev.event_type === 'ASSIGNMENT_PROPOSED' ||
+              ev.event_type === 'REPAIR_PROPOSAL_GENERATED') &&
+            ev.payload
+          ) {
+            if (!savedTravelTime && ev.payload.travelTime) {
+              savedTravelTime = ev.payload.travelTime as TravelTimeReport;
+            }
+            if (!savedGeometries && ev.payload.routeGeometries) {
+              savedGeometries = ev.payload.routeGeometries as Record<
+                string,
+                StoredRouteGeometryEntry
+              >;
+            }
+            break;
+          }
+        }
+      } catch {
+        // Minimal test stubs may not implement SELECT FROM audit_events
+      }
+    }
+
+    const hydratedRoutes: ResourceRoute[] = [];
+    const routesNeedingEnrichment: ResourceRoute[] = [];
+
+    for (const route of routes) {
+      const saved = savedGeometries?.[route.resourceId];
+      if (isStoredGeometryValidForRoute(route, saved)) {
+        const dist =
+          saved.totalTravelDistanceKm > 0 ? saved.totalTravelDistanceKm : saved.geometry.distanceKm;
+        hydratedRoutes.push({
+          ...route,
+          totalTravelDistanceKm: dist,
+          geometry: saved.geometry,
+        });
+      } else {
+        routesNeedingEnrichment.push(route);
+      }
+    }
+
+    let finalRoutes = hydratedRoutes;
+
+    if (routesNeedingEnrichment.length > 0) {
+      let resources: RescueResource[];
+      let blockedZones: BlockedZone[] = [];
+      try {
+        resources = await this.repository.listResources();
+      } catch {
+        resources = [];
+      }
+      if (typeof this.repository.listBlockedZones === 'function') {
+        try {
+          const dbZones = await this.repository.listBlockedZones(true);
+          blockedZones = dbZones.map(dbToBlockedZone);
+        } catch {
+          blockedZones = [];
+        }
+      }
+
+      const enrichedMissing = await enrichRoutesWithGeometry(routesNeedingEnrichment, {
+        resources,
+        osrm: osrmOptions,
+        blockedZones,
+      });
+
+      const byResource = new Map<string, ResourceRoute>();
+      for (const r of hydratedRoutes) {
+        byResource.set(r.resourceId, r);
+      }
+      for (const r of enrichedMissing.routes) {
+        byResource.set(r.resourceId, {
+          ...r,
+          totalTravelDistanceKm: r.geometry ? r.geometry.distanceKm : r.totalTravelDistanceKm,
+        });
+      }
+
+      finalRoutes = routes.map((r) => byResource.get(r.resourceId) ?? r);
+    }
+
+    let allRes: RescueResource[] = [];
+    let allReq: RescueRequest[] = [];
+    let allShelters: Shelter[] = [];
+    try {
+      allRes = await this.repository.listResources();
+    } catch {
+      // ignore
+    }
+    try {
+      allReq = await this.repository.listRequests();
+    } catch {
+      // ignore
+    }
+    try {
+      allShelters = await this.repository.listShelters({ activeOnly: false });
+    } catch {
+      // ignore
+    }
+
+    const resMap = new Map(allRes.map((r) => [r.id, r]));
+    const reqMap = new Map(allReq.map((r) => [r.id, r]));
+    const shelterMap = new Map(allShelters.map((s) => [s.id, s]));
+
+    const planProvenance = analyzePlanProvenance(finalRoutes, resMap, reqMap, shelterMap);
 
     return {
       id: record.assignment.id,
@@ -416,9 +703,15 @@ export class AssignmentService {
         unservedRequestsCount: record.assignment.unserved?.length ?? 0,
       },
       unserved: record.assignment.unserved ?? [],
-      routes,
+      routes: finalRoutes,
       createdAt: record.assignment.created_at.toISOString(),
       updatedAt: record.assignment.updated_at.toISOString(),
+      provenance: planProvenance.provenance,
+      hasSimulatedResources: planProvenance.hasSimulatedResources,
+      hasSimulatedRequests: planProvenance.hasSimulatedRequests,
+      hasSimulatedShelters: planProvenance.hasSimulatedShelters,
+      hasUnresolvedProvenance: planProvenance.hasUnresolvedProvenance,
+      ...(savedTravelTime ? { travelTime: savedTravelTime } : {}),
     };
   }
 

@@ -18,38 +18,38 @@ vi.mock('@/lib/auth/OperatorAuthContext', () => ({
   }),
 }));
 
-describe('Phase 5 Part 3 — Operational Resource Data Disclosure & Simulation Safeguards', () => {
-  it('renders the missing authoritative endpoint banner (GET /operations/resources)', () => {
+describe('Authoritative Resource Roster & Simulation Safeguards', () => {
+  it('renders the authoritative roster header and healthy live states', () => {
     const html = renderToString(
       React.createElement(ResourceStatusPanel, {
         resources: SIMULATED_RESOURCES,
       }),
     );
 
-    expect(html).toContain(
+    expect(html).toContain('[AUTHORITATIVE ROSTER]');
+    expect(html).toContain('Rescue Fleet &amp; Resource Roster');
+    // Ensure the old pending banner is gone
+    expect(html).not.toContain(
       'Authoritative Resource Read Endpoint Pending (GET /operations/resources)',
     );
-    expect(html).toContain('The backend API currently provides status mutation via');
-    expect(html).toContain('PATCH /operations/resources/:id/status');
-    expect(html).toContain('[REFERENCE / SIMULATED ASSETS]');
   });
 
-  it('marks simulated reference assets with REFERENCE tag and disables status updates', () => {
+  it('marks simulated assets with SIMULATED tag and disables status updates', () => {
     const html = renderToString(
       React.createElement(ResourceStatusPanel, {
         resources: SIMULATED_RESOURCES,
       }),
     );
 
-    // Simulated resources must have REFERENCE tag
-    expect(html).toContain('REFERENCE');
-    // Simulated resources must have Read-only (Reference) label instead of update button
-    expect(html).toContain('Read-only (Reference)');
+    // Simulated resources must have SIMULATED tag
+    expect(html).toContain('SIMULATED');
+    // Simulated resources must have Read-only (Simulated) label instead of update button
+    expect(html).toContain('Read-only (Simulated)');
   });
 
   it('allows Update button only for authentic non-simulated database resources', () => {
     const realResource: RescueResource = {
-      id: '550e8400-e29b-41d4-a716-446655440000',
+      id: 'boat_real_unit_1', // Note ID begins with boat_ but source is REAL
       name: 'Engine 42 High-Water Unit',
       type: 'HIGH_WATER_VEHICLE',
       capacity: 10,
@@ -68,10 +68,54 @@ describe('Phase 5 Part 3 — Operational Resource Data Disclosure & Simulation S
       }),
     );
 
-    // The authentic resource should have an Update button
+    // The authentic resource should have REAL badge and Update button despite boat_ prefix
+    expect(html).toContain('REAL');
     expect(html).toContain('Update');
-    // The simulated resources still have Read-only (Reference)
-    expect(html).toContain('Read-only (Reference)');
+    // The simulated resources still have Read-only (Simulated)
+    expect(html).toContain('Read-only (Simulated)');
+  });
+
+  it('renders connection error state and stale cache notice properly', () => {
+    const errorHtml = renderToString(
+      React.createElement(ResourceStatusPanel, {
+        resources: [],
+        error: 'Failed to connect to backend',
+      }),
+    );
+
+    expect(errorHtml).toContain('Resource Inventory Connection Error');
+    expect(errorHtml).toContain('Failed to connect to backend');
+
+    const staleHtml = renderToString(
+      React.createElement(ResourceStatusPanel, {
+        resources: SIMULATED_RESOURCES,
+        isStale: true,
+      }),
+    );
+
+    expect(staleHtml).toContain(
+      'Displaying cached resource roster. Reconnecting to live inventory...',
+    );
+  });
+
+  it('renders loading and empty states when no resources are loaded', () => {
+    const loadingHtml = renderToString(
+      React.createElement(ResourceStatusPanel, {
+        resources: [],
+        isLoading: true,
+      }),
+    );
+
+    expect(loadingHtml).toContain('Loading authoritative rescue fleet roster...');
+
+    const emptyHtml = renderToString(
+      React.createElement(ResourceStatusPanel, {
+        resources: [],
+        isLoading: false,
+      }),
+    );
+
+    expect(emptyHtml).toContain('No rescue resources registered in database.');
   });
 
   it('provides a direct DB UUID override form for dispatchers', () => {

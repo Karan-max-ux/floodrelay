@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { RescueRequest } from '@floodrelay/shared';
 
 // Coordinate validation invariant
@@ -218,6 +220,15 @@ describe('Operator GIS Map Invariants & GeoJSON Conversion', () => {
         expect(shelter.capacity).toBeGreaterThan(0);
         expect(shelter.availableBeds).toBeLessThanOrEqual(shelter.capacity);
       }
+    });
+  });
+
+  describe('Google-like Light Map Default & Route Geometry Source Guardrails', () => {
+    it('initializes /operator/map tileTheme to standard OSM light look with dark option retained', () => {
+      const mapPagePath = path.resolve(__dirname, '../app/operator/map/page.tsx');
+      const source = fs.readFileSync(mapPagePath, 'utf8');
+      expect(source).toContain("useState<'dark' | 'standard'>('standard')");
+      expect(source).toContain("setTileTheme((t) => (t === 'dark' ? 'standard' : 'dark'))");
     });
   });
 });

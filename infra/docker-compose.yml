@@ -7,6 +7,44 @@
 # Start OSRM: docker-compose --profile osrm up -d
 # Note: PBF download and data prep were not run unless explicitly triggered.
 
+x-osrm-download-common: &osrm-download-common
+  image: curlimages/curl:8.10.1
+  user: '0:0'
+  command:
+    - sh
+    - -c
+    - |
+      if [ ! -f /data/region.osm.pbf ]; then
+        if [ -z "$${OSRM_PBF_URL}" ]; then
+          echo "Error: $${OSRM_PBF_VAR:-OSRM_PBF_URL} is blank or unset. Please configure a verified extract URL before starting $${OSRM_REGION_LABEL:-this region}." >&2
+          exit 1
+        fi
+        echo "Downloading OSM PBF from $${OSRM_PBF_URL}..."
+        curl -L -f -o /data/region.osm.pbf "$${OSRM_PBF_URL}"
+      else
+        echo "OSM PBF already downloaded at /data/region.osm.pbf"
+      fi
+
+x-osrm-prep-common: &osrm-prep-common
+  image: ghcr.io/project-osrm/osrm-backend:v5.27.1
+  command:
+    - sh
+    - -c
+    - |
+      if [ ! -f /data/region.osrm.partition ]; then
+        echo "Running OSRM extract, partition, and customize on /data/region.osm.pbf..."
+        osrm-extract -p /opt/car.lua /data/region.osm.pbf
+        osrm-partition /data/region.osrm
+        osrm-customize /data/region.osrm
+      else
+        echo "OSRM prep already completed for /data/region.osrm"
+      fi
+
+x-osrm-server-common: &osrm-server-common
+  image: ghcr.io/project-osrm/osrm-backend:v5.27.1
+  restart: unless-stopped
+  command: osrm-routed --algorithm mld --max-table-size 100 /data/region.osrm
+
 services:
   postgres:
     image: postgis/postgis:16-3.4
@@ -90,8 +128,237 @@ services:
       - osrm-data:/data
     command: osrm-routed --algorithm mld --max-table-size 100 /data/region.osrm
 
+  # --- Regional India OSRM Profiles (ports 5001-5006) ---
+  osrm-download-north:
+    <<: *osrm-download-common
+    container_name: floodrelay-osrm-download-north
+    profiles:
+      - osrm-north
+    environment:
+      OSRM_PBF_VAR: OSRM_PBF_URL_NORTH
+      OSRM_REGION_LABEL: osrm-north
+      OSRM_PBF_URL: ${OSRM_PBF_URL_NORTH:-}
+    volumes:
+      - osrm-data-north:/data
+
+  osrm-prep-north:
+    <<: *osrm-prep-common
+    container_name: floodrelay-osrm-prep-north
+    profiles:
+      - osrm-north
+    depends_on:
+      osrm-download-north:
+        condition: service_completed_successfully
+    volumes:
+      - osrm-data-north:/data
+
+  osrm-north:
+    <<: *osrm-server-common
+    container_name: floodrelay-osrm-north
+    profiles:
+      - osrm-north
+    depends_on:
+      osrm-prep-north:
+        condition: service_completed_successfully
+    ports:
+      - '${OSRM_PORT_NORTH:-5001}:5000'
+    volumes:
+      - osrm-data-north:/data
+
+  osrm-download-south:
+    <<: *osrm-download-common
+    container_name: floodrelay-osrm-download-south
+    profiles:
+      - osrm-south
+    environment:
+      OSRM_PBF_VAR: OSRM_PBF_URL_SOUTH
+      OSRM_REGION_LABEL: osrm-south
+      OSRM_PBF_URL: ${OSRM_PBF_URL_SOUTH:-}
+    volumes:
+      - osrm-data-south:/data
+
+  osrm-prep-south:
+    <<: *osrm-prep-common
+    container_name: floodrelay-osrm-prep-south
+    profiles:
+      - osrm-south
+    depends_on:
+      osrm-download-south:
+        condition: service_completed_successfully
+    volumes:
+      - osrm-data-south:/data
+
+  osrm-south:
+    <<: *osrm-server-common
+    container_name: floodrelay-osrm-south
+    profiles:
+      - osrm-south
+    depends_on:
+      osrm-prep-south:
+        condition: service_completed_successfully
+    ports:
+      - '${OSRM_PORT_SOUTH:-5002}:5000'
+    volumes:
+      - osrm-data-south:/data
+
+  osrm-download-central:
+    <<: *osrm-download-common
+    container_name: floodrelay-osrm-download-central
+    profiles:
+      - osrm-central
+    environment:
+      OSRM_PBF_VAR: OSRM_PBF_URL_CENTRAL
+      OSRM_REGION_LABEL: osrm-central
+      OSRM_PBF_URL: ${OSRM_PBF_URL_CENTRAL:-}
+    volumes:
+      - osrm-data-central:/data
+
+  osrm-prep-central:
+    <<: *osrm-prep-common
+    container_name: floodrelay-osrm-prep-central
+    profiles:
+      - osrm-central
+    depends_on:
+      osrm-download-central:
+        condition: service_completed_successfully
+    volumes:
+      - osrm-data-central:/data
+
+  osrm-central:
+    <<: *osrm-server-common
+    container_name: floodrelay-osrm-central
+    profiles:
+      - osrm-central
+    depends_on:
+      osrm-prep-central:
+        condition: service_completed_successfully
+    ports:
+      - '${OSRM_PORT_CENTRAL:-5003}:5000'
+    volumes:
+      - osrm-data-central:/data
+
+  osrm-download-east:
+    <<: *osrm-download-common
+    container_name: floodrelay-osrm-download-east
+    profiles:
+      - osrm-east
+    environment:
+      OSRM_PBF_VAR: OSRM_PBF_URL_EAST
+      OSRM_REGION_LABEL: osrm-east
+      OSRM_PBF_URL: ${OSRM_PBF_URL_EAST:-}
+    volumes:
+      - osrm-data-east:/data
+
+  osrm-prep-east:
+    <<: *osrm-prep-common
+    container_name: floodrelay-osrm-prep-east
+    profiles:
+      - osrm-east
+    depends_on:
+      osrm-download-east:
+        condition: service_completed_successfully
+    volumes:
+      - osrm-data-east:/data
+
+  osrm-east:
+    <<: *osrm-server-common
+    container_name: floodrelay-osrm-east
+    profiles:
+      - osrm-east
+    depends_on:
+      osrm-prep-east:
+        condition: service_completed_successfully
+    ports:
+      - '${OSRM_PORT_EAST:-5004}:5000'
+    volumes:
+      - osrm-data-east:/data
+
+  osrm-download-west:
+    <<: *osrm-download-common
+    container_name: floodrelay-osrm-download-west
+    profiles:
+      - osrm-west
+    environment:
+      OSRM_PBF_VAR: OSRM_PBF_URL_WEST
+      OSRM_REGION_LABEL: osrm-west
+      OSRM_PBF_URL: ${OSRM_PBF_URL_WEST:-}
+    volumes:
+      - osrm-data-west:/data
+
+  osrm-prep-west:
+    <<: *osrm-prep-common
+    container_name: floodrelay-osrm-prep-west
+    profiles:
+      - osrm-west
+    depends_on:
+      osrm-download-west:
+        condition: service_completed_successfully
+    volumes:
+      - osrm-data-west:/data
+
+  osrm-west:
+    <<: *osrm-server-common
+    container_name: floodrelay-osrm-west
+    profiles:
+      - osrm-west
+    depends_on:
+      osrm-prep-west:
+        condition: service_completed_successfully
+    ports:
+      - '${OSRM_PORT_WEST:-5005}:5000'
+    volumes:
+      - osrm-data-west:/data
+
+  osrm-download-northeast:
+    <<: *osrm-download-common
+    container_name: floodrelay-osrm-download-northeast
+    profiles:
+      - osrm-northeast
+    environment:
+      OSRM_PBF_VAR: OSRM_PBF_URL_NORTHEAST
+      OSRM_REGION_LABEL: osrm-northeast
+      OSRM_PBF_URL: ${OSRM_PBF_URL_NORTHEAST:-}
+    volumes:
+      - osrm-data-northeast:/data
+
+  osrm-prep-northeast:
+    <<: *osrm-prep-common
+    container_name: floodrelay-osrm-prep-northeast
+    profiles:
+      - osrm-northeast
+    depends_on:
+      osrm-download-northeast:
+        condition: service_completed_successfully
+    volumes:
+      - osrm-data-northeast:/data
+
+  osrm-northeast:
+    <<: *osrm-server-common
+    container_name: floodrelay-osrm-northeast
+    profiles:
+      - osrm-northeast
+    depends_on:
+      osrm-prep-northeast:
+        condition: service_completed_successfully
+    ports:
+      - '${OSRM_PORT_NORTHEAST:-5006}:5000'
+    volumes:
+      - osrm-data-northeast:/data
+
 volumes:
   pgdata:
     name: floodrelay-pgdata
   osrm-data:
     name: floodrelay-osrm-data
+  osrm-data-north:
+    name: floodrelay-osrm-data-north
+  osrm-data-south:
+    name: floodrelay-osrm-data-south
+  osrm-data-central:
+    name: floodrelay-osrm-data-central
+  osrm-data-east:
+    name: floodrelay-osrm-data-east
+  osrm-data-west:
+    name: floodrelay-osrm-data-west
+  osrm-data-northeast:
+    name: floodrelay-osrm-data-northeast

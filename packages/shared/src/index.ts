@@ -116,12 +116,36 @@ export interface RouteStop {
   isFrozen?: boolean;
 }
 
+export type RouteGeometrySource = 'OSRM' | 'STRAIGHT_LINE' | 'MIXED';
+
+export interface RouteLegGeometry {
+  fromStopNumber: number;
+  toStopNumber: number;
+  distanceKm: number;
+  durationMinutes: number;
+  source: 'OSRM' | 'STRAIGHT_LINE';
+  /** Ordered path vertices for this leg as [lat, lng] decimal degree pairs. */
+  coordinates: [number, number][];
+}
+
+export interface RouteGeometry {
+  /** Ordered polyline coordinates covering all legs as [lat, lng] decimal degree pairs. */
+  coordinates: [number, number][];
+  /** Sum of leg distances in kilometers. */
+  distanceKm: number;
+  /** Sum of leg durations in minutes. */
+  durationMinutes: number;
+  source: RouteGeometrySource;
+  legs?: RouteLegGeometry[];
+}
+
 export interface ResourceRoute {
   resourceId: string;
   stops: RouteStop[];
   totalTravelDistanceKm: number;
   totalDurationMinutes: number;
   servedRequestIds: string[];
+  geometry?: RouteGeometry;
 }
 
 export type UnservedReason =

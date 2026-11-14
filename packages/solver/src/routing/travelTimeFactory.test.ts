@@ -1,6 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Scenario, BlockedZone } from '@floodrelay/shared';
-import { osrmConfigFromEnv, prepareTravelTimeProvider } from './travelTimeFactory.js';
+import {
+  osrmConfigFromEnv,
+  parseCoverageBbox,
+  parseOsrmRegions,
+  prepareTravelTimeProvider,
+} from './travelTimeFactory.js';
 import { StraightLineTravelTimeProvider } from './travelTime.js';
 import { HazardAwareTravelTimeProvider } from './hazardAwareTravelTime.js';
 
@@ -52,6 +57,109 @@ describe('travelTimeFactory', () => {
       expect(config?.maxTableCoordinates).toBeUndefined();
       expect(warnSpy).toHaveBeenCalledTimes(2);
 
+      warnSpy.mockRestore();
+    });
+
+    it('parses optional OSRM_COVERAGE_BBOX with single-region OSRM_BASE_URL and ignores invalid bboxes', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const valid = osrmConfigFromEnv({
+        OSRM_BASE_URL: 'http://127.0.0.1:5000',
+        OSRM_COVERAGE_BBOX: ' 28.44 , 76.98 , 28.74 , 77.50 ',
+      });
+      expect(valid?.coverageBbox).toEqual({
+        minLat: 28.44,
+        minLng: 76.98,
+        maxLat: 28.74,
+        maxLng: 77.5,
+      });
+
+      const invalidBboxes = [
+        '28.44,76.98,28.74', // wrong count
+        '28.44,abc,28.74,77.50', // non-numeric
+        '28.74,76.98,28.44,77.50', // minLat > maxLat
+        '28.44,76.98,28.44,77.50', // minLat === maxLat
+        '-91,76.98,28.74,77.50', // out of range
+        '28.44,76.98,28.74,181', // out of range
+      ];
+      for (const bad of invalidBboxes) {
+        const cfg = osrmConfigFromEnv({
+          OSRM_BASE_URL: 'http://127.0.0.1:5000',
+          OSRM_COVERAGE_BBOX: bad,
+        });
+        expect(cfg?.coverageBbox).toBeUndefined();
+      }
+
+      expect(parseCoverageBbox('   ')).toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledTimes(invalidBboxes.length);
+      warnSpy.mockRestore();
+    });
+
+    it('parses valid OSRM_REGIONS JSON array without requiring OSRM_BASE_URL', () => {
+      const config = osrmConfigFromEnv({
+        OSRM_REGIONS: JSON.stringify([
+          {
+            id: 'north',
+            baseUrl: 'http://127.0.0.1:5001/',
+            bbox: '28.44,76.98,28.74,77.50',
+          },
+          {
+            id: 'south',
+            baseUrl: 'http://127.0.0.1:5002',
+            bbox: '12.80,77.40,13.20,77.80',
+            profile: 'car',
+          },
+        ]),
+      });
+
+      expect(config?.regions).toEqual([
+        {
+          id: 'north',
+          baseUrl: 'http://127.0.0.1:5001',
+          bbox: { minLat: 28.44, minLng: 76.98, maxLat: 28.74, maxLng: 77.5 },
+          profile: 'driving',
+        },
+        {
+          id: 'south',
+          baseUrl: 'http://127.0.0.1:5002',
+          bbox: { minLat: 12.8, minLng: 77.4, maxLat: 13.2, maxLng: 77.8 },
+          profile: 'car',
+        },
+      ]);
+    });
+
+    it('rejects duplicate ids and skips invalid entries in OSRM_REGIONS safely with warnings', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      expect(osrmConfigFromEnv({ OSRM_REGIONS: 'not-valid-json' })).toBeNull();
+      expect(osrmConfigFromEnv({ OSRM_REGIONS: '{"id":"not-array"}' })).toBeNull();
+
+      const parsed = parseOsrmRegions(
+        JSON.stringify([
+          'not-an-object',
+          { id: '', baseUrl: 'http://127.0.0.1:5001', bbox: '28.44,76.98,28.74,77.50' },
+          { id: 'bad-url', baseUrl: 'ftp://invalid:5001', bbox: '28.44,76.98,28.74,77.50' },
+          { id: 'bad-bbox', baseUrl: 'http://127.0.0.1:5001', bbox: '28.74,76.98,28.44,77.50' },
+          {
+            id: 'bad-profile',
+            baseUrl: 'http://127.0.0.1:5001',
+            bbox: '28.44,76.98,28.74,77.50',
+            profile: '',
+          },
+          { id: 'north', baseUrl: 'http://127.0.0.1:5001', bbox: '28.44,76.98,28.74,77.50' },
+          { id: 'north', baseUrl: 'http://127.0.0.1:5009', bbox: '12.80,77.40,13.20,77.80' }, // duplicate id
+        ]),
+      );
+
+      expect(parsed).toEqual([
+        {
+          id: 'north',
+          baseUrl: 'http://127.0.0.1:5001',
+          bbox: { minLat: 28.44, minLng: 76.98, maxLat: 28.74, maxLng: 77.5 },
+          profile: 'driving',
+        },
+      ]);
+      expect(warnSpy).toHaveBeenCalled();
       warnSpy.mockRestore();
     });
   });
@@ -125,6 +233,8 @@ describe('travelTimeFactory', () => {
       expect(rep.effectiveSource).toBe('STRAIGHT_LINE');
       expect(rep.roadCoveragePercent).toBeNull();
       expect(rep.osrmRequests).toBe(0);
+      expect(rep.lookupsOutsideCoverage).toBe(0);
+      expect(rep.regions).toEqual([]);
       expect(rep.hazardZoneCount).toBe(0);
       expect(rep.warnings).toHaveLength(0);
     });
@@ -144,6 +254,10 @@ describe('travelTimeFactory', () => {
       const rep = report();
       expect(rep.osrmConfigured).toBe(true);
       expect(rep.effectiveSource).toBe('STRAIGHT_LINE');
+      expect(rep.lookupsOutsideCoverage).toBe(0);
+      expect(rep.regions).toEqual([
+        { id: 'default', requests: 0, failedRequests: 0, lookupsOsrm: 0 },
+      ]);
       expect(rep.roadCoveragePercent).toBe(0);
       expect(rep.warnings.some((w) => w.includes('exceed OSRM limit'))).toBe(true);
 
@@ -272,6 +386,10 @@ describe('travelTimeFactory', () => {
       expect(rep.lookupsOsrm).toBe(0);
       expect(rep.lookupsStraightLinePolicy).toBe(2);
       expect(rep.lookupsFallback).toBe(0);
+      expect(rep.lookupsOutsideCoverage).toBe(0);
+      expect(rep.regions).toEqual([
+        { id: 'default', requests: 0, failedRequests: 0, lookupsOsrm: 0 },
+      ]);
       expect(rep.roadCoveragePercent).toBeNull();
       expect(rep.effectiveSource).toBe('STRAIGHT_LINE');
     });
@@ -413,6 +531,9 @@ describe('travelTimeFactory', () => {
       expect(repRoad.lookupsOsrm).toBe(1);
       expect(repRoad.lookupsStraightLinePolicy).toBe(0);
       expect(repRoad.lookupsFallback).toBe(0);
+      expect(repRoad.lookupsOutsideCoverage).toBe(0);
+      expect(repRoad.regions).toHaveLength(1);
+      expect(repRoad.regions[0]!.lookupsOsrm).toBe(1);
       expect(repRoad.roadCoveragePercent).toBe(100);
 
       // 2. Mixed case
@@ -472,7 +593,105 @@ describe('travelTimeFactory', () => {
       expect(repMixed.lookupsOsrm).toBe(1);
       expect(repMixed.lookupsStraightLinePolicy).toBe(1);
       expect(repMixed.lookupsFallback).toBe(0);
+      expect(repMixed.lookupsOutsideCoverage).toBe(0);
+      expect(repMixed.regions).toHaveLength(1);
       expect(repMixed.roadCoveragePercent).toBe(100);
+    });
+
+    it('(e) makes zero OSRM requests when all scenario points lie outside configured regions', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const mockFetch = vi.fn();
+
+      const outsideScenario: Scenario = {
+        ...baseScenario,
+        requests: [{ ...baseScenario.requests[0]!, lat: 19.07, lng: 72.87 }],
+        resources: [{ ...baseScenario.resources[0]!, lat: 19.05, lng: 72.85 }],
+        shelters: [{ ...baseScenario.shelters[0]!, lat: 19.1, lng: 72.9 }],
+      };
+
+      const { provider, report } = await prepareTravelTimeProvider(outsideScenario, {
+        osrm: {
+          fetchImpl: mockFetch as unknown as typeof fetch,
+          regions: [
+            {
+              id: 'north',
+              baseUrl: 'http://127.0.0.1:5001',
+              bbox: { minLat: 28.44, minLng: 76.98, maxLat: 28.74, maxLng: 77.5 },
+            },
+            {
+              id: 'south',
+              baseUrl: 'http://127.0.0.1:5002',
+              bbox: { minLat: 12.8, minLng: 77.4, maxLat: 13.2, maxLng: 77.8 },
+            },
+          ],
+        },
+      });
+
+      expect(mockFetch).not.toHaveBeenCalled();
+      const est = provider.getTravelEstimate(
+        outsideScenario.resources[0]!,
+        outsideScenario.requests[0]!,
+        40,
+        false,
+        'HIGH_WATER_VEHICLE',
+      );
+      expect(est.source).toBe('STRAIGHT_LINE');
+
+      const rep = report();
+      expect(rep.osrmConfigured).toBe(true);
+      expect(rep.osrmRequests).toBe(0);
+      expect(rep.lookupsOsrm).toBe(0);
+      expect(rep.lookupsOutsideCoverage).toBe(1);
+      expect(rep.roadCoveragePercent).toBe(0);
+      expect(rep.effectiveSource).toBe('STRAIGHT_LINE');
+      expect(rep.regions).toEqual([
+        { id: 'north', requests: 0, failedRequests: 0, lookupsOsrm: 0 },
+        { id: 'south', requests: 0, failedRequests: 0, lookupsOsrm: 0 },
+      ]);
+      expect(rep.warnings).toContain(
+        '3 of 3 scenario points are outside every configured OSRM region; straight-line estimates used',
+      );
+      warnSpy.mockRestore();
+    });
+
+    it('(f) enforces per-scenario pointLimit across multiple regions combined', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const mockFetch = vi.fn();
+
+      const multiRegionScenario: Scenario = {
+        ...baseScenario,
+        requests: [
+          { ...baseScenario.requests[0]!, id: 'r-north', lat: 28.6, lng: 77.2 },
+          { ...baseScenario.requests[1]!, id: 'r-south', lat: 12.95, lng: 77.55 },
+        ],
+        resources: [{ ...baseScenario.resources[0]!, id: 'v-north', lat: 28.55, lng: 77.15 }],
+        shelters: [{ ...baseScenario.shelters[0]!, id: 's-south', lat: 13.0, lng: 77.6 }],
+      };
+
+      // 4 unique points across the two regions combined, limit = 3 -> skips all OSRM prefetch
+      const { report } = await prepareTravelTimeProvider(multiRegionScenario, {
+        pointLimit: 3,
+        osrm: {
+          fetchImpl: mockFetch as unknown as typeof fetch,
+          regions: [
+            {
+              id: 'north',
+              baseUrl: 'http://127.0.0.1:5001',
+              bbox: { minLat: 28.44, minLng: 76.98, maxLat: 28.74, maxLng: 77.5 },
+            },
+            {
+              id: 'south',
+              baseUrl: 'http://127.0.0.1:5002',
+              bbox: { minLat: 12.8, minLng: 77.4, maxLat: 13.2, maxLng: 77.8 },
+            },
+          ],
+        },
+      });
+
+      expect(mockFetch).not.toHaveBeenCalled();
+      const rep = report();
+      expect(rep.warnings.some((w) => w.includes('exceed OSRM limit'))).toBe(true);
+      warnSpy.mockRestore();
     });
   });
 });

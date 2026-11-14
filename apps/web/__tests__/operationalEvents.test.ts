@@ -1,4 +1,6 @@
+import React from 'react';
 import { describe, it, expect } from 'vitest';
+import { renderToString } from 'react-dom/server';
 import type {
   OperationalEvent,
   AffectedScopeResult,
@@ -7,6 +9,7 @@ import type {
 } from '../lib/api/types';
 import { hasPermission } from '../lib/auth/permissions';
 import { ApiClientError } from '../lib/api/errors';
+import { AffectedScopePanel } from '../components/operator/AffectedScopePanel';
 
 describe('Phase 5 Part 3 — Operational Events & Live Decision Support Invariants', () => {
   const sampleEvents: OperationalEvent[] = [
@@ -199,6 +202,106 @@ describe('Phase 5 Part 3 — Operational Events & Live Decision Support Invarian
       expect(hasPermission(adminUser, 'MANAGE_RESOURCE_STATUS')).toBe(true);
       expect(hasPermission(adminUser, 'MANAGE_BLOCKED_ZONES')).toBe(true);
       expect(hasPermission(adminUser, 'MANAGE_OPERATORS')).toBe(true);
+    });
+  });
+
+  describe('5. AffectedScopePanel Component Invariants (Item 3)', () => {
+    it('(a) renders counts "1", "0", "0", "1" and lists the ids for a populated scope', () => {
+      const scopeWithItems: AffectedScopeResult = {
+        eventId: 'evt-001',
+        affectedRequestIds: ['req-alpha'],
+        affectedResourceIds: [],
+        affectedProposedAssignmentIds: [],
+        committedAssignmentsRequiringReview: ['comm-mission-99'],
+        repairEligible: true,
+        reason: 'Vehicle offline impacts active route',
+      };
+
+      const html = renderToString(
+        React.createElement(AffectedScopePanel, {
+          scope: scopeWithItems,
+          canRequestRepair: true,
+        }),
+      );
+
+      // Verify counts are rendered in markup
+      expect(html).toContain('Affected Requests');
+      expect(html).toContain('1');
+      expect(html).toContain('Affected Resources');
+      expect(html).toContain('0');
+      expect(html).toContain('Proposed Plans Needing Attention');
+      expect(html).toContain('Committed Missions Requiring Review');
+
+      // Verify IDs are listed
+      expect(html).toContain('req-alpha');
+      expect(html).toContain('comm-mission-99');
+    });
+
+    it('(b) all-empty arrays render zeros and no id lists without throwing', () => {
+      const emptyScope: AffectedScopeResult = {
+        eventId: 'evt-002',
+        affectedRequestIds: [],
+        affectedResourceIds: [],
+        affectedProposedAssignmentIds: [],
+        committedAssignmentsRequiringReview: [],
+        repairEligible: false,
+        reason: 'Zero affected entities',
+      };
+
+      let html = '';
+      expect(() => {
+        html = renderToString(
+          React.createElement(AffectedScopePanel, {
+            scope: emptyScope,
+          }),
+        );
+      }).not.toThrow();
+
+      expect(html).toContain('Affected Requests');
+      expect(html).toContain('0');
+      // No id list tags should be rendered when length is 0
+      expect(html).not.toContain('req-');
+      expect(html).not.toContain('res-');
+      expect(html).not.toContain('comm-');
+      expect(html).not.toContain('Committed Rescue Missions Impacted');
+    });
+
+    it('(c) the repair button state follows repairEligible', () => {
+      const eligibleScope: AffectedScopeResult = {
+        eventId: 'evt-003',
+        affectedRequestIds: ['req-101'],
+        affectedResourceIds: [],
+        affectedProposedAssignmentIds: [],
+        committedAssignmentsRequiringReview: [],
+        repairEligible: true,
+        reason: 'Eligible for plan repair',
+      };
+
+      const htmlEligible = renderToString(
+        React.createElement(AffectedScopePanel, {
+          scope: eligibleScope,
+          canRequestRepair: true,
+        }),
+      );
+
+      // When repairEligible is true, button is enabled (not disabled)
+      expect(htmlEligible).toContain('Request Incremental Repair');
+      expect(htmlEligible).not.toMatch(/disabled=""[^>]*>[\s\S]*?Request Incremental Repair/);
+
+      const ineligibleScope: AffectedScopeResult = {
+        ...eligibleScope,
+        repairEligible: false,
+      };
+
+      const htmlIneligible = renderToString(
+        React.createElement(AffectedScopePanel, {
+          scope: ineligibleScope,
+          canRequestRepair: true,
+        }),
+      );
+
+      // When repairEligible is false, button is disabled
+      expect(htmlIneligible).toMatch(/disabled=""[^>]*>[\s\S]*?Request Incremental Repair/);
     });
   });
 });

@@ -92,6 +92,31 @@ export function requireOperatorAuth(authService: AuthService) {
       req.operator = operator;
       next();
     } catch (err) {
+      const errMsg = (err as Error)?.message || '';
+      const errCode = (err as { code?: string })?.code;
+      const isConnError =
+        errCode === 'ECONNREFUSED' ||
+        errCode === '57P01' ||
+        errCode === '57P02' ||
+        errCode === '57P03' ||
+        /connect ECONNREFUSED|connection refused|timeout/i.test(errMsg);
+
+      if (isConnError) {
+        console.error(
+          '[Auth Diagnostic] Database connection unavailable during session validation:',
+          err,
+        );
+        res.status(503).json({
+          error: {
+            code: 'DATABASE_UNAVAILABLE',
+            message:
+              'Authentication service is temporarily unavailable due to database connectivity issues.',
+            timestamp: new Date().toISOString(),
+          },
+        });
+        return;
+      }
+
       next(err);
     }
   };
