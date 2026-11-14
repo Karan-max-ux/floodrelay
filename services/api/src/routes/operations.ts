@@ -209,6 +209,17 @@ export function createOperationsRouter(
           return;
         }
 
+        if (existingResource.source === 'SIMULATED') {
+          res.status(409).json({
+            error: {
+              code: 'SIMULATED_RESOURCE_MUTATION_BLOCKED',
+              message: `Cannot modify operational status of simulated resource "${id}". Status updates are restricted to authentic operational resources.`,
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
         const newStatus = parsed.data.status;
         const operatorId = req.operator?.username ?? req.operator?.id ?? 'OPERATOR';
         const reason = parsed.data.reason ?? `Resource status changed to ${newStatus}`;
@@ -221,46 +232,93 @@ export function createOperationsRouter(
               ? 'RESOURCE_AVAILABLE'
               : null;
 
-        const result = await repo.withTransaction(async (txRepo) => {
-          const updatedResource = await txRepo.updateResourceStatus(id, newStatus);
-
-          let opEvent = null;
-          if (eventType) {
-            const eventResult = await eventService.recordEvent(
-              {
-                id: `evt-${crypto.randomUUID().slice(0, 8)}`,
-                type: eventType,
-                entityType: 'RESOURCE',
-                entityId: id,
-                actorId: operatorId,
-                actorType: 'OPERATOR',
-                payload: {
-                  resourceId: id,
-                  previousStatus: existingResource.status,
-                  newStatus,
-                  reason,
-                },
-              },
-              txRepo,
+        let result;
+        try {
+          result = await repo.withTransaction(async (txRepo, client) => {
+            // Lock row and enforce transactional provenance check to prevent TOCTOU races
+            const lockResult = await client.query<{ id: string; status: string; source: string }>(
+              'SELECT id, status, source FROM resources WHERE id = $1 FOR UPDATE;',
+              [id],
             );
-            opEvent = eventResult.event;
-          }
+            const lockedRow = lockResult.rows[0];
+            if (!lockedRow) {
+              const err = new Error(`Rescue resource with id "${id}" not found`);
+              (err as unknown as { code: string; statusCode: number }).code = 'NOT_FOUND';
+              (err as unknown as { code: string; statusCode: number }).statusCode = 404;
+              throw err;
+            }
 
-          await txRepo.insertAuditEvent({
-            entityType: 'RESOURCE',
-            entityId: id,
-            eventType: eventType ?? `RESOURCE_STATUS_${newStatus}`,
-            actor: operatorId,
-            payload: {
-              resourceId: id,
-              previousStatus: existingResource.status,
-              newStatus,
-              reason,
-            },
+            if (lockedRow.source === 'SIMULATED') {
+              const err = new Error(
+                `Cannot modify operational status of simulated resource "${id}". Status updates are restricted to authentic operational resources.`,
+              );
+              (err as unknown as { code: string; statusCode: number }).code =
+                'SIMULATED_RESOURCE_MUTATION_BLOCKED';
+              (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+              throw err;
+            }
+
+            const updatedResource = await txRepo.updateResourceStatus(id, newStatus);
+            if (!updatedResource) {
+              const err = new Error(`Failed to update status for resource "${id}"`);
+              (err as unknown as { code: string; statusCode: number }).code =
+                'SIMULATED_RESOURCE_MUTATION_BLOCKED';
+              (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+              throw err;
+            }
+
+            let opEvent = null;
+            if (eventType) {
+              const eventResult = await eventService.recordEvent(
+                {
+                  id: `evt-${crypto.randomUUID().slice(0, 8)}`,
+                  type: eventType,
+                  entityType: 'RESOURCE',
+                  entityId: id,
+                  actorId: operatorId,
+                  actorType: 'OPERATOR',
+                  payload: {
+                    resourceId: id,
+                    previousStatus: lockedRow.status,
+                    newStatus,
+                    reason,
+                  },
+                },
+                txRepo,
+              );
+              opEvent = eventResult.event;
+            }
+
+            await txRepo.insertAuditEvent({
+              entityType: 'RESOURCE',
+              entityId: id,
+              eventType: eventType ?? `RESOURCE_STATUS_${newStatus}`,
+              actor: operatorId,
+              payload: {
+                resourceId: id,
+                previousStatus: lockedRow.status,
+                newStatus,
+                reason,
+              },
+            });
+
+            return { updatedResource, opEvent };
           });
-
-          return { updatedResource, opEvent };
-        });
+        } catch (domainErr: unknown) {
+          const code = (domainErr as { code?: string }).code;
+          if (code) {
+            const statusCode = (domainErr as { statusCode?: number }).statusCode || 409;
+            res.status(statusCode).json({
+              error: {
+                code,
+                message: (domainErr as Error).message,
+                timestamp: new Date().toISOString(),
+              },
+            });
+            return;
+          }
+          throw domainErr;
+        }
 
         // Compute affected scope if an event was produced
         let affectedScope = null;

@@ -220,6 +220,7 @@ describe('Model Mappings Aligned with @floodrelay/shared', () => {
     expect(restored.lat).toBeCloseTo(resource.lat);
     expect(restored.lng).toBeCloseTo(resource.lng);
     expect(restored.depotId).toBe(resource.depotId);
+    expect(restored.source).toBe('REAL');
   });
 
   it('maps Shelter to DbShelter and back', () => {
@@ -251,6 +252,7 @@ describe('Model Mappings Aligned with @floodrelay/shared', () => {
     expect(restored.currentOccupancy).toBe(shelter.currentOccupancy);
     expect(restored.lat).toBeCloseTo(shelter.lat);
     expect(restored.lng).toBeCloseTo(shelter.lng);
+    expect(restored.source).toBe('REAL');
   });
 
   it('maps RouteStop to DbAssignmentStop with frozen stop preservation', () => {

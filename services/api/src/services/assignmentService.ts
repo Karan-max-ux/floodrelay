@@ -54,6 +54,107 @@ export interface AssignmentDetailResponse {
   createdAt: string;
   updatedAt: string;
   travelTime?: TravelTimeReport;
+  provenance?: ScenarioProvenance;
+  hasSimulatedResources?: boolean;
+  hasSimulatedRequests?: boolean;
+  hasSimulatedShelters?: boolean;
+  hasUnresolvedProvenance?: boolean;
+}
+
+export interface PlanProvenanceAnalysis {
+  provenance: ScenarioProvenance;
+  hasSimulatedResources: boolean;
+  hasSimulatedRequests: boolean;
+  hasSimulatedShelters: boolean;
+  hasUnresolvedProvenance: boolean;
+}
+
+export function analyzePlanProvenance(
+  routes: ResourceRoute[],
+  resourceMap: Map<string, { source?: 'SIMULATED' | 'REAL' }>,
+  requestMap: Map<string, { source?: string }>,
+  shelterMap: Map<string, { source?: 'SIMULATED' | 'REAL' }>,
+): PlanProvenanceAnalysis {
+  const assignedResourceIds = Array.from(new Set(routes.map((r) => r.resourceId)));
+  const allStops = routes.flatMap((r) => r.stops || []);
+  const pickupRequestIds = Array.from(
+    new Set(allStops.filter((s) => s.type === 'PICKUP' && s.targetId).map((s) => s.targetId!)),
+  );
+  const dropoffShelterIds = Array.from(
+    new Set(allStops.filter((s) => s.type === 'DROPOFF' && s.targetId).map((s) => s.targetId!)),
+  );
+
+  let realCount = 0;
+  let simulatedCount = 0;
+  let unresolvedCount = 0;
+  let hasSimulatedResources = false;
+  let hasSimulatedRequests = false;
+  let hasSimulatedShelters = false;
+
+  for (const resId of assignedResourceIds) {
+    const res = resourceMap.get(resId);
+    if (!res || !res.source) {
+      unresolvedCount++;
+    } else if (res.source === 'SIMULATED') {
+      simulatedCount++;
+      hasSimulatedResources = true;
+    } else if (res.source === 'REAL') {
+      realCount++;
+    } else {
+      unresolvedCount++;
+    }
+  }
+
+  for (const reqId of pickupRequestIds) {
+    const req = requestMap.get(reqId);
+    if (!req || !req.source) {
+      unresolvedCount++;
+    } else if (req.source === 'SIMULATED') {
+      simulatedCount++;
+      hasSimulatedRequests = true;
+    } else if (
+      req.source === 'REPORTED' ||
+      (req as unknown as { source?: string }).source === 'REAL'
+    ) {
+      realCount++;
+    } else {
+      unresolvedCount++;
+    }
+  }
+
+  for (const shId of dropoffShelterIds) {
+    const sh = shelterMap.get(shId);
+    if (!sh || !sh.source) {
+      unresolvedCount++;
+    } else if (sh.source === 'SIMULATED') {
+      simulatedCount++;
+      hasSimulatedShelters = true;
+    } else if (sh.source === 'REAL') {
+      realCount++;
+    } else {
+      unresolvedCount++;
+    }
+  }
+
+  const hasUnresolvedProvenance = unresolvedCount > 0;
+  let provenance: ScenarioProvenance;
+
+  if (simulatedCount > 0 && realCount === 0 && unresolvedCount === 0) {
+    provenance = 'SIMULATED';
+  } else if (simulatedCount > 0 || unresolvedCount > 0) {
+    provenance = 'MIXED';
+  } else {
+    // Pure real plan or empty plan with no participating entities
+    provenance = 'REAL';
+  }
+
+  return {
+    provenance,
+    hasSimulatedResources,
+    hasSimulatedRequests,
+    hasSimulatedShelters,
+    hasUnresolvedProvenance,
+  };
 }
 
 export interface AssignmentServiceOptions {
@@ -432,6 +533,12 @@ export class AssignmentService {
       },
     });
 
+    const resMap = new Map(availableResources.map((r) => [r.id, r]));
+    const reqMap = new Map(requests.map((r) => [r.id, r]));
+    const shelterMap = new Map(shelters.map((s) => [s.id, s]));
+
+    const planProvenance = analyzePlanProvenance(enrichedRoutes, resMap, reqMap, shelterMap);
+
     return {
       id: assignmentId,
       scenarioId: input.scenarioId,
@@ -444,6 +551,11 @@ export class AssignmentService {
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
       travelTime: travelTimeReport,
+      provenance: planProvenance.provenance,
+      hasSimulatedResources: planProvenance.hasSimulatedResources,
+      hasSimulatedRequests: planProvenance.hasSimulatedRequests,
+      hasSimulatedShelters: planProvenance.hasSimulatedShelters,
+      hasUnresolvedProvenance: planProvenance.hasUnresolvedProvenance,
     };
   }
 
@@ -548,6 +660,31 @@ export class AssignmentService {
       finalRoutes = routes.map((r) => byResource.get(r.resourceId) ?? r);
     }
 
+    let allRes: RescueResource[] = [];
+    let allReq: RescueRequest[] = [];
+    let allShelters: Shelter[] = [];
+    try {
+      allRes = await this.repository.listResources();
+    } catch {
+      // ignore
+    }
+    try {
+      allReq = await this.repository.listRequests();
+    } catch {
+      // ignore
+    }
+    try {
+      allShelters = await this.repository.listShelters({ activeOnly: false });
+    } catch {
+      // ignore
+    }
+
+    const resMap = new Map(allRes.map((r) => [r.id, r]));
+    const reqMap = new Map(allReq.map((r) => [r.id, r]));
+    const shelterMap = new Map(allShelters.map((s) => [s.id, s]));
+
+    const planProvenance = analyzePlanProvenance(finalRoutes, resMap, reqMap, shelterMap);
+
     return {
       id: record.assignment.id,
       scenarioId: record.assignment.scenario_id,
@@ -569,6 +706,11 @@ export class AssignmentService {
       routes: finalRoutes,
       createdAt: record.assignment.created_at.toISOString(),
       updatedAt: record.assignment.updated_at.toISOString(),
+      provenance: planProvenance.provenance,
+      hasSimulatedResources: planProvenance.hasSimulatedResources,
+      hasSimulatedRequests: planProvenance.hasSimulatedRequests,
+      hasSimulatedShelters: planProvenance.hasSimulatedShelters,
+      hasUnresolvedProvenance: planProvenance.hasUnresolvedProvenance,
       ...(savedTravelTime ? { travelTime: savedTravelTime } : {}),
     };
   }

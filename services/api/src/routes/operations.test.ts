@@ -584,6 +584,56 @@ describe('Phase 5 Part 1: Operations API Endpoints, RBAC & Audit', () => {
       expect(adminRes.body.data.resource.status).toBe('AVAILABLE');
     });
 
+    it('rejects status mutation on simulated resource with 409 SIMULATED_RESOURCE_MUTATION_BLOCKED', async () => {
+      const res = await request(app)
+        .patch('/operations/resources/res-sim-1/status')
+        .set('Authorization', `Bearer ${dispatcherToken}`)
+        .send({ status: 'AVAILABLE', reason: 'Attempt to activate test vehicle' });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('SIMULATED_RESOURCE_MUTATION_BLOCKED');
+      expect(res.body.error.message).toContain(
+        'Cannot modify operational status of simulated resource',
+      );
+    });
+
+    it('permits status mutation on authentic real resource with boat_ prefix', async () => {
+      mockQueryable.resources.set('boat_01', {
+        id: 'boat_01',
+        name: 'Boat 01 Real Rescue',
+        type: 'BOAT',
+        capacity: 8,
+        speed_km_h: 22,
+        location: 'POINT(77.21 28.61)',
+        status: 'AVAILABLE',
+        depot_id: null,
+        shift_max_duration_min: 480,
+        source: 'REAL',
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      const res = await request(app)
+        .patch('/operations/resources/boat_01/status')
+        .set('Authorization', `Bearer ${dispatcherToken}`)
+        .send({ status: 'OFFLINE', reason: 'Propeller maintenance' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.resource.status).toBe('OFFLINE');
+      expect(res.body.data.resource.id).toBe('boat_01');
+    });
+
+    it('rejects status mutation on non-existent resource with 404 NOT_FOUND', async () => {
+      const res = await request(app)
+        .patch('/operations/resources/non-existent-craft/status')
+        .set('Authorization', `Bearer ${dispatcherToken}`)
+        .send({ status: 'AVAILABLE', reason: 'Does not exist' });
+
+      expect(res.status).toBe(404);
+      expect(res.body.error.code).toBe('NOT_FOUND');
+    });
+
     it('allows DISPATCHER to create and reopen a road hazard zone with events', async () => {
       // 1. Create road blockage
       const createRes = await request(app)
