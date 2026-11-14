@@ -259,7 +259,7 @@ export default function CitizenRequestPage() {
       } else {
         const errorMsg = (err as Error)?.message || 'Network communication failure';
         setSubmitError(
-          `Unable to connect to civil defense emergency intake server: ${errorMsg}. Your information is preserved. Please tap Retry Submission.`,
+          `Unable to contact FloodRelay API: ${errorMsg}. Your information is preserved. Please tap Retry Submission.`,
         );
       }
     }
@@ -290,11 +290,11 @@ export default function CitizenRequestPage() {
             </span>
             <span className="font-semibold text-on-surface-variant">Intake Status:</span>
             <span className="text-on-surface">
-              Live Intake Protocol Active. High-priority dispatch connection ready.
+              FloodRelay request form available. Submission requires API connectivity.
             </span>
           </div>
           <span className="hidden md:inline font-mono text-[11px] font-bold text-primary uppercase bg-surface px-2 py-0.5 rounded border border-outline-variant">
-            Live Intake Node
+            Delhi NCR
           </span>
         </div>
       </aside>
@@ -312,14 +312,14 @@ export default function CitizenRequestPage() {
           </Link>
           <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-secondary-container text-on-secondary-fixed mb-3 ml-3 text-xs font-mono font-bold uppercase">
             <span className="material-symbols-outlined text-xs">verified_user</span>
-            <span>Civil Defense Dispatch Tier-1</span>
+            <span>FloodRelay • Delhi Region</span>
           </div>
           <h1 className="font-manrope text-2xl md:text-4xl font-bold text-on-surface tracking-tight mb-2">
             Request Flood Rescue Assistance
           </h1>
           <p className="text-sm md:text-base text-on-surface-variant max-w-2xl leading-relaxed">
-            Complete this form to alert active emergency dispatch teams. Enter your address or use
-            your device GPS to report your exact location.
+            Submit your rescue needs to FloodRelay for operator review. Enter an address or use your
+            device GPS to provide your location.
           </p>
         </div>
 
@@ -1249,7 +1249,9 @@ export default function CitizenRequestPage() {
           <div className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="text-xs text-on-surface-variant flex items-center gap-1.5">
               <span className="material-symbols-outlined text-primary text-[18px]">lock</span>
-              <span>All details transmitted via encrypted civil defense protocol</span>
+              <span>
+                Request details are submitted to FloodRelay. In immediate danger, call 112.
+              </span>
             </div>
 
             <button
@@ -1260,12 +1262,12 @@ export default function CitizenRequestPage() {
               {isSubmitting ? (
                 <>
                   <span className="w-5 h-5 border-2 border-on-primary border-t-transparent rounded-full animate-spin inline-block" />
-                  <span>Transmitting Dispatch Request...</span>
+                  <span>Submitting Rescue Request...</span>
                 </>
               ) : (
                 <>
                   <span className="material-symbols-outlined text-[20px]">send</span>
-                  <span>Transmit Emergency Dispatch Request</span>
+                  <span>Submit Rescue Request</span>
                 </>
               )}
             </button>

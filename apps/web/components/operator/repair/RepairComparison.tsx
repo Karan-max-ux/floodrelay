@@ -179,7 +179,7 @@ export default function RepairComparison({
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-sky-400 text-base">info</span>
             <span>
-              <strong>Deterministic Test Fixture Active:</strong> Synthetic Harris County Sector 4
+              <strong>Deterministic Test Fixture Active:</strong> Synthetic Delhi–Yamuna test
               scenario for UI validation. Real database commitment is strictly locked.
             </span>
           </div>

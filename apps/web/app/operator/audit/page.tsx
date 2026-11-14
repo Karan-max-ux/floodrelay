@@ -1,5 +1,6 @@
 'use client';
 
+import { formatRegionDate, formatRegionTime } from '@/lib/region';
 import React, { useState, useMemo } from 'react';
 import { useLiveAuditEvents } from '@/hooks/useLiveAuditEvents';
 import { useOperatorAuth } from '@/lib/auth/OperatorAuthContext';
@@ -266,9 +267,9 @@ export default function OperatorAuditPage() {
                     >
                       {/* Timestamp */}
                       <td className="py-3 px-4 text-on-surface-variant whitespace-nowrap text-[11px]">
-                        <div>{date.toLocaleDateString()}</div>
+                        <div>{formatRegionDate(date)}</div>
                         <div className="text-on-surface font-semibold">
-                          {date.toLocaleTimeString()}
+                          {formatRegionTime(date)}
                         </div>
                       </td>
 
@@ -373,12 +374,12 @@ export default function OperatorAuditPage() {
                   Timestamp
                 </span>
                 <span className="font-bold text-on-surface truncate block">
-                  {new Date(
+                  {formatRegionTime(
                     selectedAudit.timestamp ??
                       selectedAudit.createdAt ??
                       selectedAudit.created_at ??
                       Date.now(),
-                  ).toLocaleTimeString()}
+                  )}
                 </span>
               </div>
             </div>

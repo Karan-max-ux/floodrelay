@@ -26,7 +26,7 @@ export function CitizenHeader() {
                 FloodRelay
               </span>
               <span className="text-[10px] tracking-wider text-on-surface-variant uppercase mt-0.5 font-semibold">
-                Civic Relief Operations
+                Delhi Flood Response • Prototype
               </span>
             </div>
           </Link>
@@ -73,7 +73,7 @@ export function CitizenHeader() {
               <span className="material-symbols-outlined text-[16px]" data-icon="emergency">
                 emergency
               </span>
-              <span>Call 112 / 911</span>
+              <span>Call 112</span>
             </a>
           </div>
         </div>

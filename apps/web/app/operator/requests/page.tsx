@@ -1,5 +1,6 @@
 'use client';
 
+import { formatRegionDateTime, formatRegionTime } from '@/lib/region';
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -109,7 +110,7 @@ function OperatorRequestsContent() {
           </span>
           {lastRefreshed && (
             <span className="text-[11px] text-on-surface-variant font-mono hidden md:inline">
-              Synced {lastRefreshed.toLocaleTimeString()}
+              Synced {formatRegionTime(lastRefreshed)}
             </span>
           )}
           <button
@@ -462,7 +463,7 @@ function OperatorRequestsContent() {
                       </span>
                       <div className="p-2 rounded bg-surface font-mono text-on-surface text-[11px] border border-outline-variant/40">
                         {selectedRequest.createdAt
-                          ? new Date(selectedRequest.createdAt).toLocaleString()
+                          ? formatRegionDateTime(selectedRequest.createdAt)
                           : 'Unknown'}
                       </div>
                     </div>

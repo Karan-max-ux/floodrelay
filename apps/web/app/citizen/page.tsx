@@ -1,3 +1,4 @@
+import { REGION_CONFIG } from '@/lib/region';
 import React from 'react';
 import Link from 'next/link';
 
@@ -21,7 +22,7 @@ export default function CitizenHomePage() {
             <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded bg-surface-container text-primary border border-outline-variant mb-4">
               <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
               <span className="text-xs font-bold uppercase tracking-wider text-on-surface-variant font-mono">
-                Official Citizen Relief Portal
+                FloodRelay • Delhi Region
               </span>
             </div>
 
@@ -32,8 +33,8 @@ export default function CitizenHomePage() {
 
             {/* Reassuring Subhead */}
             <p className="text-base md:text-lg text-on-surface-variant mb-8 leading-relaxed max-w-2xl">
-              Connect directly with verified community rescue units and municipal flood response
-              coordinators. Submit your situation and exact coordinates securely.
+              Report your location and rescue needs to FloodRelay for operator review. This
+              prototype does not directly dispatch emergency services.
             </p>
 
             {/* Primary & Secondary Actions */}
@@ -102,17 +103,17 @@ export default function CitizenHomePage() {
             <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-surface-container-highest font-mono text-xs uppercase font-bold text-on-surface">
               Region Status
             </span>
-            <span className="font-semibold text-on-surface">Crest Watch Active:</span>
-            <span>Basin gauges monitored in real time across response sectors.</span>
+            <span className="font-semibold text-on-surface">Selected Region:</span>
+            <span>{REGION_CONFIG.floodplain} • No live water-level feed</span>
           </div>
           <div className="flex items-center gap-4 text-xs font-medium">
             <span className="flex items-center gap-1 text-primary">
               <span className="material-symbols-outlined text-[16px]" data-icon="check_circle">
                 check_circle
               </span>
-              Community Triage Active
+              Request form available
             </span>
-            <span className="text-on-surface-variant">Updated moments ago</span>
+            <span className="text-on-surface-variant">Check official flood advisories</span>
           </div>
         </div>
       </section>
@@ -127,8 +128,8 @@ export default function CitizenHomePage() {
             Three Steps from Intake to Safe Extraction
           </h2>
           <p className="text-sm md:text-base text-on-surface-variant mt-2">
-            Every request is triaged immediately by emergency coordinators and designated rescue
-            teams.
+            Submitted requests may be reviewed by authorised operators when the FloodRelay backend
+            is available.
           </p>
         </div>
 
@@ -232,7 +233,7 @@ export default function CitizenHomePage() {
               </h2>
             </div>
             <p className="text-xs md:text-sm text-on-surface-variant max-w-md">
-              Adhere strictly to civil protection procedures while emergency units navigate blocked
+              Follow instructions from official emergency services. Avoid flooded roads, drains and
               waterways.
             </p>
           </div>
@@ -422,20 +423,20 @@ export default function CitizenHomePage() {
             </div>
             <div>
               <h3 className="font-manrope text-lg font-bold text-on-surface">
-                Need Non-Emergency Information or Shelter Locations?
+                Need Emergency Assistance?
               </h3>
               <p className="text-sm text-on-surface-variant mt-1 max-w-xl">
-                Regional assistance centers operate 24/7 to provide information on evacuation
-                staging grounds and family reunification shelters.
+                For immediate danger, call 112. FloodRelay does not verify live shelter availability
+                or guarantee a physical rescue response.
               </p>
             </div>
           </div>
           <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
             <a
               className="px-5 py-2.5 rounded bg-surface-container text-on-surface font-semibold text-sm border border-outline-variant text-center hover:bg-surface-container-high transition-colors"
-              href="tel:311"
+              href="tel:112"
             >
-              Call 311 Support
+              Call 112 Emergency
             </a>
             <Link
               className="px-5 py-2.5 rounded bg-primary-container text-on-primary font-semibold text-sm text-center hover:bg-primary transition-colors"

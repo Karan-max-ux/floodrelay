@@ -1,5 +1,6 @@
 'use client';
 
+import { REGION_CONFIG, formatRegionDateTime } from '@/lib/region';
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import type { UrgencyLevel } from '@floodrelay/shared';
@@ -54,30 +55,15 @@ export default function CitizenConfirmationPage() {
     }
   };
 
-  const formatTimestamp = (isoString?: string): string => {
-    if (!isoString) return 'Just now';
-    try {
-      const date = new Date(isoString);
-      return date.toLocaleDateString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        timeZoneName: 'short',
-      });
-    } catch {
-      return isoString;
-    }
-  };
+  const formatTimestamp = (isoString?: string): string =>
+    isoString ? formatRegionDateTime(isoString) : 'Just now';
 
   if (isLoading) {
     return (
       <main className="flex-1 w-full max-w-5xl mx-auto px-4 md:px-8 py-16 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3 text-on-surface-variant">
           <span className="w-8 h-8 border-3 border-primary border-t-transparent rounded-full animate-spin" />
-          <span className="text-sm font-semibold">Loading official intake receipt...</span>
+          <span className="text-sm font-semibold">Loading your request receipt...</span>
         </div>
       </main>
     );
@@ -98,8 +84,8 @@ export default function CitizenConfirmationPage() {
             </h1>
             <p className="text-sm text-on-surface-variant max-w-lg mx-auto leading-relaxed">
               No recent emergency submission was detected in this browser session. If you or someone
-              near you requires flood evacuation or medical rescue, please submit an official
-              request immediately.
+              near you requires flood evacuation or medical rescue, please submit a request or call
+              112 for emergency assistance.
             </p>
           </div>
 
@@ -122,8 +108,8 @@ export default function CitizenConfirmationPage() {
 
           <div className="pt-6 border-t border-outline-variant text-xs text-on-surface-variant">
             <span>In immediate life-threatening situations, dial </span>
-            <a className="font-bold text-tertiary underline" href="tel:911">
-              911
+            <a className="font-bold text-tertiary underline" href="tel:112">
+              112
             </a>
             <span> or contact your local emergency management agency.</span>
           </div>
@@ -166,10 +152,10 @@ export default function CitizenConfirmationPage() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-4 py-2.5 mb-6 bg-surface-container-low border border-outline-variant rounded-lg text-xs text-on-surface-variant">
         <div className="flex items-center gap-2">
           <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-600" />
-          <span>Regional Emergency Dispatch Intake Hub • Live Session</span>
+          <span>{REGION_CONFIG.label} • FloodRelay Request Portal</span>
         </div>
         <span className="font-mono text-[11px] font-bold text-emerald-800 uppercase bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300">
-          Official Receipt Active
+          Request Receipt
         </span>
       </div>
 
@@ -194,13 +180,12 @@ export default function CitizenConfirmationPage() {
           <div className="bg-surface-container-low border-l-4 border-primary-container px-4 py-3 rounded text-left w-full mt-2">
             <p className="text-sm font-semibold text-on-surface">
               <span className="text-primary font-bold">Important Status Disclosure:</span> Your
-              incident ticket has been logged with the regional dispatch queue. Dispatch teams
-              review incoming requests based on verified water danger.
+              request has been recorded in FloodRelay for operator review. This does not mean a
+              rescue team has been dispatched.
             </p>
             <p className="text-xs text-on-surface-variant mt-1 leading-relaxed">
-              Rescue assets are prioritized dynamically according to rising water levels and citizen
-              vulnerability. We do not claim immediate crew deployment until sector triage is
-              cleared.
+              FloodRelay records decisions but does not deploy physical crews. For immediate danger,
+              call 112.
             </p>
           </div>
         </div>
@@ -361,10 +346,10 @@ export default function CitizenConfirmationPage() {
           </div>
 
           <div className="mt-6 pt-4 border-t border-outline-variant flex items-center justify-between text-xs text-on-surface-variant">
-            <span>Intake Channel: Civil Defense Web Protocol</span>
+            <span>Intake Channel: FloodRelay Web Portal</span>
             <span className="inline-flex items-center gap-1 text-primary font-bold">
               <span className="material-symbols-outlined text-sm">verified_user</span>
-              Dispatch Logged
+              Request Recorded
             </span>
           </div>
         </section>
@@ -387,8 +372,8 @@ export default function CitizenConfirmationPage() {
                 </span>
                 <h3 className="text-sm font-bold text-on-surface">Triage Review</h3>
                 <p className="text-xs text-on-surface-variant mt-1 leading-relaxed">
-                  The central dispatch team verifies incident reports, confirming coordinate
-                  accuracy and life-safety priorities across all sectors.
+                  An authorised operator may review the request details and assess its priority.
+                  This is not a promise of emergency dispatch.
                 </p>
               </li>
 
@@ -399,8 +384,8 @@ export default function CitizenConfirmationPage() {
                 </span>
                 <h3 className="text-sm font-bold text-on-surface">Route Inclusion</h3>
                 <p className="text-xs text-on-surface-variant mt-1 leading-relaxed">
-                  Your ticket is sequenced into the nearest operational craft routing cluster
-                  (Zodiac boat, high-water vehicle, or air asset).
+                  If an operator approves an assignment, your request may be included in a proposed
+                  rescue route.
                 </p>
               </li>
 
@@ -411,8 +396,8 @@ export default function CitizenConfirmationPage() {
                 </span>
                 <h3 className="text-sm font-bold text-on-surface">Extraction &amp; Transport</h3>
                 <p className="text-xs text-on-surface-variant mt-1 leading-relaxed">
-                  Assigned rescue crews approach your location and transport passengers to
-                  designated safe relief shelters.
+                  A committed plan records a decision in FloodRelay. Physical rescue requires
+                  coordination with actual emergency responders.
                 </p>
               </li>
             </ol>
