@@ -189,14 +189,14 @@ Incoming rescue requests
 
 ### Phase 6 — Hardening and documentation
 
-| Task                                        | Owner | Status | Details                                                                                                                                                                        |
-| ------------------------------------------- | ----- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Redis queue only if measurements justify it | —     | ⬜     | Measurements show baseline p95 of 82.58ms and 69.56 req/s on PostgreSQL outbox; Redis not required (ADR-27 preserved)                                                          |
-| Optional flood-forecast context layer       | —     | ⬜     | Excluded from core safety scope per project boundaries                                                                                                                         |
-| Load tests                                  | —     | ✅     | Grafana k6 test suite in `tests/load/` with 4 profiles (`smoke`, `baseline`, `stress`, `scalability`); verified with 0 errors, 0 frozen-stop violations, p95 82.58ms at 30 VUs |
-| CI                                          | —     | ✅     | Hardened `.github/workflows/ci.yml` with security audits, secrets checks, multi-workspace production builds, and automated k6 smoke check                                      |
-| Limitations page                            | —     | ✅     | Public `/limitations` route disclosure, responsive & WCAG AAA accessible, integrated into Citizen footer and Operator navigation with 14 unit tests                            |
-| Demo script                                 | —     | ⬜     | —                                                                                                                                                                              |
+| Task                                        | Owner | Status | Details                                                                                                                                                                         |
+| ------------------------------------------- | ----- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Redis queue only if measurements justify it | —     | ✅     | Evaluated via empirical benchmarks (< 2.7 ms repair, < 21 ms event loop lag); deferred in favor of PostgreSQL ACID outbox (ADR-42)                                              |
+| Optional flood-forecast context layer       | —     | ✅     | Implemented ECMWF Copernicus GloFAS 4.0 gridded river discharge context via Open-Meteo for Delhi Yamuna corridor; informational context only; zero autonomous dispatch (ADR-41) |
+| Load tests                                  | —     | ✅     | Grafana k6 test suite in `tests/load/` with 4 profiles (`smoke`, `baseline`, `stress`, `scalability`); verified with 0 errors, 0 frozen-stop violations, p95 82.58ms at 30 VUs  |
+| CI                                          | —     | ✅     | Hardened `.github/workflows/ci.yml` with security audits, secrets checks, multi-workspace production builds, and automated k6 smoke check                                       |
+| Limitations page                            | —     | ✅     | Public `/limitations` route disclosure, responsive & WCAG AAA accessible, integrated into Citizen footer and Operator navigation with 14 unit tests                             |
+| Demo script                                 | —     | ✅     | Reproducible demonstration system (`tools/demo/`), automated walkthrough, durable manifest tracking, and real PostGIS/solver integration suite (ADR-40)                         |
 
 ---
 

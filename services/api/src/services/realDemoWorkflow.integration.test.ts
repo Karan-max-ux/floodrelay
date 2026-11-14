@@ -124,41 +124,63 @@ describe.runIf(shouldRun)(
         [boat2],
       );
 
-      // 4. Intake distress requests via API (idempotent, verified)
-      const reqId1 = registry.generateId('req_yamuna_1');
-      registry.requestIds.add(reqId1);
-      await pool.query(
-        `INSERT INTO requests (id, location, people_count, urgency, status, verification_status, source)
-         VALUES ($1, ST_SetSRID(ST_MakePoint(77.235, 28.665), 4326), 3, 'CRITICAL', 'PENDING', 'VERIFIED', 'SIMULATED');`,
-        [reqId1],
-      );
+      // 4. Intake distress requests via HTTP API (genuine citizen intake coverage)
+      const intakeRes1 = await request(app).post('/requests').send({
+        lat: 28.665,
+        lng: 77.235,
+        peopleCount: 3,
+        urgency: 'CRITICAL',
+        source: 'SIMULATED',
+        verificationStatus: 'VERIFIED',
+        notes: 'Citizen distress request 1',
+      });
+      if (intakeRes1.body?.data?.id) {
+        registry.requestIds.add(intakeRes1.body.data.id);
+      }
+      expect(intakeRes1.status).toBe(201);
+      expect(intakeRes1.body.success).toBe(true);
 
-      const reqId2 = registry.generateId('req_yamuna_2');
-      registry.requestIds.add(reqId2);
-      await pool.query(
-        `INSERT INTO requests (id, location, people_count, urgency, status, verification_status, source)
-         VALUES ($1, ST_SetSRID(ST_MakePoint(77.238, 28.662), 4326), 4, 'HIGH', 'PENDING', 'VERIFIED', 'SIMULATED');`,
-        [reqId2],
-      );
+      const intakeRes2 = await request(app).post('/requests').send({
+        lat: 28.662,
+        lng: 77.238,
+        peopleCount: 4,
+        urgency: 'HIGH',
+        source: 'SIMULATED',
+        verificationStatus: 'VERIFIED',
+        notes: 'Citizen distress request 2',
+      });
+      if (intakeRes2.body?.data?.id) {
+        registry.requestIds.add(intakeRes2.body.data.id);
+      }
+      expect(intakeRes2.status).toBe(201);
+      expect(intakeRes2.body.success).toBe(true);
 
-      // 5. Propose baseline rescue assignment (algorithm: nearest-first)
+      // 5. Propose baseline rescue assignment (POST /assignments/propose returns 201 with data.id)
       const proposeRes = await request(app)
         .post('/assignments/propose')
         .set('Authorization', `Bearer ${dispatcherToken}`)
         .send({ algorithm: 'nearest-first' });
 
-      expect(proposeRes.status).toBe(200);
-      expect(proposeRes.body.success).toBe(true);
-      const baselineAssignmentId = proposeRes.body.data.assignment.id;
-      registry.assignmentIds.add(baselineAssignmentId);
+      const baselineAssignmentId = proposeRes.body?.data?.id;
+      if (baselineAssignmentId) {
+        registry.trackAssignment(baselineAssignmentId);
+      }
 
-      // 6. Operator commits baseline assignment -> stops become FROZEN
+      expect(proposeRes.status).toBe(201);
+      expect(proposeRes.body.success).toBe(true);
+      expect(baselineAssignmentId).toBeDefined();
+
+      // 6. Operator commits baseline assignment with operatorId (stops become FROZEN)
       const commitRes = await request(app)
         .post(`/assignments/${baselineAssignmentId}/commit`)
         .set('Authorization', `Bearer ${dispatcherToken}`)
-        .send({ notes: 'Committed by real demo test runner' });
+        .send({
+          operatorId: username,
+          notes: 'Authoritative baseline commitment by real demo test runner',
+        });
 
       expect(commitRes.status).toBe(200);
+      expect(commitRes.body.success).toBe(true);
 
       // Inspect committed baseline stops in PostgreSQL
       const baselineStops = await fetchAssignmentStopsWithCoordinates(pool, baselineAssignmentId);
@@ -166,48 +188,77 @@ describe.runIf(shouldRun)(
       const frozenBaselineStops = baselineStops.filter((s) => s.isFrozen);
       expect(frozenBaselineStops.length).toBeGreaterThan(0);
 
-      // 7. Inject operational disruption: Craft engine failure (RESOURCE_OFFLINE)
-      const offlineRes = await request(app)
-        .post('/operations/resource-status')
+      // 7. Operational disruption 1: Resource status update (PATCH /operations/resources/:id/status)
+      const statusRes = await request(app)
+        .patch(`/operations/resources/${boat2}/status`)
         .set('Authorization', `Bearer ${dispatcherToken}`)
         .send({
-          resourceId: boat1,
-          status: 'OFFLINE',
-          reason: 'Engine intake fouled by flood debris',
+          status: 'MAINTENANCE',
+          reason: 'Routine propeller maintenance',
         });
 
-      expect(offlineRes.status).toBe(200);
-      const disruptionEventId = offlineRes.body.data.event.id;
-      registry.operationalEventIds.add(disruptionEventId);
+      if (statusRes.body?.data?.event?.id) {
+        registry.operationalEventIds.add(statusRes.body.data.event.id);
+      }
+      expect(statusRes.status).toBe(200);
+      expect(statusRes.body.success).toBe(true);
 
-      // 8. Trigger incremental repair orchestration
+      // 8. Operational disruption 2: Hazard zone / road blockage (POST /operations/road-zones returns 201)
+      const roadZoneRes = await request(app)
+        .post('/operations/road-zones')
+        .set('Authorization', `Bearer ${dispatcherToken}`)
+        .send({
+          name: 'Yamuna Marginal Embankment Breach Zone',
+          severity: 'BLOCKED',
+          polygon: [
+            { lat: 28.69, lng: 77.21 },
+            { lat: 28.69, lng: 77.218 },
+            { lat: 28.696, lng: 77.218 },
+            { lat: 28.696, lng: 77.21 },
+          ],
+          reason: 'Embankment breached by rising flood surge',
+        });
+
+      if (roadZoneRes.body?.data?.zone?.id) {
+        registry.blockedZoneIds.add(roadZoneRes.body.data.zone.id);
+      }
+      if (roadZoneRes.body?.data?.event?.id) {
+        registry.operationalEventIds.add(roadZoneRes.body.data.event.id);
+      }
+      expect(roadZoneRes.status).toBe(201);
+      expect(roadZoneRes.body.success).toBe(true);
+      const roadDisruptionEventId = roadZoneRes.body.data.event.id;
+
+      // 9. Trigger incremental repair orchestration for operational hazard
       const repairRes = await request(app)
         .post('/operations/repair')
         .set('Authorization', `Bearer ${dispatcherToken}`)
         .send({
-          eventId: disruptionEventId,
+          eventId: roadDisruptionEventId,
           baselineAssignmentId,
         });
+
+      const proposalId = repairRes.body?.data?.proposalId;
+      if (proposalId) {
+        registry.trackAssignment(proposalId);
+      }
 
       expect(repairRes.status).toBe(200);
       expect(repairRes.body.success).toBe(true);
 
       const repairData = repairRes.body.data;
-      if (repairData.proposalId) {
-        registry.assignmentIds.add(repairData.proposalId);
+      expect(repairData.status).toBe('PROPOSED');
+      expect(typeof repairData.proposalId).toBe('string');
+      expect(repairData.proposalId.length).toBeGreaterThan(0);
 
-        // Verify frozen stops invariant in PostgreSQL database
-        const repairedStops = await fetchAssignmentStopsWithCoordinates(
-          pool,
-          repairData.proposalId,
-        );
-        assertFrozenStopsPreserved(frozenBaselineStops, repairedStops, 'PROPOSED');
-      }
+      // Verify frozen stops invariant in PostgreSQL database
+      const repairedStops = await fetchAssignmentStopsWithCoordinates(pool, repairData.proposalId);
+      assertFrozenStopsPreserved(frozenBaselineStops, repairedStops, 'PROPOSED');
 
       // Verify zero frozen stop violations
       expect(repairData.churn.frozenStopsViolated).toBe(0);
 
-      // 9. Verify cleanup deletes only tracked fixtures
+      // 10. Verify cleanup deletes only tracked fixtures in foreign-key-safe order
       await registry.cleanup(pool);
       currentRegistry = null;
 

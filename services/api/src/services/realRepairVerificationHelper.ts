@@ -176,6 +176,7 @@ export class FixtureRegistry {
   public readonly requestIds = new Set<string>();
   public readonly resourceIds = new Set<string>();
   public readonly shelterIds = new Set<string>();
+  public readonly blockedZoneIds = new Set<string>();
 
   private counter = 0;
 
@@ -218,6 +219,7 @@ export class FixtureRegistry {
         ...this.requestIds,
         ...this.resourceIds,
         ...this.shelterIds,
+        ...this.blockedZoneIds,
         ...this.operatorUsernames,
       ];
 
@@ -239,13 +241,22 @@ export class FixtureRegistry {
         );
       }
 
-      // 3. Assignment stops: delete by tracked stop ID or assignment_id matching our tracked assignments
-      if (this.assignmentStopIds.size > 0 || this.assignmentIds.size > 0) {
+      // 3. Assignment stops: delete by tracked stop ID, tracked assignment IDs, or tracked resource IDs
+      if (
+        this.assignmentStopIds.size > 0 ||
+        this.assignmentIds.size > 0 ||
+        this.resourceIds.size > 0
+      ) {
         await client.query(
           `DELETE FROM assignment_stops 
            WHERE id = ANY($1::text[]) 
-              OR assignment_id = ANY($2::text[]);`,
-          [Array.from(this.assignmentStopIds), Array.from(this.assignmentIds)],
+              OR assignment_id = ANY($2::text[])
+              OR resource_id = ANY($3::text[]);`,
+          [
+            Array.from(this.assignmentStopIds),
+            Array.from(this.assignmentIds),
+            Array.from(this.resourceIds),
+          ],
         );
       }
 
@@ -267,7 +278,16 @@ export class FixtureRegistry {
         );
       }
 
-      // 6. Resources
+      // 6. Blocked zones
+      if (this.blockedZoneIds.size > 0) {
+        await client.query(
+          `DELETE FROM blocked_zones 
+           WHERE id = ANY($1::text[]);`,
+          [Array.from(this.blockedZoneIds)],
+        );
+      }
+
+      // 7. Resources
       if (this.resourceIds.size > 0) {
         await client.query(
           `DELETE FROM resources 
@@ -276,7 +296,7 @@ export class FixtureRegistry {
         );
       }
 
-      // 7. Shelters
+      // 8. Shelters
       if (this.shelterIds.size > 0) {
         await client.query(
           `DELETE FROM shelters 
@@ -285,7 +305,7 @@ export class FixtureRegistry {
         );
       }
 
-      // 8. Operator sessions
+      // 9. Operator sessions
       if (this.operatorSessionTokens.size > 0) {
         await client.query(
           `DELETE FROM operator_sessions 
@@ -294,7 +314,7 @@ export class FixtureRegistry {
         );
       }
 
-      // 9. Operators
+      // 10. Operators
       if (this.operatorUsernames.size > 0) {
         await client.query(
           `DELETE FROM operators 
@@ -311,6 +331,7 @@ export class FixtureRegistry {
       this.assignmentStopIds.clear();
       this.assignmentIds.clear();
       this.requestIds.clear();
+      this.blockedZoneIds.clear();
       this.resourceIds.clear();
       this.shelterIds.clear();
       this.operatorSessionTokens.clear();
