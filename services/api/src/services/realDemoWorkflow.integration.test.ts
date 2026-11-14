@@ -112,7 +112,7 @@ describe.runIf(shouldRun)(
       registry.resourceIds.add(boat1);
       await pool.query(
         `INSERT INTO resources (id, name, type, capacity, speed_km_h, location, status, shift_max_duration_min, source)
-         VALUES ($1, 'Rigid Inflatable Alpha', 'BOAT', 6, 25.0, ST_SetSRID(ST_MakePoint(77.23, 28.66), 4326), 'AVAILABLE', 480, 'REAL');`,
+         VALUES ($1, 'Rigid Inflatable Alpha', 'BOAT', 10, 25.0, ST_SetSRID(ST_MakePoint(77.23, 28.66), 4326), 'AVAILABLE', 480, 'REAL');`,
         [boat1],
       );
 
