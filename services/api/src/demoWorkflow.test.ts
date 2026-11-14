@@ -234,7 +234,9 @@ class InMemoryDemoQueryable implements Queryable {
         lng: 77.232,
         capacity: s.capacity,
         currentOccupancy: s.current_occupancy,
+        current_occupancy: s.current_occupancy,
         isActive: s.is_active,
+        is_active: s.is_active,
         source: s.source,
       }));
       return {
@@ -564,7 +566,7 @@ describe('Deterministic End-to-End Demonstration Workflow Walkthrough', () => {
       status: 'AVAILABLE',
       depot_id: 'demo-shelter-kashmere-gate',
       shift_max_duration_min: 480,
-      source: 'SIMULATED',
+      source: 'REAL',
       created_at: new Date(),
       updated_at: new Date(),
     });
@@ -579,7 +581,7 @@ describe('Deterministic End-to-End Demonstration Workflow Walkthrough', () => {
       status: 'AVAILABLE',
       depot_id: 'demo-shelter-wazirabad',
       shift_max_duration_min: 480,
-      source: 'SIMULATED',
+      source: 'REAL',
       created_at: new Date(),
       updated_at: new Date(),
     });
@@ -591,7 +593,7 @@ describe('Deterministic End-to-End Demonstration Workflow Walkthrough', () => {
       capacity: 120,
       current_occupancy: 20,
       is_active: true,
-      source: 'SIMULATED',
+      source: 'REAL',
       created_at: new Date(),
       updated_at: new Date(),
     });

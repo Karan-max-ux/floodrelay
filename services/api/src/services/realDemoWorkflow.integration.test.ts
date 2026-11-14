@@ -103,7 +103,7 @@ describe.runIf(shouldRun)(
       registry.shelterIds.add(shelterId1);
       await pool.query(
         `INSERT INTO shelters (id, name, location, capacity, current_occupancy, source)
-         VALUES ($1, 'North Safe Haven', ST_SetSRID(ST_MakePoint(77.22, 28.68), 4326), 150, 0, 'SIMULATED');`,
+         VALUES ($1, 'North Safe Haven', ST_SetSRID(ST_MakePoint(77.22, 28.68), 4326), 150, 0, 'REAL');`,
         [shelterId1],
       );
 
@@ -112,7 +112,7 @@ describe.runIf(shouldRun)(
       registry.resourceIds.add(boat1);
       await pool.query(
         `INSERT INTO resources (id, name, type, capacity, speed_km_h, location, status, shift_max_duration_min, source)
-         VALUES ($1, 'Rigid Inflatable Alpha', 'BOAT', 6, 25.0, ST_SetSRID(ST_MakePoint(77.23, 28.66), 4326), 'AVAILABLE', 480, 'SIMULATED');`,
+         VALUES ($1, 'Rigid Inflatable Alpha', 'BOAT', 6, 25.0, ST_SetSRID(ST_MakePoint(77.23, 28.66), 4326), 'AVAILABLE', 480, 'REAL');`,
         [boat1],
       );
 
@@ -120,7 +120,7 @@ describe.runIf(shouldRun)(
       registry.resourceIds.add(boat2);
       await pool.query(
         `INSERT INTO resources (id, name, type, capacity, speed_km_h, location, status, shift_max_duration_min, source)
-         VALUES ($1, 'Rigid Inflatable Bravo', 'BOAT', 8, 20.0, ST_SetSRID(ST_MakePoint(77.24, 28.65), 4326), 'AVAILABLE', 480, 'SIMULATED');`,
+         VALUES ($1, 'Rigid Inflatable Bravo', 'BOAT', 8, 20.0, ST_SetSRID(ST_MakePoint(77.24, 28.65), 4326), 'AVAILABLE', 480, 'REAL');`,
         [boat2],
       );
 
@@ -130,7 +130,7 @@ describe.runIf(shouldRun)(
         lng: 77.235,
         peopleCount: 3,
         urgency: 'CRITICAL',
-        source: 'SIMULATED',
+        source: 'REPORTED',
         verificationStatus: 'VERIFIED',
         notes: 'Citizen distress request 1',
       });
@@ -145,7 +145,7 @@ describe.runIf(shouldRun)(
         lng: 77.238,
         peopleCount: 4,
         urgency: 'HIGH',
-        source: 'SIMULATED',
+        source: 'REPORTED',
         verificationStatus: 'VERIFIED',
         notes: 'Citizen distress request 2',
       });
