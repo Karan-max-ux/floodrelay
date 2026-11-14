@@ -28,6 +28,7 @@ import type {
 import type { PostgisRepository } from '../db/repository.js';
 import { dbToRouteStop } from '../db/schema.js';
 import {
+  haversineKm,
   repairIncrementally,
   prepareTravelTimeProvider,
   enrichRoutesWithGeometry,
@@ -79,19 +80,19 @@ function dbAssignmentToSolverPlan(
       const totalDurationMinutes =
         routeStops.length > 0 ? routeStops[routeStops.length - 1]!.estimatedArrivalMinutes : 0;
 
-      // Approximate travel distance using straight-line segments between stops
+      // Compute physical travel distance starting from resource origin location through all stops
+      const resource = scenarioSnapshot?.resources.find((r) => r.id === resourceId);
+      let prevPoint: { lat: number; lng: number } | null = resource
+        ? { lat: resource.lat, lng: resource.lng }
+        : null;
       let totalTravelDistanceKm = 0;
-      for (let i = 1; i < routeStops.length; i++) {
-        const a = routeStops[i - 1]!;
-        const b = routeStops[i]!;
-        const dLat = ((b.lat - a.lat) * Math.PI) / 180;
-        const dLng = ((b.lng - a.lng) * Math.PI) / 180;
-        const sinDLat = Math.sin(dLat / 2);
-        const sinDLng = Math.sin(dLng / 2);
-        const hav =
-          sinDLat * sinDLat +
-          Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * sinDLng * sinDLng;
-        totalTravelDistanceKm += 2 * 6371 * Math.atan2(Math.sqrt(hav), Math.sqrt(1 - hav));
+
+      for (let i = 0; i < routeStops.length; i++) {
+        const stop = routeStops[i]!;
+        if (prevPoint) {
+          totalTravelDistanceKm += haversineKm(prevPoint, { lat: stop.lat, lng: stop.lng });
+        }
+        prevPoint = { lat: stop.lat, lng: stop.lng };
       }
 
       return {
