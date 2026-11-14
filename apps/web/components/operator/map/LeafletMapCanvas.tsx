@@ -5,7 +5,7 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { MapContainer, TileLayer, Marker, Polyline, Polygon, Popup, useMap } from 'react-leaflet';
 import type { RescueRequest, BlockedZone, FloodForecastContext } from '@floodrelay/shared';
-import type { AssignmentRecord, RouteStop } from '@/lib/api/types';
+import type { AssignmentRecord } from '@/lib/api/types';
 import { getTileConfig } from './tileConfig';
 import {
   formatDistanceKm,
