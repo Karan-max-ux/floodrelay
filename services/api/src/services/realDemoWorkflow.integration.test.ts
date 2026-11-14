@@ -124,6 +124,14 @@ describe.runIf(shouldRun)(
         [boat2],
       );
 
+      const boat3 = registry.generateId('craft_charlie');
+      registry.resourceIds.add(boat3);
+      await pool.query(
+        `INSERT INTO resources (id, name, type, capacity, speed_km_h, location, status, shift_max_duration_min, source)
+         VALUES ($1, 'Rigid Inflatable Charlie', 'BOAT', 4, 25.0, ST_SetSRID(ST_MakePoint(77.25, 28.64), 4326), 'AVAILABLE', 480, 'REAL');`,
+        [boat3],
+      );
+
       // 4. Intake distress requests via HTTP API (genuine citizen intake coverage)
       const intakeRes1 = await request(app).post('/requests').send({
         lat: 28.665,
@@ -190,7 +198,7 @@ describe.runIf(shouldRun)(
 
       // 7. Operational disruption 1: Resource status update (PATCH /operations/resources/:id/status)
       const statusRes = await request(app)
-        .patch(`/operations/resources/${boat2}/status`)
+        .patch(`/operations/resources/${boat3}/status`)
         .set('Authorization', `Bearer ${dispatcherToken}`)
         .send({
           status: 'MAINTENANCE',
@@ -202,6 +210,20 @@ describe.runIf(shouldRun)(
       }
       expect(statusRes.status).toBe(200);
       expect(statusRes.body.success).toBe(true);
+
+      const restoreRes = await request(app)
+        .patch(`/operations/resources/${boat3}/status`)
+        .set('Authorization', `Bearer ${dispatcherToken}`)
+        .send({
+          status: 'AVAILABLE',
+          reason: 'Routine propeller maintenance completed; craft returned to service',
+        });
+
+      if (restoreRes.body?.data?.event?.id) {
+        registry.operationalEventIds.add(restoreRes.body.data.event.id);
+      }
+      expect(restoreRes.status).toBe(200);
+      expect(restoreRes.body.success).toBe(true);
 
       // 8. Operational disruption 2: Hazard zone / road blockage (POST /operations/road-zones returns 201)
       const roadZoneRes = await request(app)
@@ -247,7 +269,10 @@ describe.runIf(shouldRun)(
       expect(repairRes.body.success).toBe(true);
 
       const repairData = repairRes.body.data;
-      expect(repairData.status).toBe('PROPOSED');
+      expect(
+        repairData.status,
+        `Repair proposal failed: ${JSON.stringify(repairData.warnings)}`,
+      ).toBe('PROPOSED');
       expect(typeof repairData.proposalId).toBe('string');
       expect(repairData.proposalId.length).toBeGreaterThan(0);
 
