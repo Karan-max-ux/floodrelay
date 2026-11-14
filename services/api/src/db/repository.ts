@@ -723,6 +723,7 @@ export class PostgisRepository {
       lng: Number(row.lng),
       capacity: Number(row.capacity),
       currentOccupancy: Number(row.currentOccupancy),
+      source: (row.source as 'SIMULATED' | 'REAL') ?? undefined,
     };
   }
 
@@ -939,8 +940,9 @@ export class PostgisRepository {
         target_id: string;
         stop_number: number;
         is_frozen: boolean;
+        passengers_dropped_off: number;
       }>(
-        `SELECT id, resource_id, type, target_id, stop_number, is_frozen
+        `SELECT id, resource_id, type, target_id, stop_number, is_frozen, passengers_dropped_off
          FROM assignment_stops
          WHERE assignment_id = $1
          ORDER BY resource_id ASC, stop_number ASC;`,
@@ -1143,7 +1145,76 @@ export class PostgisRepository {
         }
       }
 
-      // 5. Update assignment status to COMMITTED
+      // 5. Lock and validate all referenced destination shelter rows in deterministic order
+      const dropoffStops = planStops.filter((s) => s.type === 'DROPOFF' && s.target_id);
+      const shelterIds = Array.from(new Set(dropoffStops.map((s) => s.target_id))).sort();
+      const dropoffPassengersByShelter = new Map<string, number>();
+      for (const stop of dropoffStops) {
+        const count = Number(stop.passengers_dropped_off || 0);
+        dropoffPassengersByShelter.set(
+          stop.target_id,
+          (dropoffPassengersByShelter.get(stop.target_id) || 0) + count,
+        );
+      }
+
+      if (shelterIds.length > 0) {
+        const shelterResult = await client.query<{
+          id: string;
+          name: string;
+          capacity: number;
+          current_occupancy: number;
+          is_active: boolean;
+          source: string;
+        }>(
+          'SELECT id, name, capacity, current_occupancy, is_active, source FROM shelters WHERE id = ANY($1::text[]) ORDER BY id COLLATE "C" ASC FOR UPDATE;',
+          [shelterIds],
+        );
+        const lockedShelters = new Map(shelterResult.rows.map((s) => [s.id, s]));
+
+        for (const shId of shelterIds) {
+          const shRow = lockedShelters.get(shId);
+          if (!shRow) {
+            const err = new Error(
+              `Shelter "${shId}" referenced in assignment dropoff stop does not exist`,
+            );
+            (err as unknown as { code: string; statusCode: number }).code = 'SHELTER_NOT_FOUND';
+            (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+            throw err;
+          }
+
+          if (shRow.source === 'SIMULATED') {
+            const err = new Error(
+              `Cannot commit assignment plan containing simulated destination shelter "${shId}" in operational dispatch mode`,
+            );
+            (err as unknown as { code: string; statusCode: number }).code =
+              'SIMULATED_SHELTER_FORBIDDEN';
+            (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+            throw err;
+          }
+
+          if (!shRow.is_active) {
+            const err = new Error(`Shelter "${shId}" is inactive and cannot accept evacuees`);
+            (err as unknown as { code: string; statusCode: number }).code = 'SHELTER_UNAVAILABLE';
+            (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+            throw err;
+          }
+
+          const incoming = dropoffPassengersByShelter.get(shId) || 0;
+          const currentOcc = Number(shRow.current_occupancy || 0);
+          const capacity = Number(shRow.capacity ?? 0);
+          if (capacity > 0 && currentOcc + incoming > capacity) {
+            const err = new Error(
+              `Shelter "${shId}" capacity exceeded: capacity is ${capacity}, current occupancy is ${currentOcc}, incoming evacuees are ${incoming}`,
+            );
+            (err as unknown as { code: string; statusCode: number }).code =
+              'SHELTER_CAPACITY_EXCEEDED';
+            (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+            throw err;
+          }
+        }
+      }
+
+      // 6. Update assignment status to COMMITTED
       const updateAssignResult = await client.query(
         `UPDATE assignments
          SET status = 'COMMITTED',

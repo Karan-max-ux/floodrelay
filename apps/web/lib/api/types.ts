@@ -109,6 +109,8 @@ export interface AssignmentRecord {
   provenance?: 'REAL' | 'SIMULATED' | 'MIXED';
   hasSimulatedResources?: boolean;
   hasSimulatedRequests?: boolean;
+  hasSimulatedShelters?: boolean;
+  hasUnresolvedProvenance?: boolean;
 }
 
 export interface ProposeAssignmentInput {

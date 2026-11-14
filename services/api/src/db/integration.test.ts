@@ -3439,5 +3439,333 @@ describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
       const realAfter = await repo.getResourceById(realVessel.id);
       expect(realAfter?.status).toBe('OFFLINE');
     });
+
+    it('rejects commitment if plan references a SIMULATED shelter with 409 SIMULATED_SHELTER_FORBIDDEN and rolls back', async () => {
+      const realBoat: RescueResource = {
+        id: 'boat_sim_sh_test',
+        name: 'Real Vessel For Shelter Test',
+        type: 'BOAT',
+        capacity: 6,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const simShelter: Shelter = {
+        id: 'sh_sim_dest_test',
+        name: 'Simulated Evacuation Depot',
+        lat: 28.71,
+        lng: 77.21,
+        capacity: 100,
+      };
+      const req: RescueRequest = {
+        id: 'req_sim_sh_test',
+        lat: 28.705,
+        lng: 77.205,
+        peopleCount: 2,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(realBoat, 'REAL');
+      await repo.insertShelter(simShelter, 'SIMULATED');
+      await repo.insertRequest(req);
+
+      const plan = await assignmentService.proposeAssignment(ProposeAssignmentSchema.parse({}));
+      expect(plan.status).toBe('PROPOSED');
+      expect(plan.hasSimulatedShelters).toBe(true);
+
+      await expect(
+        assignmentService.commitAssignment(plan.id, { operatorId: 'op_verifier' }),
+      ).rejects.toMatchObject({
+        code: 'SIMULATED_SHELTER_FORBIDDEN',
+        statusCode: 409,
+      });
+
+      const planAfter = await repo.getAssignmentWithStops(plan.id);
+      expect(planAfter?.assignment.status).toBe('PROPOSED');
+      expect(planAfter?.assignment.committed_at).toBeNull();
+
+      // Verify request and resource were not committed/assigned
+      const reqAfter = await repo.getRequestById(req.id);
+      expect(reqAfter?.status).toBe('PENDING');
+      const resAfter = await repo.getResourceById(realBoat.id);
+      expect(resAfter?.status).toBe('AVAILABLE');
+    });
+
+    it('rejects commitment if destination shelter is deleted/missing with 409 SHELTER_NOT_FOUND', async () => {
+      const realBoat: RescueResource = {
+        id: 'boat_missing_sh',
+        name: 'Boat for Missing Shelter Test',
+        type: 'BOAT',
+        capacity: 6,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const realShelter: Shelter = {
+        id: 'sh_to_be_deleted',
+        name: 'Transient Shelter',
+        lat: 28.71,
+        lng: 77.21,
+        capacity: 100,
+      };
+      const req: RescueRequest = {
+        id: 'req_missing_sh',
+        lat: 28.705,
+        lng: 77.205,
+        peopleCount: 2,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(realBoat, 'REAL');
+      await repo.insertShelter(realShelter, 'REAL');
+      await repo.insertRequest(req);
+
+      const plan = await assignmentService.proposeAssignment(ProposeAssignmentSchema.parse({}));
+      expect(plan.status).toBe('PROPOSED');
+
+      // Delete shelter from DB before commit
+      const client = await pool.connect();
+      try {
+        await client.query('DELETE FROM shelters WHERE id = $1;', [realShelter.id]);
+      } finally {
+        client.release();
+      }
+
+      await expect(
+        assignmentService.commitAssignment(plan.id, { operatorId: 'op_verifier' }),
+      ).rejects.toMatchObject({
+        code: 'SHELTER_NOT_FOUND',
+        statusCode: 409,
+      });
+
+      const planAfter = await repo.getAssignmentWithStops(plan.id);
+      expect(planAfter?.assignment.status).toBe('PROPOSED');
+    });
+
+    it('rejects commitment if destination shelter is marked inactive with 409 SHELTER_UNAVAILABLE', async () => {
+      const realBoat: RescueResource = {
+        id: 'boat_inactive_sh',
+        name: 'Boat for Inactive Shelter Test',
+        type: 'BOAT',
+        capacity: 6,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const realShelter: Shelter = {
+        id: 'sh_inactive_test',
+        name: 'Inactive Shelter Camp',
+        lat: 28.71,
+        lng: 77.21,
+        capacity: 100,
+      };
+      const req: RescueRequest = {
+        id: 'req_inactive_sh',
+        lat: 28.705,
+        lng: 77.205,
+        peopleCount: 2,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(realBoat, 'REAL');
+      await repo.insertShelter(realShelter, 'REAL');
+      await repo.insertRequest(req);
+
+      const plan = await assignmentService.proposeAssignment(ProposeAssignmentSchema.parse({}));
+      expect(plan.status).toBe('PROPOSED');
+
+      // Inactivate shelter in DB
+      const client = await pool.connect();
+      try {
+        await client.query('UPDATE shelters SET is_active = FALSE WHERE id = $1;', [
+          realShelter.id,
+        ]);
+      } finally {
+        client.release();
+      }
+
+      await expect(
+        assignmentService.commitAssignment(plan.id, { operatorId: 'op_verifier' }),
+      ).rejects.toMatchObject({
+        code: 'SHELTER_UNAVAILABLE',
+        statusCode: 409,
+      });
+
+      const planAfter = await repo.getAssignmentWithStops(plan.id);
+      expect(planAfter?.assignment.status).toBe('PROPOSED');
+    });
+
+    it('rejects commitment if shelter capacity is exceeded with 409 SHELTER_CAPACITY_EXCEEDED', async () => {
+      const realBoat: RescueResource = {
+        id: 'boat_cap_exceed',
+        name: 'Boat for Capacity Exceeded Test',
+        type: 'BOAT',
+        capacity: 10,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const realShelter: Shelter = {
+        id: 'sh_cap_exceed',
+        name: 'Low Capacity Shelter',
+        lat: 28.71,
+        lng: 77.21,
+        capacity: 10,
+      };
+      const req: RescueRequest = {
+        id: 'req_cap_exceed',
+        lat: 28.705,
+        lng: 77.205,
+        peopleCount: 5,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(realBoat, 'REAL');
+      await repo.insertShelter(realShelter, 'REAL');
+      await repo.insertRequest(req);
+
+      const plan = await assignmentService.proposeAssignment(ProposeAssignmentSchema.parse({}));
+      expect(plan.status).toBe('PROPOSED');
+
+      // Set shelter capacity to 4 while incoming evacuees = 5
+      const client = await pool.connect();
+      try {
+        await client.query(
+          'UPDATE shelters SET capacity = 4, current_occupancy = 0 WHERE id = $1;',
+          [realShelter.id],
+        );
+      } finally {
+        client.release();
+      }
+
+      await expect(
+        assignmentService.commitAssignment(plan.id, { operatorId: 'op_verifier' }),
+      ).rejects.toMatchObject({
+        code: 'SHELTER_CAPACITY_EXCEEDED',
+        statusCode: 409,
+      });
+
+      const planAfter = await repo.getAssignmentWithStops(plan.id);
+      expect(planAfter?.assignment.status).toBe('PROPOSED');
+    });
+
+    it('unused simulated vehicle and shelter in database do not contaminate an authentic proposal or block commitment', async () => {
+      const realBoat: RescueResource = {
+        id: 'boat_pure_real',
+        name: 'Authentic Boat',
+        type: 'BOAT',
+        capacity: 8,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const simBoatUnused: RescueResource = {
+        id: 'boat_sim_idle_unused',
+        name: 'Idle Simulated Boat',
+        type: 'BOAT',
+        capacity: 8,
+        speedKmH: 25,
+        lat: 28.9,
+        lng: 77.5,
+        status: 'AVAILABLE',
+      };
+      const realShelter: Shelter = {
+        id: 'sh_pure_real',
+        name: 'Authentic Shelter',
+        lat: 28.71,
+        lng: 77.21,
+        capacity: 50,
+      };
+      const simShelterUnused: Shelter = {
+        id: 'sh_sim_idle_unused',
+        name: 'Idle Simulated Shelter',
+        lat: 28.95,
+        lng: 77.55,
+        capacity: 50,
+      };
+      const realReq: RescueRequest = {
+        id: 'req_pure_real',
+        lat: 28.705,
+        lng: 77.205,
+        peopleCount: 3,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(realBoat, 'REAL');
+      await repo.insertResource(simBoatUnused, 'SIMULATED');
+      await repo.insertShelter(realShelter, 'REAL');
+      await repo.insertShelter(simShelterUnused, 'SIMULATED');
+      await repo.insertRequest(realReq);
+
+      const plan = await assignmentService.proposeAssignment(ProposeAssignmentSchema.parse({}));
+      expect(plan.status).toBe('PROPOSED');
+      expect(plan.provenance).toBe('REAL');
+      expect(plan.hasSimulatedResources).toBe(false);
+      expect(plan.hasSimulatedRequests).toBe(false);
+      expect(plan.hasSimulatedShelters).toBe(false);
+      expect(plan.hasUnresolvedProvenance).toBe(false);
+
+      // Verify assignment detail retrieval also reports clean REAL provenance
+      const retrieved = await assignmentService.getAssignment(plan.id);
+      expect(retrieved?.provenance).toBe('REAL');
+      expect(retrieved?.hasSimulatedShelters).toBe(false);
+
+      // Verify commitment succeeds without conflict
+      const commitRes = await assignmentService.commitAssignment(plan.id, {
+        operatorId: 'operator_safe',
+      });
+      expect(commitRes).toBe(true);
+
+      const committed = await repo.getAssignmentWithStops(plan.id);
+      expect(committed?.assignment.status).toBe('COMMITTED');
+    });
+
+    it('verifies getShelterById accurately preserves and returns source provenance', async () => {
+      const realSh: Shelter = {
+        id: 'sh_verify_real_src',
+        name: 'Verified Real Shelter',
+        lat: 28.72,
+        lng: 77.22,
+        capacity: 30,
+      };
+      const simSh: Shelter = {
+        id: 'sh_verify_sim_src',
+        name: 'Verified Simulated Shelter',
+        lat: 28.73,
+        lng: 77.23,
+        capacity: 40,
+      };
+
+      await repo.insertShelter(realSh, 'REAL');
+      await repo.insertShelter(simSh, 'SIMULATED');
+
+      const fetchedReal = await repo.getShelterById(realSh.id);
+      expect(fetchedReal).not.toBeNull();
+      expect(fetchedReal?.source).toBe('REAL');
+
+      const fetchedSim = await repo.getShelterById(simSh.id);
+      expect(fetchedSim).not.toBeNull();
+      expect(fetchedSim?.source).toBe('SIMULATED');
+    });
   });
 });

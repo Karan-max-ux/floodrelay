@@ -110,6 +110,16 @@ export default function AssignmentReviewPage({ params }: PageProps) {
           setCommitError(
             'Operational Commitment Forbidden (409): Cannot commit an assignment plan containing simulated requests in operational dispatch mode. Operational plans must serve authentic reported requests.',
           );
+        } else if (err.code === 'SIMULATED_SHELTER_FORBIDDEN') {
+          setCommitError(
+            'Operational Commitment Forbidden (409): Cannot commit an assignment plan containing simulated destination shelters in operational dispatch mode. Ensure all drop-off destinations are authentic registered emergency shelters.',
+          );
+        } else if (err.code === 'SHELTER_UNAVAILABLE') {
+          setCommitError(`Shelter Unavailable (409): ${err.message}`);
+        } else if (err.code === 'SHELTER_NOT_FOUND') {
+          setCommitError(`Shelter Not Found (409): ${err.message}`);
+        } else if (err.code === 'SHELTER_CAPACITY_EXCEEDED') {
+          setCommitError(`Shelter Capacity Exceeded (409): ${err.message}`);
         } else if (err.code === 'RESOURCE_UNAVAILABLE') {
           setCommitError(`Resource Unavailable (409): ${err.message}`);
         } else if (err.code === 'RESOURCE_NOT_FOUND') {
@@ -165,7 +175,9 @@ export default function AssignmentReviewPage({ params }: PageProps) {
     plan.provenance === 'SIMULATED' ||
     plan.provenance === 'MIXED' ||
     Boolean(plan.hasSimulatedResources) ||
-    Boolean(plan.hasSimulatedRequests);
+    Boolean(plan.hasSimulatedRequests) ||
+    Boolean(plan.hasSimulatedShelters) ||
+    Boolean(plan.hasUnresolvedProvenance);
 
   const allChecked =
     checklist.draftClearance && checklist.shelterCapacity && checklist.medicalProtocol;
@@ -317,7 +329,7 @@ export default function AssignmentReviewPage({ params }: PageProps) {
                   !canCommit
                     ? 'Dispatcher or Admin authorization required to commit assignment plans'
                     : isSimulatedPlan
-                      ? 'Operational commitment is disabled for plans incorporating simulated assets or test requests'
+                      ? 'Operational commitment is disabled for plans incorporating simulated assets, synthetic requests, or test shelters'
                       : !allChecked
                         ? 'Complete all safety checklist items before committing'
                         : 'Commit assignment plan'
@@ -356,10 +368,11 @@ export default function AssignmentReviewPage({ params }: PageProps) {
                 </span>
               </div>
               <p className="text-amber-800 mt-1 leading-relaxed">
-                This plan incorporates simulated rescue resources or synthetic requests. Operational
-                commitment is disabled to prevent simulated assets from contaminating live mission
-                dispatch state. To execute an operational commitment, ensure all participating
-                assets are authentic registered database vehicles.
+                This plan incorporates simulated assets, synthetic requests, or test destination
+                shelters. Operational commitment is disabled to prevent simulated data from
+                contaminating live mission dispatch state. To execute an operational commitment,
+                ensure all participating resources, requests, and destination shelters are verified
+                authentic database entities.
               </p>
             </div>
           </div>

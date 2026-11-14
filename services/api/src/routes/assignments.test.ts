@@ -215,6 +215,28 @@ class InMemoryAssignmentDbMock implements Queryable {
     }
 
     // 3. SELECT FROM shelters
+    if (sql.includes('FROM shelters') && sql.includes('WHERE id = ANY')) {
+      const ids = vals[0] as string[];
+      const rows = ids
+        .map((id) => this.shelters.get(id))
+        .filter((s): s is DbShelter => Boolean(s))
+        .map((s) => ({
+          id: s.id,
+          name: s.name,
+          capacity: s.capacity,
+          current_occupancy: s.current_occupancy,
+          is_active: s.is_active,
+          source: s.source,
+        }));
+      return {
+        rows: rows as unknown as R[],
+        command: 'SELECT',
+        rowCount: rows.length,
+        oid: 0,
+        fields: [],
+      };
+    }
+
     if (sql.includes('FROM shelters')) {
       const rows: Record<string, unknown>[] = [];
       for (const sh of this.shelters.values()) {
@@ -710,6 +732,53 @@ describe('Assignment Endpoints Integration Tests', () => {
       expect(res.body.data.unserved[0].reason).toBe('CAPACITY_EXCEEDED');
       expect(res.body.data.unserved[0].details).toBe('No available resources');
     });
+
+    it('unused simulated shelter and resource in DB do not contaminate an authentic proposal', async () => {
+      // Add simulated shelter that is not needed/used
+      const simShelter: DbShelter = {
+        id: 'shelter_sim_far',
+        name: 'Far Simulated Shelter',
+        location: 'POINT(77.500 28.900)',
+        capacity: 100,
+        current_occupancy: 0,
+        is_active: true,
+        source: 'SIMULATED',
+        created_at: new Date(),
+        updated_at: new Date(),
+      };
+      dbMock.shelters.set(simShelter.id, simShelter);
+
+      // Add simulated resource that is not needed/used
+      const simBoat: DbResource = {
+        id: 'boat_sim_idle',
+        name: 'Idle Simulated Boat',
+        type: 'BOAT',
+        capacity: 10,
+        speed_km_h: 20,
+        location: 'POINT(77.500 28.900)',
+        status: 'AVAILABLE',
+        depot_id: 'depot_02',
+        shift_max_duration_min: 480,
+        source: 'SIMULATED',
+        created_at: new Date(),
+        updated_at: new Date(),
+      };
+      dbMock.resources.set(simBoat.id, simBoat);
+
+      const res = await agent.post('/assignments/propose').send({});
+      expect(res.status).toBe(201);
+      expect(res.body.data.provenance).toBe('REAL');
+      expect(res.body.data.hasSimulatedResources).toBe(false);
+      expect(res.body.data.hasSimulatedRequests).toBe(false);
+      expect(res.body.data.hasSimulatedShelters).toBe(false);
+      expect(res.body.data.hasUnresolvedProvenance).toBe(false);
+
+      // Verify GET /assignments/:id also reflects REAL provenance
+      const getRes = await agent.get(`/assignments/${res.body.data.id}`);
+      expect(getRes.status).toBe(200);
+      expect(getRes.body.data.provenance).toBe('REAL');
+      expect(getRes.body.data.hasSimulatedShelters).toBe(false);
+    });
   });
 
   describe('GET /assignments and GET /assignments/:id', () => {
@@ -781,6 +850,80 @@ describe('Assignment Endpoints Integration Tests', () => {
       expect(commitRes.status).toBe(409);
       expect(commitRes.body.error.code).toBe('SIMULATED_REQUEST_FORBIDDEN');
       expect(commitRes.body.error.message).toContain('simulated request');
+      expect(dbMock.assignments.get(assignId)?.status).toBe('PROPOSED');
+    });
+
+    it('rejects committing an assignment plan when destination shelter is SIMULATED with 409 SIMULATED_SHELTER_FORBIDDEN', async () => {
+      const proposeRes = await agent.post('/assignments/propose').send({});
+      const assignId = proposeRes.body.data.id;
+
+      // Mark shelter as SIMULATED after proposal
+      const sh = dbMock.shelters.get('shelter_north');
+      if (sh) sh.source = 'SIMULATED';
+
+      const commitRes = await agent
+        .post(`/assignments/${assignId}/commit`)
+        .send({ operatorId: 'test_operator' });
+
+      expect(commitRes.status).toBe(409);
+      expect(commitRes.body.error.code).toBe('SIMULATED_SHELTER_FORBIDDEN');
+      expect(commitRes.body.error.message).toContain('simulated destination shelter');
+      expect(dbMock.assignments.get(assignId)?.status).toBe('PROPOSED');
+    });
+
+    it('rejects committing an assignment plan when destination shelter does not exist with 409 SHELTER_NOT_FOUND', async () => {
+      const proposeRes = await agent.post('/assignments/propose').send({});
+      const assignId = proposeRes.body.data.id;
+
+      // Remove shelter
+      dbMock.shelters.delete('shelter_north');
+
+      const commitRes = await agent
+        .post(`/assignments/${assignId}/commit`)
+        .send({ operatorId: 'test_operator' });
+
+      expect(commitRes.status).toBe(409);
+      expect(commitRes.body.error.code).toBe('SHELTER_NOT_FOUND');
+      expect(commitRes.body.error.message).toContain('does not exist');
+      expect(dbMock.assignments.get(assignId)?.status).toBe('PROPOSED');
+    });
+
+    it('rejects committing an assignment plan when destination shelter is inactive with 409 SHELTER_UNAVAILABLE', async () => {
+      const proposeRes = await agent.post('/assignments/propose').send({});
+      const assignId = proposeRes.body.data.id;
+
+      // Inactivate shelter
+      const sh = dbMock.shelters.get('shelter_north');
+      if (sh) sh.is_active = false;
+
+      const commitRes = await agent
+        .post(`/assignments/${assignId}/commit`)
+        .send({ operatorId: 'test_operator' });
+
+      expect(commitRes.status).toBe(409);
+      expect(commitRes.body.error.code).toBe('SHELTER_UNAVAILABLE');
+      expect(commitRes.body.error.message).toContain('inactive');
+      expect(dbMock.assignments.get(assignId)?.status).toBe('PROPOSED');
+    });
+
+    it('rejects committing an assignment plan when shelter capacity is exceeded with 409 SHELTER_CAPACITY_EXCEEDED', async () => {
+      const proposeRes = await agent.post('/assignments/propose').send({});
+      const assignId = proposeRes.body.data.id;
+
+      // Set shelter capacity lower than incoming evacuees (req1 + req2 = 3 + 2 = 5)
+      const sh = dbMock.shelters.get('shelter_north');
+      if (sh) {
+        sh.capacity = 4;
+        sh.current_occupancy = 0;
+      }
+
+      const commitRes = await agent
+        .post(`/assignments/${assignId}/commit`)
+        .send({ operatorId: 'test_operator' });
+
+      expect(commitRes.status).toBe(409);
+      expect(commitRes.body.error.code).toBe('SHELTER_CAPACITY_EXCEEDED');
+      expect(commitRes.body.error.message).toContain('capacity exceeded');
       expect(dbMock.assignments.get(assignId)?.status).toBe('PROPOSED');
     });
 
