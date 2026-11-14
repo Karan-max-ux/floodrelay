@@ -34,6 +34,7 @@ import {
   enrichRoutesWithGeometry,
   osrmConfigFromEnv,
   type OsrmProviderOptions,
+  type TravelTimeProvider,
 } from '@floodrelay/solver';
 import type {
   IncrementalRepairInput,
@@ -55,6 +56,7 @@ function dbAssignmentToSolverPlan(
   stops: Parameters<typeof dbToRouteStop>[0][],
   frozenStops: ReadonlyArray<FrozenStopReference>,
   scenarioSnapshot?: RepairInput['scenarioSnapshot'],
+  travelTimeProvider?: TravelTimeProvider,
 ): SolverPlan {
   // Build a frozen lookup keyed by resourceId:stopNumber (authoritative from Part 1)
   const frozenSet = new Set<string>(frozenStops.map((fs) => `${fs.resourceId}:${fs.stopNumber}`));
@@ -90,10 +92,22 @@ function dbAssignmentToSolverPlan(
       for (let i = 0; i < routeStops.length; i++) {
         const stop = routeStops[i]!;
         if (prevPoint) {
-          totalTravelDistanceKm += haversineKm(prevPoint, { lat: stop.lat, lng: stop.lng });
+          if (travelTimeProvider && resource) {
+            const leg = travelTimeProvider.getTravelEstimate(
+              prevPoint,
+              { lat: stop.lat, lng: stop.lng },
+              resource.speedKmH,
+              undefined,
+              resource.type,
+            );
+            totalTravelDistanceKm += leg.distanceKm;
+          } else {
+            totalTravelDistanceKm += haversineKm(prevPoint, { lat: stop.lat, lng: stop.lng }) * 1.3;
+          }
         }
         prevPoint = { lat: stop.lat, lng: stop.lng };
       }
+      totalTravelDistanceKm = Number(totalTravelDistanceKm.toFixed(2));
 
       return {
         resourceId,
@@ -311,7 +325,22 @@ export class IncrementalRepairSolverAdapter implements RepairSolver {
       };
     }
 
-    // --- 2. Load or construct the baseline SolverPlan ---
+    // --- 2. Prepare authoritative Travel-Time Provider ---
+    const osrmOptions =
+      this.options?.osrm === null ? null : (this.options?.osrm ?? osrmConfigFromEnv(process.env));
+
+    const { provider: travelTimeProvider, report: getTravelTimeReport } =
+      await prepareTravelTimeProvider(scenarioSnapshot, { osrm: osrmOptions });
+
+    const routingReport = getTravelTimeReport();
+    const routingWarnings: string[] = [...routingReport.warnings];
+    if (routingReport.effectiveSource === 'STRAIGHT_LINE' && !routingReport.osrmConfigured) {
+      routingWarnings.push(
+        'Authoritative road network routing (OSRM) is not configured; using straight-line estimates with hazard zone avoidance.',
+      );
+    }
+
+    // --- 3. Load or construct the baseline SolverPlan ---
     let baselinePlan: SolverPlan;
 
     if (baselineAssignmentId) {
@@ -330,6 +359,7 @@ export class IncrementalRepairSolverAdapter implements RepairSolver {
         dbAssignment.stops,
         frozenStops,
         scenarioSnapshot,
+        travelTimeProvider,
       );
     } else {
       // Invariant: Never discard existing work because an assignment ID was omitted.
@@ -348,13 +378,14 @@ export class IncrementalRepairSolverAdapter implements RepairSolver {
           latestCommitted.stops,
           frozenStops,
           scenarioSnapshot,
+          travelTimeProvider,
         );
       } else {
         baselinePlan = emptyBaselinePlan(`operational-snapshot-${eventId}`, scenarioSnapshot);
       }
     }
 
-    // --- 3. Map the DB event to the solver's discriminated event union ---
+    // --- 4. Map the DB event to the solver's discriminated event union ---
     const solverEvent = mapDbEventToSolverEvent(eventRow, scenarioSnapshot);
 
     if (!solverEvent) {
@@ -388,27 +419,12 @@ export class IncrementalRepairSolverAdapter implements RepairSolver {
       };
     }
 
-    // --- 4. Build frozen stop key set ---
+    // --- 5. Build frozen stop key set ---
     // Use the most specific key form (resourceId:targetId:stopNumber) so the solver
     // can identify individual stops precisely.
     const frozenStopIds: string[] = frozenStops.map(
       (fs) => `${fs.resourceId}:${fs.targetId}:${fs.stopNumber}`,
     );
-
-    // --- 5. Prepare authoritative Travel-Time Provider ---
-    const osrmOptions =
-      this.options?.osrm === null ? null : (this.options?.osrm ?? osrmConfigFromEnv(process.env));
-
-    const { provider: travelTimeProvider, report: getTravelTimeReport } =
-      await prepareTravelTimeProvider(scenarioSnapshot, { osrm: osrmOptions });
-
-    const routingReport = getTravelTimeReport();
-    const routingWarnings: string[] = [...routingReport.warnings];
-    if (routingReport.effectiveSource === 'STRAIGHT_LINE' && !routingReport.osrmConfigured) {
-      routingWarnings.push(
-        'Authoritative road network routing (OSRM) is not configured; using straight-line estimates with hazard zone avoidance.',
-      );
-    }
 
     // --- 6. Build IncrementalRepairInput ---
     const repairInput: IncrementalRepairInput = {
