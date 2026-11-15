@@ -31,9 +31,7 @@ export interface CitizenReceiptCardProps {
   initialReceipt?: CitizenReceipt;
 }
 
-export const CitizenReceiptCard: React.FC<CitizenReceiptCardProps> = ({
-  initialReceipt,
-} = {}) => {
+export const CitizenReceiptCard: React.FC<CitizenReceiptCardProps> = ({ initialReceipt } = {}) => {
   const [receipt, setReceipt] = useState<CitizenReceipt | null>(initialReceipt ?? null);
   const [isLoading, setIsLoading] = useState<boolean>(!initialReceipt);
   const [copied, setCopied] = useState<boolean>(false);
@@ -431,4 +429,4 @@ export const CitizenReceiptCard: React.FC<CitizenReceiptCardProps> = ({
       </div>
     </main>
   );
-}
+};
