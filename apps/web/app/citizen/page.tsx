@@ -71,7 +71,7 @@ export default function CitizenHomePage() {
                 >
                   verified_user
                 </span>
-                <span>Direct dispatch coordination</span>
+                <span>Operator-assisted request review</span>
               </div>
               <div className="flex items-center gap-2">
                 <span
@@ -122,10 +122,10 @@ export default function CitizenHomePage() {
       <section className="py-12 md:py-16 max-w-7xl mx-auto px-4 md:px-8">
         <div className="mb-10 text-left max-w-2xl">
           <div className="font-mono text-xs uppercase text-primary tracking-wider font-bold mb-2">
-            How Dispatch Operates
+            How Request Review Operates
           </div>
           <h2 className="font-manrope text-2xl md:text-3xl text-on-surface font-bold tracking-tight">
-            Three Steps from Intake to Safe Extraction
+            Three Steps from Request to Response Planning
           </h2>
           <p className="text-sm md:text-base text-on-surface-variant mt-2">
             Submitted requests may be reviewed by authorised operators when the FloodRelay backend
@@ -153,7 +153,7 @@ export default function CitizenHomePage() {
               </h3>
               <p className="text-sm text-on-surface-variant leading-relaxed">
                 Provide your location, occupant head count, and flood level conditions. Flag
-                mobility or medical needs so suitable rescue craft can be dispatched.
+                mobility or medical needs to help operators evaluate response requirements.
               </p>
             </div>
             <div className="mt-6 pt-4 border-t border-outline-variant/60 flex items-center text-xs text-primary font-semibold">
@@ -179,8 +179,8 @@ export default function CitizenHomePage() {
                 Triage &amp; Review
               </h3>
               <p className="text-sm text-on-surface-variant leading-relaxed">
-                Dispatch team validates incident location and urgency priority. Incidents involving
-                roof isolation and critical medical risks receive priority status.
+                Authorised operators review incident location and urgency priority. Incidents
+                involving roof isolation and critical medical risks receive priority review.
               </p>
             </div>
             <div className="mt-6 pt-4 border-t border-outline-variant/60 flex items-center text-xs text-primary font-semibold">
@@ -203,15 +203,15 @@ export default function CitizenHomePage() {
                 </span>
               </div>
               <h3 className="font-manrope text-lg text-on-surface font-bold mb-2">
-                Coordinated Response
+                Response Planning
               </h3>
               <p className="text-sm text-on-surface-variant leading-relaxed">
-                Rescue crews receive your location ticket and navigate via accessible corridors
-                toward designated safe relief shelters.
+                If an authorised rescue team accepts the request, it may use the recorded location
+                to plan a response. Submission does not guarantee deployment.
               </p>
             </div>
             <div className="mt-6 pt-4 border-t border-outline-variant/60 flex items-center text-xs text-primary font-semibold">
-              <span>Direct craft identification</span>
+              <span>Operator decision support</span>
             </div>
           </div>
         </div>
@@ -335,7 +335,7 @@ export default function CitizenHomePage() {
                       What to Prepare While Waiting
                     </h3>
                     <p className="text-xs text-on-surface-variant">
-                      Checklist for impending extraction
+                      Checklist while awaiting assistance
                     </p>
                   </div>
                 </div>
@@ -403,8 +403,8 @@ export default function CitizenHomePage() {
                   info
                 </span>
                 <p className="text-xs text-on-surface-variant leading-tight">
-                  Remain calm and conserve phone power. Units prioritize life-threatening medical
-                  reports first.
+                  Remain calm and conserve phone power. Authorised operators evaluate
+                  life-threatening medical reports first.
                 </p>
               </div>
             </div>

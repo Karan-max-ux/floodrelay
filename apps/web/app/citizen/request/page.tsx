@@ -243,7 +243,7 @@ export default function CitizenRequestPage() {
         if (err.statusCode === 409 || err.code === 'IDEMPOTENCY_KEY_REUSED') {
           setIs409Conflict(true);
           setSubmitError(
-            'Idempotency Conflict: An earlier rescue request was already recorded on the dispatch server with this submission reference, but containing differing information. To prevent creating accidental duplicate dispatches, this request was not submitted. Submitting this form creates a NEW, separate request and does NOT update your existing ticket. If you require a separate dispatch ticket, click "Submit as New Separate Request" below.',
+            'Idempotency Conflict: An earlier rescue request was already recorded on the server with this submission reference, but containing differing information. To prevent creating accidental duplicate records, this request was not submitted. Submitting this form creates a NEW, separate request and does NOT update your existing ticket. If you require a separate request ticket, click "Submit as New Separate Request" below.',
           );
           return;
         }
@@ -586,8 +586,7 @@ export default function CitizenRequestPage() {
               )}
 
               <p className="text-xs text-on-surface-variant/80">
-                Include floor level, color of exterior walls, or high visibility markers for air and
-                boat crews.
+                Include floor level, color of exterior walls, or landmarks visible to responders.
               </p>
             </div>
 
@@ -642,7 +641,7 @@ export default function CitizenRequestPage() {
 
                 <div className="flex items-center justify-between pt-1">
                   <span className="text-xs text-emerald-800 dark:text-emerald-300 font-medium">
-                    Dispatch coordinates ready for rescue routing.
+                    Coordinates verified for request review.
                   </span>
                   <button
                     className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 underline"
@@ -871,7 +870,7 @@ export default function CitizenRequestPage() {
             {/* Special Circumstances */}
             <div className="space-y-3">
               <div className="text-sm font-semibold text-on-surface">
-                Special needs or dispatch requirements
+                Special assistance or access needs
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <label className="flex items-start gap-3 p-3.5 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low transition-colors cursor-pointer">
@@ -1149,7 +1148,7 @@ export default function CitizenRequestPage() {
 
             <div className="space-y-1.5">
               <label className="block text-sm font-semibold text-on-surface" htmlFor="notesInput">
-                Additional Instructions for Rescue Crews
+                Additional Instructions / Landmark Details
               </label>
               <textarea
                 className="w-full h-24 p-3 bg-surface-container-lowest border border-outline-variant rounded-lg text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
@@ -1193,7 +1192,7 @@ export default function CitizenRequestPage() {
                   <span className="material-symbols-outlined text-sm">edit_note</span>
                   <span>
                     Notice: Form details were modified. Submitting will transmit a new separate
-                    dispatch ticket, not modify an existing one.
+                    request ticket, not modify an existing one.
                   </span>
                 </div>
               )}
