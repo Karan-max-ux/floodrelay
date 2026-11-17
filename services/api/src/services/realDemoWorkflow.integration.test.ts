@@ -12,6 +12,7 @@ import { OperationalEventService } from './operationalEventService.js';
 import { AffectedScopeService } from './affectedScopeService.js';
 import { RepairOrchestrationService } from './repairOrchestrationService.js';
 import { IncrementalRepairSolverAdapter } from './incrementalRepairSolverAdapter.js';
+import { ForecastService } from './floodForecast/forecastService.js';
 import { runMigrationsUp } from '../db/migrator.js';
 import {
   assertDisposableTestDatabase,
@@ -40,6 +41,7 @@ describe.runIf(shouldRun)(
     let assignmentService: AssignmentService;
     let eventService: OperationalEventService;
     let repairService: RepairOrchestrationService;
+    let forecastService: ForecastService;
     let currentRegistry: FixtureRegistry | null = null;
 
     beforeAll(async () => {
@@ -58,6 +60,7 @@ describe.runIf(shouldRun)(
       eventService = new OperationalEventService(repo, affectedScopeService);
       const repairSolver = new IncrementalRepairSolverAdapter(repo);
       repairService = new RepairOrchestrationService(repo, repairSolver);
+      forecastService = new ForecastService();
 
       app = createApp({
         repository: repo,
@@ -67,6 +70,7 @@ describe.runIf(shouldRun)(
         operationalEventService: eventService,
         affectedScopeService,
         repairOrchestrationService: repairService,
+        forecastService,
       });
     });
 
@@ -78,12 +82,12 @@ describe.runIf(shouldRun)(
       }
     });
 
-    it('executes full end-to-end real demo workflow: intake -> propose -> commit -> disrupt -> repair preserving frozen stops', async () => {
+    it('executes full 8-stage disaster response scenario on real PostGIS with invariant verification', async () => {
       const pool = getPool();
       const registry = new FixtureRegistry();
       currentRegistry = registry;
 
-      // 1. Provision authorized DISPATCHER role with unique test-run username
+      // Provision authorized DISPATCHER role with unique test-run username
       const username = registry.generateId('demo_disp');
       registry.operatorUsernames.add(username);
       const testPassword = `TestPass_${crypto.randomBytes(8).toString('hex')}!`;
@@ -98,7 +102,7 @@ describe.runIf(shouldRun)(
       registry.operatorSessionTokens.add(dLogin.token);
       const dispatcherToken = dLogin.token;
 
-      // 2. Provision shelters
+      // Provision shelters
       const shelterId1 = registry.generateId('shelter_n');
       registry.shelterIds.add(shelterId1);
       await pool.query(
@@ -107,7 +111,7 @@ describe.runIf(shouldRun)(
         [shelterId1],
       );
 
-      // 3. Provision rescue craft resources
+      // Provision rescue craft resources
       const boat1 = registry.generateId('craft_alpha');
       registry.resourceIds.add(boat1);
       await pool.query(
@@ -132,7 +136,9 @@ describe.runIf(shouldRun)(
         [boat3],
       );
 
-      // 4. Intake distress requests via HTTP API (genuine citizen intake coverage)
+      // =========================================================================
+      // Stage 1: Citizen intake with geospatial duplicate flagging (<= 100m, <= 2h) without deletion
+      // =========================================================================
       const intakeRes1 = await request(app).post('/requests').send({
         lat: 28.665,
         lng: 77.235,
@@ -140,45 +146,97 @@ describe.runIf(shouldRun)(
         urgency: 'CRITICAL',
         source: 'REPORTED',
         verificationStatus: 'VERIFIED',
-        notes: 'Citizen distress request 1',
+        notes: 'Citizen distress request 1: Family stranded on roof',
       });
-      if (intakeRes1.body?.data?.id) {
-        registry.requestIds.add(intakeRes1.body.data.id);
-      }
       expect(intakeRes1.status).toBe(201);
       expect(intakeRes1.body.success).toBe(true);
+      const req1Id = intakeRes1.body.data.id;
+      registry.requestIds.add(req1Id);
+      expect(intakeRes1.body.data.isFlaggedDuplicate).toBe(false);
 
+      // Request 2: Geospatial duplicate near request 1 (~25m away within 2h) -> Flagged without deletion
       const intakeRes2 = await request(app).post('/requests').send({
+        lat: 28.6652,
+        lng: 77.2351,
+        peopleCount: 2,
+        urgency: 'CRITICAL',
+        source: 'REPORTED',
+        verificationStatus: 'UNVERIFIED',
+        notes: 'Neighbor reporting same building family stranded',
+      });
+      expect(intakeRes2.status).toBe(201);
+      expect(intakeRes2.body.success).toBe(true);
+      const req2Id = intakeRes2.body.data.id;
+      registry.requestIds.add(req2Id);
+      expect(intakeRes2.body.data.isFlaggedDuplicate).toBe(true);
+      expect(intakeRes2.body.data.duplicateOfId).toBe(req1Id);
+
+      // Request 3: Distinct distress location
+      const intakeRes3 = await request(app).post('/requests').send({
         lat: 28.662,
         lng: 77.238,
         peopleCount: 4,
         urgency: 'HIGH',
         source: 'REPORTED',
         verificationStatus: 'VERIFIED',
-        notes: 'Citizen distress request 2',
+        notes: 'Citizen distress request 3: Medical urgency at community center',
       });
-      if (intakeRes2.body?.data?.id) {
-        registry.requestIds.add(intakeRes2.body.data.id);
-      }
-      expect(intakeRes2.status).toBe(201);
-      expect(intakeRes2.body.success).toBe(true);
+      expect(intakeRes3.status).toBe(201);
+      expect(intakeRes3.body.success).toBe(true);
+      const req3Id = intakeRes3.body.data.id;
+      registry.requestIds.add(req3Id);
 
-      // 5. Propose baseline rescue assignment (POST /assignments/propose returns 201 with data.id)
+      // =========================================================================
+      // Stage 2: Operator request monitoring and triage
+      // =========================================================================
+      const listReqsRes = await request(app)
+        .get('/requests?status=PENDING')
+        .set('Authorization', `Bearer ${dispatcherToken}`);
+      expect(listReqsRes.status).toBe(200);
+      expect(listReqsRes.body.success).toBe(true);
+      const returnedIds = (listReqsRes.body.data as Array<{ id: string }>).map((r) => r.id);
+      expect(returnedIds).toContain(req1Id);
+      expect(returnedIds).toContain(req2Id);
+      expect(returnedIds).toContain(req3Id);
+
+      // =========================================================================
+      // Stage 3: Algorithmic proposal generation (capacity constraints, pickup before dropoff)
+      // =========================================================================
       const proposeRes = await request(app)
         .post('/assignments/propose')
         .set('Authorization', `Bearer ${dispatcherToken}`)
         .send({ algorithm: 'nearest-first' });
 
-      const baselineAssignmentId = proposeRes.body?.data?.id;
-      if (baselineAssignmentId) {
-        registry.trackAssignment(baselineAssignmentId);
-      }
-
       expect(proposeRes.status).toBe(201);
       expect(proposeRes.body.success).toBe(true);
+      const baselineAssignmentId = proposeRes.body.data.id;
       expect(baselineAssignmentId).toBeDefined();
+      registry.trackAssignment(baselineAssignmentId);
 
-      // 6. Operator commits baseline assignment with operatorId (stops become FROZEN)
+      const proposedPlan = proposeRes.body.data;
+      expect(proposedPlan.status).toBe('PROPOSED');
+      expect(proposedPlan.routes.length).toBeGreaterThan(0);
+      for (const route of proposedPlan.routes) {
+        let seenDropoff = false;
+        for (const stop of route.stops) {
+          if (stop.type === 'DROPOFF') seenDropoff = true;
+          if (stop.type === 'PICKUP' && seenDropoff) {
+            throw new Error(
+              `Invalid route: PICKUP occurred after DROPOFF for resource ${route.resourceId}`,
+            );
+          }
+        }
+      }
+
+      // =========================================================================
+      // Stage 4: Human operator commitment with frozen stops & invalid commitment rollback
+      // =========================================================================
+      const invalidCommit = await request(app)
+        .post('/assignments/non-existent-assign-id/commit')
+        .set('Authorization', `Bearer ${dispatcherToken}`)
+        .send({ operatorId: username });
+      expect([404, 409]).toContain(invalidCommit.status);
+
       const commitRes = await request(app)
         .post(`/assignments/${baselineAssignmentId}/commit`)
         .set('Authorization', `Bearer ${dispatcherToken}`)
@@ -190,13 +248,23 @@ describe.runIf(shouldRun)(
       expect(commitRes.status).toBe(200);
       expect(commitRes.body.success).toBe(true);
 
-      // Inspect committed baseline stops in PostgreSQL
       const baselineStops = await fetchAssignmentStopsWithCoordinates(pool, baselineAssignmentId);
       expect(baselineStops.length).toBeGreaterThan(0);
       const frozenBaselineStops = baselineStops.filter((s) => s.isFrozen);
       expect(frozenBaselineStops.length).toBeGreaterThan(0);
 
-      // 7. Operational disruption 1: Resource status update (PATCH /operations/resources/:id/status)
+      // Assert committed requests are ASSIGNED in database
+      const reqRows = await pool.query<{ id: string; status: string }>(
+        'SELECT id, status FROM requests WHERE id = ANY($1::text[])',
+        [[req1Id, req3Id]],
+      );
+      for (const row of reqRows.rows) {
+        expect(row.status).toBe('ASSIGNED');
+      }
+
+      // =========================================================================
+      // Stage 5: Disruption events: craft failure (RESOURCE_OFFLINE) & road blockage (ROAD_BLOCKED)
+      // =========================================================================
       const statusRes = await request(app)
         .patch(`/operations/resources/${boat3}/status`)
         .set('Authorization', `Bearer ${dispatcherToken}`)
@@ -204,28 +272,12 @@ describe.runIf(shouldRun)(
           status: 'MAINTENANCE',
           reason: 'Routine propeller maintenance',
         });
-
       if (statusRes.body?.data?.event?.id) {
         registry.operationalEventIds.add(statusRes.body.data.event.id);
       }
       expect(statusRes.status).toBe(200);
       expect(statusRes.body.success).toBe(true);
 
-      const restoreRes = await request(app)
-        .patch(`/operations/resources/${boat3}/status`)
-        .set('Authorization', `Bearer ${dispatcherToken}`)
-        .send({
-          status: 'AVAILABLE',
-          reason: 'Routine propeller maintenance completed; craft returned to service',
-        });
-
-      if (restoreRes.body?.data?.event?.id) {
-        registry.operationalEventIds.add(restoreRes.body.data.event.id);
-      }
-      expect(restoreRes.status).toBe(200);
-      expect(restoreRes.body.success).toBe(true);
-
-      // 8. Operational disruption 2: Hazard zone / road blockage (POST /operations/road-zones returns 201)
       const roadZoneRes = await request(app)
         .post('/operations/road-zones')
         .set('Authorization', `Bearer ${dispatcherToken}`)
@@ -240,7 +292,6 @@ describe.runIf(shouldRun)(
           ],
           reason: 'Embankment breached by rising flood surge',
         });
-
       if (roadZoneRes.body?.data?.zone?.id) {
         registry.blockedZoneIds.add(roadZoneRes.body.data.zone.id);
       }
@@ -251,7 +302,9 @@ describe.runIf(shouldRun)(
       expect(roadZoneRes.body.success).toBe(true);
       const roadDisruptionEventId = roadZoneRes.body.data.event.id;
 
-      // 9. Trigger incremental repair orchestration for operational hazard
+      // =========================================================================
+      // Stage 6: Incremental repair producing proposal preserving frozen stops
+      // =========================================================================
       const repairRes = await request(app)
         .post('/operations/repair')
         .set('Authorization', `Bearer ${dispatcherToken}`)
@@ -259,11 +312,6 @@ describe.runIf(shouldRun)(
           eventId: roadDisruptionEventId,
           baselineAssignmentId,
         });
-
-      const proposalId = repairRes.body?.data?.proposalId;
-      if (proposalId) {
-        registry.trackAssignment(proposalId);
-      }
 
       expect(repairRes.status).toBe(200);
       expect(repairRes.body.success).toBe(true);
@@ -274,23 +322,54 @@ describe.runIf(shouldRun)(
         `Repair proposal failed: ${JSON.stringify(repairData.warnings)}`,
       ).toBe('PROPOSED');
       expect(typeof repairData.proposalId).toBe('string');
-      expect(repairData.proposalId.length).toBeGreaterThan(0);
+      registry.trackAssignment(repairData.proposalId);
 
       // Verify frozen stops invariant in PostgreSQL database
       const repairedStops = await fetchAssignmentStopsWithCoordinates(pool, repairData.proposalId);
       assertFrozenStopsPreserved(frozenBaselineStops, repairedStops, 'PROPOSED');
-
-      // Verify zero frozen stop violations
       expect(repairData.churn.frozenStopsViolated).toBe(0);
 
-      // 10. Verify cleanup deletes only tracked fixtures in foreign-key-safe order
+      // =========================================================================
+      // Stage 7: Forecast context retrieval (GET /forecast/context)
+      // =========================================================================
+      const forecastRes = await request(app)
+        .get('/forecast/context?lat=28.65&lng=77.23&days=7')
+        .set('Authorization', `Bearer ${dispatcherToken}`);
+      expect(forecastRes.status).toBe(200);
+      expect(forecastRes.body.success).toBe(true);
+      expect(forecastRes.body.data.variable.name).toBe('river_discharge');
+      expect(forecastRes.body.data.disclaimer).toBeDefined();
+
+      // =========================================================================
+      // Stage 8: Operational audit history & foreign-key safe teardown
+      // =========================================================================
+      const auditRes = await request(app)
+        .get('/audit?limit=50')
+        .set('Authorization', `Bearer ${dispatcherToken}`);
+      expect(auditRes.status).toBe(200);
+      expect(auditRes.body.success).toBe(true);
+      expect(Array.isArray(auditRes.body.data.events)).toBe(true);
+
+      // Teardown: delete only tracked fixtures in foreign-key-safe order
       await registry.cleanup(pool);
       currentRegistry = null;
 
-      const verifyClean = await pool.query(`SELECT COUNT(*) AS c FROM assignments WHERE id = $1`, [
-        baselineAssignmentId,
+      const verifyBaseline = await pool.query(
+        'SELECT COUNT(*) AS c FROM assignments WHERE id = $1',
+        [baselineAssignmentId],
+      );
+      expect(Number(verifyBaseline.rows[0]?.c)).toBe(0);
+
+      const verifyRepair = await pool.query('SELECT COUNT(*) AS c FROM assignments WHERE id = $1', [
+        repairData.proposalId,
       ]);
-      expect(Number(verifyClean.rows[0]?.c)).toBe(0);
+      expect(Number(verifyRepair.rows[0]?.c)).toBe(0);
+
+      const verifyReqs = await pool.query(
+        'SELECT COUNT(*) AS c FROM requests WHERE id = ANY($1::text[])',
+        [[req1Id, req2Id, req3Id]],
+      );
+      expect(Number(verifyReqs.rows[0]?.c)).toBe(0);
     });
   },
 );
