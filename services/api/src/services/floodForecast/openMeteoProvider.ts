@@ -36,6 +36,13 @@ export const FORECAST_DISCLAIMER =
   'Informational hydrological context based on European Centre for Medium-Range Weather Forecasts (ECMWF) GloFAS 4.0 gridded river discharge model via Open-Meteo (CC BY 4.0). GloFAS simulates river discharge in cubic meters per second (m³/s) and does not measure localized street inundation, urban flash flooding, or measured gauge levels at Delhi Old Railway Bridge (Central Water Commission Yamuna Warning Level: 204.5 m, Danger Level: 205.33 m above MSL). All discharge risk thresholds (50, 200, 800 m³/s) are experimental model indicators and do NOT constitute official public flood warnings. This layer is informational only and does not trigger autonomous rescue dispatch or modify committed routes.';
 
 export function classifyDischargeRisk(maxDischargeM3S: number): ForecastRiskLevel {
+  if (
+    typeof maxDischargeM3S !== 'number' ||
+    !Number.isFinite(maxDischargeM3S) ||
+    maxDischargeM3S < 0
+  ) {
+    return 'UNAVAILABLE';
+  }
   if (maxDischargeM3S >= 800) return 'EXTREME';
   if (maxDischargeM3S >= 200) return 'HIGH';
   if (maxDischargeM3S >= 50) return 'ELEVATED';
@@ -72,10 +79,10 @@ export class OpenMeteoFloodForecastProvider implements FloodForecastProvider {
     );
     url.searchParams.set('forecast_days', days.toString());
 
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
+    try {
       const res = await fetch(url.toString(), {
         signal: controller.signal,
         headers: {
@@ -83,7 +90,6 @@ export class OpenMeteoFloodForecastProvider implements FloodForecastProvider {
           'User-Agent': 'FloodRelay-HydrologicalContext/1.0',
         },
       });
-      clearTimeout(timer);
 
       if (!res.ok) {
         throw new Error(`Upstream flood provider returned HTTP ${res.status}: ${res.statusText}`);
@@ -101,6 +107,8 @@ export class OpenMeteoFloodForecastProvider implements FloodForecastProvider {
         return this.getFallbackFixture(lat, lng, days);
       }
       throw err;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -111,19 +119,85 @@ export class OpenMeteoFloodForecastProvider implements FloodForecastProvider {
     days: number,
     freshness: 'FRESH' | 'CACHED' | 'STALE',
   ): FloodForecastContext {
-    const dates = json.daily.time || [];
-    const discharge = json.daily.river_discharge || [];
-    const mean = json.daily.river_discharge_mean || [];
-    const max = json.daily.river_discharge_max || [];
-    const min = json.daily.river_discharge_min || [];
+    if (!json || typeof json !== 'object' || !json.daily || typeof json.daily !== 'object') {
+      throw new Error('Malformed upstream flood forecast: missing daily data object');
+    }
 
-    const daily: DailyDischargeForecast[] = dates.map((date, idx) => ({
-      date,
-      dischargeM3S: Number((discharge[idx] ?? mean[idx] ?? 0).toFixed(2)),
-      dischargeMeanM3S: Number((mean[idx] ?? discharge[idx] ?? 0).toFixed(2)),
-      dischargeMaxM3S: Number((max[idx] ?? discharge[idx] ?? 0).toFixed(2)),
-      dischargeMinM3S: Number((min[idx] ?? discharge[idx] ?? 0).toFixed(2)),
-    }));
+    const dates = json.daily.time;
+    if (!Array.isArray(dates) || dates.length === 0) {
+      throw new Error('Upstream flood provider returned empty or missing daily.time array');
+    }
+
+    const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    for (const d of dates) {
+      if (typeof d !== 'string' || !isoDateRegex.test(d)) {
+        throw new Error(`Malformed forecast date string in daily.time: "${d}"`);
+      }
+    }
+
+    const discharge = json.daily.river_discharge;
+    const mean = json.daily.river_discharge_mean;
+    const max = json.daily.river_discharge_max;
+    const min = json.daily.river_discharge_min;
+
+    if (!discharge && !mean && !max) {
+      throw new Error('Upstream flood provider returned no river discharge metrics');
+    }
+
+    // Verify array length consistency
+    for (const [name, arr] of [
+      ['river_discharge', discharge],
+      ['river_discharge_mean', mean],
+      ['river_discharge_max', max],
+      ['river_discharge_min', min],
+    ] as const) {
+      if (arr !== undefined && (!Array.isArray(arr) || arr.length !== dates.length)) {
+        throw new Error(
+          `Array length mismatch for ${name}: expected ${dates.length}, got ${arr?.length}`,
+        );
+      }
+    }
+
+    const daily: DailyDischargeForecast[] = dates.map((date, idx) => {
+      const rawDischarge = discharge ? discharge[idx] : undefined;
+      const rawMean = mean ? mean[idx] : undefined;
+      const rawMax = max ? max[idx] : undefined;
+      const rawMin = min ? min[idx] : undefined;
+
+      const effectiveDischarge = rawDischarge ?? rawMean ?? rawMax;
+      if (
+        effectiveDischarge === undefined ||
+        effectiveDischarge === null ||
+        !Number.isFinite(effectiveDischarge) ||
+        effectiveDischarge < 0
+      ) {
+        throw new Error(
+          `Invalid or missing river discharge measurement on ${date}: received ${effectiveDischarge}`,
+        );
+      }
+
+      const effectiveMean = rawMean ?? effectiveDischarge;
+      const effectiveMax = rawMax ?? effectiveDischarge;
+      const effectiveMin = rawMin ?? effectiveDischarge;
+
+      if (!Number.isFinite(effectiveMean) || effectiveMean < 0) {
+        throw new Error(`Invalid river_discharge_mean on ${date}: received ${effectiveMean}`);
+      }
+      if (!Number.isFinite(effectiveMax) || effectiveMax < 0) {
+        throw new Error(`Invalid river_discharge_max on ${date}: received ${effectiveMax}`);
+      }
+      if (!Number.isFinite(effectiveMin) || effectiveMin < 0) {
+        throw new Error(`Invalid river_discharge_min on ${date}: received ${effectiveMin}`);
+      }
+
+      return {
+        date,
+        dischargeM3S: Number(effectiveDischarge.toFixed(2)),
+        dischargeMeanM3S: Number(effectiveMean.toFixed(2)),
+        dischargeMaxM3S: Number(effectiveMax.toFixed(2)),
+        dischargeMinM3S: Number(effectiveMin.toFixed(2)),
+      };
+    });
 
     const currentDischargeM3S = daily[0]?.dischargeM3S ?? 0;
     const peakForecastM3S = daily.reduce((acc, d) => Math.max(acc, d.dischargeMaxM3S), 0);
