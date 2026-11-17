@@ -35,6 +35,7 @@ export async function runDemoSetup(): Promise<{
   frozenStopsCount: number;
   churnRate: number;
   credentialsFile: string;
+  isSimulationPreview?: boolean;
 }> {
   console.log('===============================================================');
   console.log('🌊 FloodRelay — End-to-End Demonstration Environment Setup');
@@ -108,16 +109,65 @@ export async function runDemoSetup(): Promise<{
     manifest.shelterIds.push(...scenario.shelters.map((s) => s.id));
 
     // Step 5: Provision demonstration operator account with least privilege (DISPATCHER)
-    const demoUsername = process.env.DEMO_OPERATOR_USERNAME || 'demo_operator';
-    const demoPassword =
-      process.env.DEMO_OPERATOR_PASSWORD || crypto.randomBytes(16).toString('base64url');
+    const demoUsername = (process.env.DEMO_OPERATOR_USERNAME || 'demo_operator')
+      .trim()
+      .toLowerCase();
+    const explicitPassword = process.env.DEMO_OPERATOR_PASSWORD?.trim();
     const demoRole = 'DISPATCHER';
+    const credPath = path.resolve(__dirname, '../../.demo-credentials.local.json');
 
+    let activePassword = explicitPassword;
     const existingOp = await repo.getOperatorByUsername(demoUsername);
-    if (!existingOp) {
+
+    if (existingOp) {
+      // If no explicit password provided, check if valid saved credentials exist
+      if (!activePassword && fs.existsSync(credPath)) {
+        try {
+          const savedCreds = JSON.parse(fs.readFileSync(credPath, 'utf-8'));
+          if (
+            savedCreds.username === demoUsername &&
+            typeof savedCreds.password === 'string' &&
+            authService.verifyPassword(
+              savedCreds.password,
+              existingOp.salt,
+              existingOp.password_hash,
+            )
+          ) {
+            activePassword = savedCreds.password;
+            console.log(
+              `✔ Preserved existing verified credentials for demonstration operator "${demoUsername}".`,
+            );
+          }
+        } catch {
+          // File corrupted or unreadable; fall through to rotate
+        }
+      }
+
+      // If activePassword is still not set or differs from DB, rotate/sync password
+      if (!activePassword) {
+        activePassword = crypto.randomBytes(16).toString('base64url');
+        const { hash, salt } = authService.hashPassword(activePassword);
+        await repo.updateOperatorPassword(existingOp.id, hash, salt);
+        console.log(`✔ Rotated password for existing demonstration operator "${demoUsername}".`);
+      } else if (
+        explicitPassword &&
+        !authService.verifyPassword(explicitPassword, existingOp.salt, existingOp.password_hash)
+      ) {
+        const { hash, salt } = authService.hashPassword(explicitPassword);
+        await repo.updateOperatorPassword(existingOp.id, hash, salt);
+        console.log(
+          `✔ Synchronized explicit DEMO_OPERATOR_PASSWORD for operator "${demoUsername}".`,
+        );
+      } else {
+        console.log(`✔ Demonstration operator "${demoUsername}" verified.`);
+      }
+
+      manifest.operatorUsernames.push(demoUsername);
+    } else {
+      activePassword = activePassword || crypto.randomBytes(16).toString('base64url');
       await authService.createOperator({
         username: demoUsername,
-        password: demoPassword,
+        password: activePassword,
         name: 'Lead Disaster Operations Dispatcher',
         role: demoRole,
       });
@@ -125,19 +175,15 @@ export async function runDemoSetup(): Promise<{
       console.log(
         `✔ Provisioned demonstration operator: "${demoUsername}" (Least-privilege role: ${demoRole}).`,
       );
-    } else {
-      console.log(`✔ Demonstration operator "${demoUsername}" verified.`);
-      manifest.operatorUsernames.push(demoUsername);
     }
 
     // Persist credentials locally in gitignored file — NEVER print password to stdout
-    const credPath = path.resolve(__dirname, '../../.demo-credentials.local.json');
     fs.writeFileSync(
       credPath,
       JSON.stringify(
         {
           username: demoUsername,
-          password: demoPassword,
+          password: activePassword,
           role: demoRole,
           runId,
           generatedAt: new Date().toISOString(),
@@ -148,6 +194,15 @@ export async function runDemoSetup(): Promise<{
       { mode: 0o600 },
     );
     console.log(`✔ Credentials securely written to local file: .demo-credentials.local.json`);
+
+    // Verify immediately via authService.authenticate
+    const authVerification = await authService.authenticate(demoUsername, activePassword);
+    if (!authVerification.token) {
+      throw new Error(
+        `CRITICAL: Demonstration operator authentication verification failed for "${demoUsername}"`,
+      );
+    }
+    console.log(`✔ Demonstration operator credentials verified via authentication check.`);
 
     // Step 6: Propose baseline assignment
     console.log('Generating initial baseline rescue proposal (algorithm: savings)...');
@@ -161,21 +216,34 @@ export async function runDemoSetup(): Promise<{
     }
     console.log(`✔ Baseline proposal created: ID = ${baseline.id}`);
 
-    // Step 7: Commit baseline assignment (human operator commitment -> stops frozen)
-    console.log('Operator committing baseline assignment (freezing mission stops)...');
-    const commitSuccess = await assignmentService.commitAssignment(baseline.id, {
-      operatorId: demoUsername,
-      notes: 'Baseline Yamuna disaster relief deployment plan committed by demo operator.',
-    });
-    if (!commitSuccess) {
-      throw new Error(`Failed to commit baseline assignment "${baseline.id}"`);
-    }
+    // Step 7: Baseline assignment handling (Simulation Preview Mode vs Operational Commitment)
+    const isSimulatedScenario =
+      scenario.requests.some((r) => r.source === 'SIMULATED') ||
+      scenario.resources.some((r) => r.source === 'SIMULATED');
 
-    const committedAssignment = await repo.getAssignment(baseline.id);
-    const frozenStops = committedAssignment?.stops.filter((s) => s.is_frozen) ?? [];
-    console.log(
-      `✔ Baseline committed: status = ${committedAssignment?.assignment.status}, frozen stops = ${frozenStops.length}.`,
-    );
+    let frozenStopsCount = 0;
+    if (isSimulatedScenario) {
+      console.log('ℹ Simulation Preview Mode: Baseline proposal retained in PROPOSED status.');
+      console.log(
+        '  (PR #41 operational provenance rules prevent committing synthetic data to operational dispatch; real-world requests require human operator commitment).',
+      );
+    } else {
+      console.log('Operator committing baseline assignment (freezing mission stops)...');
+      const commitSuccess = await assignmentService.commitAssignment(baseline.id, {
+        operatorId: demoUsername,
+        notes: 'Baseline Yamuna disaster relief deployment plan committed by demo operator.',
+      });
+      if (!commitSuccess) {
+        throw new Error(`Failed to commit baseline assignment "${baseline.id}"`);
+      }
+
+      const committedAssignment = await repo.getAssignment(baseline.id);
+      const frozenStops = committedAssignment?.stops.filter((s) => s.is_frozen) ?? [];
+      frozenStopsCount = frozenStops.length;
+      console.log(
+        `✔ Baseline committed: status = ${committedAssignment?.assignment.status}, frozen stops = ${frozenStopsCount}.`,
+      );
+    }
 
     // Step 8: Inject operational disruptions
     // A. Resource offline disruption
@@ -271,6 +339,11 @@ export async function runDemoSetup(): Promise<{
     console.log('\n===============================================================');
     console.log('🎉 FloodRelay Demonstration System Ready for Presentation');
     console.log('===============================================================');
+    if (isSimulatedScenario) {
+      console.log('  Mode:     Simulation Preview (Synthetic entities held in PROPOSED status)');
+    } else {
+      console.log('  Mode:     Operational Dispatch (Committed)');
+    }
     console.log('\nOperator Credentials:');
     console.log(`  Username: ${demoUsername}`);
     console.log(`  Role:     ${demoRole}`);
@@ -294,9 +367,10 @@ export async function runDemoSetup(): Promise<{
       baselineAssignmentId: baseline.id,
       repairedProposalId: repairResult.proposalId ?? '',
       disruptionEventId: disruptionEvent.event.id,
-      frozenStopsCount: frozenStops.length,
+      frozenStopsCount,
       churnRate: repairResult.churn?.churnRate ?? 0,
       credentialsFile: credPath,
+      isSimulationPreview: isSimulatedScenario,
     };
   } finally {
     await closePool();

@@ -5,6 +5,7 @@ export interface IAuthRepository {
   getOperatorByUsername(username: string): Promise<DbOperator | null>;
   getOperatorById(id: string): Promise<DbOperator | null>;
   insertOperator(operator: Omit<DbOperator, 'created_at' | 'updated_at'>): Promise<DbOperator>;
+  updateOperatorPassword?(id: string, passwordHash: string, salt: string): Promise<boolean>;
   insertSession(token: string, operatorId: string, expiresAt: Date): Promise<DbOperatorSession>;
   getSessionWithOperator(
     token: string,
@@ -158,6 +159,28 @@ export class AuthService {
       name: created.name,
       role: created.role,
     };
+  }
+
+  /**
+   * Updates an operator's password hash and salt securely.
+   */
+  public async updateOperatorPassword(id: string, newPassword: string): Promise<void> {
+    if (!newPassword || newPassword.length < 8) {
+      throw new AuthError(
+        'Password must be at least 8 characters long',
+        'PASSWORD_POLICY_VIOLATION',
+        400,
+      );
+    }
+    const { hash, salt } = this.hashPassword(newPassword);
+    if (this.repo.updateOperatorPassword) {
+      const ok = await this.repo.updateOperatorPassword(id, hash, salt);
+      if (!ok) {
+        throw new AuthError(`Operator with ID "${id}" not found`, 'OPERATOR_NOT_FOUND', 404);
+      }
+    } else {
+      throw new Error('Repository does not support updateOperatorPassword');
+    }
   }
 
   /**
@@ -317,6 +340,15 @@ export class InMemoryAuthRepository implements IAuthRepository {
     };
     this.operators.set(operator.id, full);
     return full;
+  }
+
+  async updateOperatorPassword(id: string, passwordHash: string, salt: string): Promise<boolean> {
+    const op = this.operators.get(id);
+    if (!op) return false;
+    op.password_hash = passwordHash;
+    op.salt = salt;
+    op.updated_at = new Date();
+    return true;
   }
 
   async insertSession(
