@@ -184,7 +184,7 @@ export default function CitizenHomePage() {
               </p>
             </div>
             <div className="mt-6 pt-4 border-t border-outline-variant/60 flex items-center text-xs text-primary font-semibold">
-              <span>Verified queue tracking</span>
+              <span>Operator review workflow</span>
             </div>
           </div>
 

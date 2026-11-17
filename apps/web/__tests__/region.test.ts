@@ -142,6 +142,20 @@ describe('Delhi regional presentation and safety messaging', () => {
     expect(homeHtml).toContain('Check official flood advisories');
   });
 
+  it('displays Operator review workflow in Step 2 and does not display Verified queue tracking', () => {
+    const homeHtml = renderToString(React.createElement(CitizenHomePage));
+    expect(homeHtml).toContain('Triage &amp; Review');
+    expect(homeHtml).toContain('Operator review workflow');
+    expect(homeHtml).not.toContain('Verified queue tracking');
+  });
+
+  it('does not claim that citizen request tracking is currently available', () => {
+    const homeHtml = renderToString(React.createElement(CitizenHomePage));
+    expect(homeHtml).not.toContain('Verified queue tracking');
+    expect(homeHtml).not.toContain('Live request tracking available');
+    expect(homeHtml).not.toContain('Track your rescue crew live');
+  });
+
   it('Three-step workflow does not guarantee physical rescue deployment', () => {
     const homeHtml = renderToString(React.createElement(CitizenHomePage));
     expect(homeHtml).toContain('Three Steps from Request to Response Planning');
