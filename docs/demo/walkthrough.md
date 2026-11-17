@@ -85,16 +85,18 @@ Demonstrate the human commitment transition and freezing of active mission stops
 
 1. Review the proposed routes, travel times, and assigned shelters.
 2. In the Operator Action panel, add an operational note: `"Authorized initial deployment by duty officer"`.
-3. Click **Commit Deployment Plan**.
+3. For live operational workflows (or distress calls submitted via the citizen portal in Step 1 which carry `source: 'REPORTED'`), click **Commit Deployment Plan**.
 4. Observe the state transition:
    - Assignment status changes to `COMMITTED`.
    - All route stops receive `is_frozen = true`.
    - Associated requests transition to `ASSIGNED`.
 
-### Safety Invariant
+### Safety & Provenance Invariants
 
-> [!NOTE]
-> Once committed, stops are immutable markers of active in-flight missions (`is_frozen = true`). Any subsequent re-plan must respect these stops.
+> [!IMPORTANT]
+> **Simulation Preview Mode vs. Operational Commitment (ADR-41):**
+> When exploring pre-seeded synthetic demo scenarios (`demo-yamuna-scenario.json`), requests and resources are labeled `source: 'SIMULATED'`. Under FloodRelay operational provenance rules (PR #41), committing synthetic data to operational dispatch is strictly prohibited (`409 SIMULATED_REQUEST_FORBIDDEN` / `SIMULATED_RESOURCE_FORBIDDEN`).
+> The demonstration environment runs in **Simulation Preview Mode**, safely holding synthetic baseline proposals in `PROPOSED` status for evaluation and incremental repair testing. Authentic operational commitment is reserved for real citizen intake (`source: 'REPORTED'`) and operational assets (`source: 'REAL'`). Once committed, stops are immutable markers of active in-flight missions (`is_frozen = true`), and subsequent re-plans must preserve them with zero violations.
 
 ---
 

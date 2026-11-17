@@ -58,17 +58,19 @@ This guide details common issues encountered when setting up and running the dem
 
 ## 3. Database Safety Guard Failures
 
-### Issue: `DEMO SAFETY VIOLATION: Database target does not appear to be a designated database`
+### Issue: `UNAUTHORIZED_DEMO_DATABASE_NAME` or `UNAUTHORIZED_DEMO_EXECUTION`
 
-**Cause:** The demo setup script enforces strict database safety guards to prevent accidental deletion or mutation of production data.
+**Cause:** The demo setup script enforces strict database safety guards to prevent accidental deletion or mutation of development or production databases (`assertDisposableDemoDatabase`).
 
 **Resolution:**
 
 - Verify that `NODE_ENV` is NOT set to `production`.
-- Verify that `DATABASE_URL` contains `floodrelay`, `demo`, or `test`.
+- Verify that `ALLOW_DISPOSABLE_DEMO_DB=1` is explicitly defined in your `.env` file.
+- Verify that the target database name in `DATABASE_URL` is strictly `floodrelay_demo` or `floodrelay_test` on `localhost` / `127.0.0.1`.
 - Example valid `.env` configuration:
   ```env
-  DATABASE_URL=postgresql://floodrelay:floodrelay_dev@localhost:5432/floodrelay
+  ALLOW_DISPOSABLE_DEMO_DB=1
+  DATABASE_URL=postgresql://floodrelay:floodrelay_dev@localhost:5432/floodrelay_demo
   ```
 
 ---
@@ -81,13 +83,11 @@ This guide details common issues encountered when setting up and running the dem
 
 **Behavior:**
 
-- FloodRelay automatically falls back to an offline deterministic synthetic GloFAS hydrological model for the Yamuna River reach.
-- The returned forecast context will include:
-  ```json
-  "freshness": "STALE_FALLBACK",
-  "provider": "Copernicus GloFAS 4.0 (Offline Fallback Fixture)"
-  ```
-- No server crashes or test failures occur.
+- When live network connectivity to Open-Meteo is unavailable:
+  - If a cached forecast exists, FloodRelay serves it with `"freshness": "STALE"` and an explanatory notice.
+  - If `FORECAST_ENABLE_OFFLINE_FIXTURE=1` is set, FloodRelay serves an offline deterministic GloFAS fixture modeled for the Yamuna reach with `"freshness": "OFFLINE_FIXTURE"`.
+  - Otherwise, the endpoint gracefully degrades to `"freshness": "UNAVAILABLE"`, `"riskCategory": "UNAVAILABLE"`, and `daily: []`, without fabricating normal river discharge or triggering false flood alarms.
+- The UI hook (`useFloodForecast`) surfaces explicit `STALE`, `OFFLINE_FIXTURE`, or `UNAVAILABLE` badges without failing or blocking rescue operations.
 
 ---
 

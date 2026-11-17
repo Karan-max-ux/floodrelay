@@ -34,24 +34,26 @@ npm run demo:setup
 
 ### Running the Web Applications
 
-Start the API and Web frontend:
+Start the backend API and Next.js frontend:
 
 ```powershell
-# In terminal 1 (Express API service, port 3000):
-npm run dev --workspace=@floodrelay/api
+# In terminal 1 (Express API service listening on port 3001):
+$env:PORT=3001; npm run dev --workspace=@floodrelay/api
 
-# In terminal 2 (Next.js Operator & Citizen Portal, port 3001 or 3000):
+# In terminal 2 (Next.js Operator & Citizen Portal on port 3000, proxying API to port 3001):
 npm run dev --workspace=@floodrelay/web
 ```
 
 ### Interactive Demonstration Portals
+
+All interactive portals and proxied API endpoints are accessible through Next.js on port 3000:
 
 - **Citizen Distress Submission:** [http://localhost:3000/citizen/request](http://localhost:3000/citizen/request)
 - **Operator Command Portal:** [http://localhost:3000/operator](http://localhost:3000/operator)
 - **Tactical GIS Live Map:** [http://localhost:3000/operator/map](http://localhost:3000/operator/map)
 - **Operational Audit Log:** [http://localhost:3000/operator/audit](http://localhost:3000/operator/audit)
 - **Platform Limitations & Boundary Disclaimers:** [http://localhost:3000/limitations](http://localhost:3000/limitations)
-- **River Forecast Context API:** [http://localhost:3000/forecast/context](http://localhost:3000/forecast/context)
+- **River Forecast Context API (Proxied):** [http://localhost:3000/forecast/context](http://localhost:3000/forecast/context)
 
 ### Demonstration Operator Credentials
 

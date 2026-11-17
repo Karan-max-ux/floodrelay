@@ -1,8 +1,8 @@
 # Flood Rescue Resource Allocation Platform — Progress
 
-**Last updated:** 2026-11-09
+**Last updated:** 2026-11-18
 
-**Current focus:** Phase 6 Delivery Verified & Hardened ✅ — Demo DB Safety Guard (`ALLOW_DISPOSABLE_DEMO_DB=1`, host allowlists, durable manifest tracking, random credential security), River Discharge Forecast Qualification (GloFAS 4.0 m³/s experimental indicator, zero misleading fallback), Real PostGIS & Solver Integration Suite, and Evidence-Based Redis/BullMQ Evaluation (ADR-41/ADR-42).
+**Current focus:** Phase 6 Delivery Verified & Hardened ✅ — Full audit, regression testing, and final hardening complete. Demo workflow simulated scenario commitment vs PR #41 operational provenance rules resolved via Simulation Preview Mode; demo operator credential desynchronization on repeated setup fixed with idempotent DB/file sync and post-verification; hydrological forecast correctness and edge-case handling hardened with zero false-normal fallbacks; UI hook `useFloodForecast` race-condition and unmount guards added; comprehensive unit and integration suites expanded across all 8 demonstration stages; production dependency security audit clean (0 vulnerabilities).
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -202,8 +202,8 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Phase 5 Part 2 Finalized & Safety Verified ✅ (PR #25). Phase 5 Part 3 merged (PR #23). Phase 5 Part 1 merged (PR #22).
-- **Next up:** Phase 6 — Hardening, load tests, and faculty demo preparation.
+- **Last completed:** Phase 6 Final Hardening & Audit Verification ✅ (PR #30). Phase 5 Part 2 Finalized & Safety Verified ✅ (PR #25). Phase 5 Part 3 merged (PR #23). Phase 5 Part 1 merged (PR #22).
+- **Next up:** Faculty demonstration, presentation walkthrough, and production deployment readiness.
 - **Phase 0:** Complete ✅.
 - **Phase 1:** Complete (8 of 8 tasks complete ✅).
 - **Phase 2:** Complete (PR #17 review fixes merged ✅).
@@ -212,6 +212,7 @@ Incoming rescue requests
 - **Phase 5 Part 1:** Complete ✅ (merged PR #22).
 - **Phase 5 Part 2:** Complete ✅ (PR #25).
 - **Phase 5 Part 3:** Complete ✅ (merged PR #23).
+- **Phase 6:** Complete ✅ (PR #30 final hardening verified).
 
 ---
 
