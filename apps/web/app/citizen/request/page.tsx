@@ -520,6 +520,16 @@ export default function CitizenRequestPage() {
                   </div>
                 )}
 
+              {/* Reverse Geocoding Approximate Landmark Guidance */}
+              {reverseGeocodeStatus === 'FOUND' && reverseGeocodeMessage && (
+                <div className="flex items-start gap-2 p-2.5 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg text-xs text-blue-800 dark:text-blue-200 mt-1">
+                  <span className="material-symbols-outlined text-base text-blue-600 shrink-0">
+                    info
+                  </span>
+                  <span>{reverseGeocodeMessage}</span>
+                </div>
+              )}
+
               {/* Geocoding Notice or Error */}
               {geocodeMessage && (
                 <div

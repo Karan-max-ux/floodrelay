@@ -201,9 +201,17 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
         }
       } else {
         setGeocodeStatus('ERROR');
+        const rawMsg = data?.message;
+        const isSafeMessage =
+          rawMsg &&
+          typeof rawMsg === 'string' &&
+          !rawMsg.includes('GEOAPIFY') &&
+          !rawMsg.includes('CONFIG_ERROR') &&
+          !rawMsg.includes('PROVIDER_');
         setGeocodeMessage(
-          data?.message ||
-            'Unable to determine location for this address. Please refine your search or use GPS.',
+          isSafeMessage
+            ? rawMsg
+            : 'Unable to determine location for this address. Please refine your search or use GPS.',
         );
       }
     } catch (err: unknown) {
@@ -213,7 +221,7 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
       if (seq !== geocodeSeqRef.current) return;
       setGeocodeStatus('ERROR');
       setGeocodeMessage(
-        'Network error looking up address. Please check your connection or use GPS.',
+        'Unable to determine location for this address. Please check your connection or use GPS.',
       );
     }
   };
@@ -292,7 +300,12 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
           const formattedAddress = data.address.trim();
           setAddress(formattedAddress);
           setReverseGeocodeStatus('FOUND');
-          setReverseGeocodeMessage(null);
+          setReverseGeocodeMessage(
+            data.isApproximate
+              ? data.message ||
+                  'Approximate regional landmark identified. Please specify your exact street address or building number.'
+              : null,
+          );
 
           // REQUIREMENT: Automatically populate coordinates and address,
           // but KEEP isLocationConfirmed=false until citizen explicitly confirms.
@@ -303,20 +316,36 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
           onErrorsClear?.(['address', 'lat', 'lng']);
         } else {
           setReverseGeocodeStatus('UNAVAILABLE');
-          const baseMsg = data?.message || 'No street address found for these coordinates.';
+          const rawMsg = data?.message;
+          const isTechnical =
+            !rawMsg ||
+            typeof rawMsg !== 'string' ||
+            rawMsg.includes('GEOAPIFY') ||
+            rawMsg.includes('CONFIG_ERROR') ||
+            rawMsg.includes('PROVIDER_');
           setReverseGeocodeMessage(
-            baseMsg.includes('manually')
-              ? baseMsg
-              : `${baseMsg} Coordinates are saved — please enter your street address or landmark manually.`,
+            isTechnical
+              ? 'Automatic address lookup is temporarily unavailable. Your GPS coordinates are saved — please specify your street name or a nearby landmark.'
+              : rawMsg.includes('manually')
+                ? rawMsg
+                : `${rawMsg} Coordinates are saved — please enter your street address or landmark manually.`,
           );
         }
       } else {
         setReverseGeocodeStatus('ERROR');
-        const baseMsg = data?.message || 'Unable to determine street address.';
+        const rawMsg = data?.message;
+        const isTechnical =
+          !rawMsg ||
+          typeof rawMsg !== 'string' ||
+          rawMsg.includes('GEOAPIFY') ||
+          rawMsg.includes('CONFIG_ERROR') ||
+          rawMsg.includes('PROVIDER_');
         setReverseGeocodeMessage(
-          baseMsg.includes('manually')
-            ? baseMsg
-            : `${baseMsg} Coordinates are saved — please enter your street address or landmark manually.`,
+          isTechnical
+            ? 'Automatic address lookup is temporarily unavailable. Your GPS coordinates are saved — please specify your street name or a nearby landmark.'
+            : rawMsg.includes('manually')
+              ? rawMsg
+              : `${rawMsg} Coordinates are saved — please enter your street address or landmark manually.`,
         );
       }
     } catch (err: unknown) {
@@ -329,7 +358,7 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
       }
       setReverseGeocodeStatus('ERROR');
       setReverseGeocodeMessage(
-        'Network error looking up address. Coordinates are saved — please enter your street address or landmark manually.',
+        'Automatic address lookup is temporarily unavailable. Your GPS coordinates are saved — please specify your street name or a nearby landmark.',
       );
     }
   };

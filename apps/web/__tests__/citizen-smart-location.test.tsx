@@ -181,8 +181,26 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
       expect(dataShort.message).toContain('at least 3 characters');
     });
 
-    it('returns 503 CONFIG_ERROR when GEOAPIFY_API_KEY is not configured', async () => {
+    it('gracefully falls back to OpenStreetMap Nominatim when GEOAPIFY_API_KEY is not configured', async () => {
       delete process.env.GEOAPIFY_API_KEY;
+
+      const mockNominatimResults = [
+        {
+          place_id: 201,
+          lat: '29.7604',
+          lon: '-95.3698',
+          display_name: '1428 Riverbend Dr, Houston, TX 77024',
+          type: 'residential',
+          importance: 0.85,
+        },
+      ];
+
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify(mockNominatimResults), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
 
       const req = new Request('http://localhost:3000/api/geocode', {
         method: 'POST',
@@ -191,9 +209,10 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
       });
       const res = await geocodePOST(req);
       const data = await res.json();
-      expect(res.status).toBe(503);
-      expect(data.error).toBe('CONFIG_ERROR');
-      expect(data.message).toContain('GEOAPIFY_API_KEY');
+      expect(res.status).toBe(200);
+      expect(data.success).toBe(true);
+      expect(data.results[0].formatted).toContain('1428 Riverbend Dr');
+      expect(data.results[0].attribution).toBe('OpenStreetMap contributors');
     });
 
     it('returns 200 with normalized candidate list on successful provider geocoding', async () => {
@@ -270,9 +289,13 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
     });
 
     it('handles provider 429 rate limit gracefully', async () => {
-      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-        new Response('Too Many Requests', { status: 429, statusText: 'Too Many Requests' }),
-      );
+      vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(
+          new Response('Too Many Requests', { status: 429, statusText: 'Too Many Requests' }),
+        )
+        .mockResolvedValueOnce(
+          new Response('Too Many Requests', { status: 429, statusText: 'Too Many Requests' }),
+        );
 
       const req = new Request('http://localhost:3000/api/geocode', {
         method: 'POST',
@@ -289,9 +312,9 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
     });
 
     it('handles provider network errors and timeouts gracefully', async () => {
-      vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(
-        new Error('Network timeout reaching api.geoapify.com'),
-      );
+      vi.spyOn(globalThis, 'fetch')
+        .mockRejectedValueOnce(new Error('Network timeout reaching api.geoapify.com'))
+        .mockRejectedValueOnce(new Error('Network timeout reaching nominatim.openstreetmap.org'));
 
       const req = new Request('http://localhost:3000/api/geocode', {
         method: 'POST',
@@ -727,8 +750,26 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
     });
 
     // 15. Missing Geoapify configuration is handled
-    it('15. Missing Geoapify configuration returns controlled 503 error', async () => {
+    it('15. Missing Geoapify configuration falls back to Nominatim without exposing CONFIG_ERROR', async () => {
       delete process.env.GEOAPIFY_API_KEY;
+
+      const mockNominatimResults = [
+        {
+          place_id: 201,
+          lat: '29.7604',
+          lon: '-95.3698',
+          display_name: '1428 Riverbend Dr, Houston, TX',
+          type: 'residential',
+          importance: 0.85,
+        },
+      ];
+
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify(mockNominatimResults), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
 
       const res = await geocodePOST(
         new Request('http://localhost:3000/api/geocode', {
@@ -739,8 +780,10 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
       );
       const data = await res.json();
 
-      expect(res.status).toBe(503);
-      expect(data.error).toBe('CONFIG_ERROR');
+      expect(res.status).toBe(200);
+      expect(data.success).toBe(true);
+      expect(data.results[0].formatted).toContain('1428 Riverbend Dr');
+      expect(data.results[0].attribution).toBe('OpenStreetMap contributors');
     });
 
     // 16. Invalid coordinate ranges are rejected

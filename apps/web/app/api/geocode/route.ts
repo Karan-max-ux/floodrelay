@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimiter';
+import { fetchNominatimSearch } from '../../../lib/geocoding';
 
 export interface GeocodeRequestBody {
   text: string;
@@ -112,177 +113,194 @@ export async function POST(request: Request): Promise<NextResponse<GeocodeRespon
       );
     }
 
-    // 3. API key check (never expose to client)
+    const candidates: GeocodeCandidate[] = [];
+    let geoapifyError: { status: number; error: string; message: string } | null = null;
+
+    // 3. Step 1: Prefer Geoapify when configured
     const apiKey = process.env.GEOAPIFY_API_KEY;
-    if (!apiKey || !apiKey.trim()) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'CONFIG_ERROR',
-          message: 'Geocoding service is not configured (missing GEOAPIFY_API_KEY).',
-        },
-        { status: 503 },
-      );
-    }
+    if (apiKey && apiKey.trim()) {
+      const geoapifyUrl = new URL('https://api.geoapify.com/v1/geocode/search');
+      geoapifyUrl.searchParams.set('text', trimmedQuery);
+      geoapifyUrl.searchParams.set('format', 'json');
+      geoapifyUrl.searchParams.set('limit', '5');
+      geoapifyUrl.searchParams.set('apiKey', apiKey.trim());
 
-    // 4. Construct Geoapify request
-    const geoapifyUrl = new URL('https://api.geoapify.com/v1/geocode/search');
-    geoapifyUrl.searchParams.set('text', trimmedQuery);
-    geoapifyUrl.searchParams.set('format', 'json');
-    geoapifyUrl.searchParams.set('limit', '5');
-    geoapifyUrl.searchParams.set('apiKey', apiKey.trim());
-
-    let providerRes: Response;
-    try {
-      providerRes = await fetch(geoapifyUrl.toString(), {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-        },
-        signal: AbortSignal.timeout(8000),
-      });
-    } catch (fetchErr: unknown) {
-      const msg = fetchErr instanceof Error ? fetchErr.message : 'Network error';
-      return NextResponse.json(
-        {
-          success: false,
+      let providerRes: Response | null = null;
+      try {
+        providerRes = await fetch(geoapifyUrl.toString(), {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+          },
+          signal: AbortSignal.timeout(8000),
+        });
+      } catch (fetchErr: unknown) {
+        const msg = fetchErr instanceof Error ? fetchErr.message : 'Network error';
+        geoapifyError = {
+          status: 502,
           error: 'PROVIDER_NETWORK_ERROR',
           message: `Failed to reach geocoding provider: ${msg}`,
-        },
-        { status: 502 },
-      );
-    }
+        };
+      }
 
-    // 5. Handle provider rate limits and errors
-    if (providerRes.status === 429) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'PROVIDER_RATE_LIMIT',
-          message:
-            'Geocoding provider rate limit reached. Please wait a moment or enter coordinates manually.',
-        },
-        { status: 429 },
-      );
-    }
+      if (providerRes) {
+        if (providerRes.status === 429) {
+          geoapifyError = {
+            status: 429,
+            error: 'PROVIDER_RATE_LIMIT',
+            message:
+              'Geocoding provider rate limit reached. Please wait a moment or enter coordinates manually.',
+          };
+        } else if (!providerRes.ok) {
+          const errText = await providerRes.text().catch(() => '');
+          geoapifyError = {
+            status: 502,
+            error: 'PROVIDER_ERROR',
+            message: `Geocoding provider responded with status ${providerRes.status}: ${errText.slice(0, 200)}`,
+          };
+        } else {
+          const data = await providerRes.json().catch(() => null);
+          if (data && typeof data === 'object') {
+            interface RawGeoapifyItem {
+              formatted?: string;
+              address_line1?: string;
+              address_line2?: string;
+              lat?: number;
+              lon?: number;
+              lng?: number;
+              confidence?: number;
+              rank?: { confidence?: number; match_type?: string };
+              result_type?: string;
+              datasource?: { attribution?: string };
+              geometry?: { coordinates?: [number, number] };
+              properties?: RawGeoapifyItem;
+            }
 
-    if (!providerRes.ok) {
-      const errText = await providerRes.text().catch(() => '');
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'PROVIDER_ERROR',
-          message: `Geocoding provider responded with status ${providerRes.status}: ${errText.slice(0, 200)}`,
-        },
-        { status: 502 },
-      );
-    }
+            const rawList: RawGeoapifyItem[] = [];
+            if (Array.isArray(data.results)) {
+              rawList.push(...data.results);
+            } else if (Array.isArray(data.features)) {
+              for (const feat of data.features) {
+                if (feat && typeof feat === 'object') {
+                  const props = (feat.properties || {}) as RawGeoapifyItem;
+                  const coords = feat.geometry?.coordinates;
+                  rawList.push({
+                    ...props,
+                    lat:
+                      props.lat ??
+                      (coords && typeof coords[1] === 'number' ? coords[1] : undefined),
+                    lon:
+                      props.lon ??
+                      (coords && typeof coords[0] === 'number' ? coords[0] : undefined),
+                  });
+                }
+              }
+            }
 
-    const data = await providerRes.json().catch(() => null);
-    if (!data || typeof data !== 'object') {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'PROVIDER_ERROR',
-          message: 'Invalid response from geocoding provider.',
-        },
-        { status: 502 },
-      );
-    }
+            for (const item of rawList) {
+              if (!item || typeof item !== 'object') continue;
 
-    // 6. Normalize candidates from results or features
-    interface RawGeoapifyItem {
-      formatted?: string;
-      address_line1?: string;
-      address_line2?: string;
-      lat?: number;
-      lon?: number;
-      lng?: number;
-      confidence?: number;
-      rank?: { confidence?: number; match_type?: string };
-      result_type?: string;
-      datasource?: { attribution?: string };
-      geometry?: { coordinates?: [number, number] };
-      properties?: RawGeoapifyItem;
-    }
+              const latNum =
+                typeof item.lat === 'number'
+                  ? item.lat
+                  : typeof item.lat === 'string'
+                    ? parseFloat(item.lat)
+                    : NaN;
 
-    const rawList: RawGeoapifyItem[] = [];
-    if (Array.isArray(data.results)) {
-      rawList.push(...data.results);
-    } else if (Array.isArray(data.features)) {
-      for (const feat of data.features) {
-        if (feat && typeof feat === 'object') {
-          const props = (feat.properties || {}) as RawGeoapifyItem;
-          const coords = feat.geometry?.coordinates;
-          rawList.push({
-            ...props,
-            lat: props.lat ?? (coords && typeof coords[1] === 'number' ? coords[1] : undefined),
-            lon: props.lon ?? (coords && typeof coords[0] === 'number' ? coords[0] : undefined),
-          });
+              const rawLng = item.lon ?? item.lng;
+              const lngNum =
+                typeof rawLng === 'number'
+                  ? rawLng
+                  : typeof rawLng === 'string'
+                    ? parseFloat(rawLng)
+                    : NaN;
+
+              if (isNaN(latNum) || latNum < -90 || latNum > 90) continue;
+              if (isNaN(lngNum) || lngNum < -180 || lngNum > 180) continue;
+
+              const formatted =
+                item.formatted?.trim() ||
+                [item.address_line1, item.address_line2].filter(Boolean).join(', ').trim();
+
+              if (!formatted) continue;
+
+              const confidence = item.confidence ?? item.rank?.confidence;
+              const matchType = item.rank?.match_type;
+              const resultType = item.result_type;
+              const attribution = item.datasource?.attribution;
+
+              candidates.push({
+                formatted,
+                lat: latNum,
+                lng: lngNum,
+                confidence: typeof confidence === 'number' ? confidence : undefined,
+                matchType: typeof matchType === 'string' ? matchType : undefined,
+                resultType: typeof resultType === 'string' ? resultType : undefined,
+                attribution: typeof attribution === 'string' ? attribution : undefined,
+              });
+
+              if (candidates.length >= 5) break;
+            }
+
+            if (candidates.length === 0) {
+              return NextResponse.json(
+                {
+                  success: true,
+                  results: [],
+                  message:
+                    "We couldn't find a matching location for this address. Please provide a more precise address, add a nearby landmark or city, or use GPS.",
+                },
+                { status: 200 },
+              );
+            }
+
+            return NextResponse.json(
+              {
+                success: true,
+                results: candidates,
+              },
+              { status: 200 },
+            );
+          }
         }
       }
     }
 
-    const candidates: GeocodeCandidate[] = [];
-
-    for (const item of rawList) {
-      if (!item || typeof item !== 'object') continue;
-
-      const latNum =
-        typeof item.lat === 'number'
-          ? item.lat
-          : typeof item.lat === 'string'
-            ? parseFloat(item.lat)
-            : NaN;
-
-      const rawLng = item.lon ?? item.lng;
-      const lngNum =
-        typeof rawLng === 'number' ? rawLng : typeof rawLng === 'string' ? parseFloat(rawLng) : NaN;
-
-      if (isNaN(latNum) || latNum < -90 || latNum > 90) continue;
-      if (isNaN(lngNum) || lngNum < -180 || lngNum > 180) continue;
-
-      const formatted =
-        item.formatted?.trim() ||
-        [item.address_line1, item.address_line2].filter(Boolean).join(', ').trim();
-
-      if (!formatted) continue;
-
-      const confidence = item.confidence ?? item.rank?.confidence;
-      const matchType = item.rank?.match_type;
-      const resultType = item.result_type;
-      const attribution = item.datasource?.attribution;
-
-      candidates.push({
-        formatted,
-        lat: latNum,
-        lng: lngNum,
-        confidence: typeof confidence === 'number' ? confidence : undefined,
-        matchType: typeof matchType === 'string' ? matchType : undefined,
-        resultType: typeof resultType === 'string' ? resultType : undefined,
-        attribution: typeof attribution === 'string' ? attribution : undefined,
-      });
-
-      if (candidates.length >= 5) break;
+    // 4. Step 2: Fall back to Nominatim when Geoapify is unconfigured or unavailable
+    try {
+      const nominatimCandidates = await fetchNominatimSearch(trimmedQuery);
+      if (nominatimCandidates.length > 0) {
+        return NextResponse.json(
+          {
+            success: true,
+            results: nominatimCandidates,
+          },
+          { status: 200 },
+        );
+      }
+    } catch {
+      // Nominatim network failure handled below
     }
 
-    // 7. Return candidates or no-match notice
-    if (candidates.length === 0) {
+    // If Geoapify encountered an error and Nominatim also yielded no candidates:
+    if (geoapifyError) {
       return NextResponse.json(
         {
-          success: true,
-          results: [],
-          message:
-            "We couldn't find a matching location for this address. Please provide a more precise address, add a nearby landmark or city, or use GPS.",
+          success: false,
+          error: geoapifyError.error,
+          message: geoapifyError.message,
         },
-        { status: 200 },
+        { status: geoapifyError.status as 429 | 502 },
       );
     }
 
+    // 5. Step 3: Return clean no-match notice (never fabricate fake coordinates)
     return NextResponse.json(
       {
         success: true,
-        results: candidates,
+        results: [],
+        message:
+          "We couldn't find a matching location for this address. Please provide a more precise address, add a nearby landmark or city, or use GPS.",
       },
       { status: 200 },
     );
