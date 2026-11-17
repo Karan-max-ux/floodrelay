@@ -9,6 +9,11 @@ export type ReverseGeocodeStatus = 'IDLE' | 'LOOKING_UP' | 'FOUND' | 'UNAVAILABL
 export type GeocodeStatus = 'IDLE' | 'SEARCHING' | 'FOUND' | 'NO_MATCH' | 'ERROR';
 export type LocationSource = 'NONE' | 'GPS' | 'GEOCODED' | 'MANUAL';
 
+export interface LocationAttribution {
+  text: string;
+  url: string;
+}
+
 export interface ConfirmedLocationDetails {
   address: string;
   lat: string;
@@ -45,6 +50,7 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
   const [locationSource, setLocationSource] = useState<LocationSource>('NONE');
   const [isLocationConfirmed, setIsLocationConfirmed] = useState<boolean>(false);
   const [confirmedDetails, setConfirmedDetails] = useState<ConfirmedLocationDetails | null>(null);
+  const [locationAttribution, setLocationAttribution] = useState<LocationAttribution | null>(null);
 
   // Invalidation & Stale-Response Guards
   const lookupSeqRef = useRef<number>(0);
@@ -68,6 +74,7 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
    */
   const handleAddressChange = (newVal: string) => {
     setAddress(newVal);
+    setLocationAttribution(null);
     userEditedDuringLookupRef.current = true;
     userEditedAddressRef.current = true;
 
@@ -107,6 +114,7 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
   const handleCoordinateChange = (field: 'lat' | 'lng', newVal: string) => {
     if (field === 'lat') setLat(newVal);
     else setLng(newVal);
+    setLocationAttribution(null);
 
     // 1. Invalidate pending reverse-geocoding responses
     lookupSeqRef.current += 1;
@@ -246,6 +254,19 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
       source: 'GEOCODED',
     });
 
+    if (
+      candidate.attribution?.includes('OpenStreetMap') ||
+      candidate.attribution?.includes('OSM') ||
+      candidate.attributionUrl?.includes('openstreetmap.org')
+    ) {
+      setLocationAttribution({
+        text: candidate.attribution || '© OpenStreetMap contributors',
+        url: candidate.attributionUrl || 'https://www.openstreetmap.org/copyright',
+      });
+    } else {
+      setLocationAttribution(null);
+    }
+
     setGeocodeCandidates([]);
     setGeocodeStatus('FOUND');
     setGeocodeMessage(null);
@@ -307,6 +328,19 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
               : null,
           );
 
+          if (
+            data.provider === 'nominatim' ||
+            data.attribution?.includes('OpenStreetMap') ||
+            data.attributionUrl?.includes('openstreetmap.org')
+          ) {
+            setLocationAttribution({
+              text: data.attribution || '© OpenStreetMap contributors',
+              url: data.attributionUrl || 'https://www.openstreetmap.org/copyright',
+            });
+          } else {
+            setLocationAttribution(null);
+          }
+
           // REQUIREMENT: Automatically populate coordinates and address,
           // but KEEP isLocationConfirmed=false until citizen explicitly confirms.
           setIsLocationConfirmed(false);
@@ -316,36 +350,27 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
           onErrorsClear?.(['address', 'lat', 'lng']);
         } else {
           setReverseGeocodeStatus('UNAVAILABLE');
+          setLocationAttribution(null);
           const rawMsg = data?.message;
-          const isTechnical =
-            !rawMsg ||
-            typeof rawMsg !== 'string' ||
-            rawMsg.includes('GEOAPIFY') ||
-            rawMsg.includes('CONFIG_ERROR') ||
-            rawMsg.includes('PROVIDER_');
+          const isSafe =
+            rawMsg &&
+            typeof rawMsg === 'string' &&
+            !rawMsg.includes('GEOAPIFY') &&
+            !rawMsg.includes('CONFIG_ERROR') &&
+            !rawMsg.includes('PROVIDER_') &&
+            !rawMsg.includes('<!DOCTYPE') &&
+            !rawMsg.includes('<html');
           setReverseGeocodeMessage(
-            isTechnical
-              ? 'Automatic address lookup is temporarily unavailable. Your GPS coordinates are saved — please specify your street name or a nearby landmark.'
-              : rawMsg.includes('manually')
-                ? rawMsg
-                : `${rawMsg} Coordinates are saved — please enter your street address or landmark manually.`,
+            isSafe
+              ? rawMsg
+              : 'Automatic address lookup is temporarily unavailable. Your GPS coordinates are saved — please specify your street name or a nearby landmark.',
           );
         }
       } else {
         setReverseGeocodeStatus('ERROR');
-        const rawMsg = data?.message;
-        const isTechnical =
-          !rawMsg ||
-          typeof rawMsg !== 'string' ||
-          rawMsg.includes('GEOAPIFY') ||
-          rawMsg.includes('CONFIG_ERROR') ||
-          rawMsg.includes('PROVIDER_');
+        setLocationAttribution(null);
         setReverseGeocodeMessage(
-          isTechnical
-            ? 'Automatic address lookup is temporarily unavailable. Your GPS coordinates are saved — please specify your street name or a nearby landmark.'
-            : rawMsg.includes('manually')
-              ? rawMsg
-              : `${rawMsg} Coordinates are saved — please enter your street address or landmark manually.`,
+          'Automatic address lookup is temporarily unavailable. Your GPS coordinates are saved — please specify your street name or a nearby landmark.',
         );
       }
     } catch (err: unknown) {
@@ -357,6 +382,7 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
         return;
       }
       setReverseGeocodeStatus('ERROR');
+      setLocationAttribution(null);
       setReverseGeocodeMessage(
         'Automatic address lookup is temporarily unavailable. Your GPS coordinates are saved — please specify your street name or a nearby landmark.',
       );
@@ -372,6 +398,7 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
       return;
     }
 
+    setLocationAttribution(null);
     setGpsStatus('ACQUIRING');
     invalidateConfirmation();
 
@@ -475,6 +502,8 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
     setGeocodeMessage,
     locationSource,
     setLocationSource,
+    locationAttribution,
+    setLocationAttribution,
     isLocationConfirmed,
     setIsLocationConfirmed,
     confirmedDetails,

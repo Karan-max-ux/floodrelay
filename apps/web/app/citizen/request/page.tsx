@@ -75,6 +75,7 @@ export default function CitizenRequestPage() {
     geocodeCandidates,
     geocodeMessage,
     locationSource,
+    locationAttribution,
     isLocationConfirmed,
     confirmedDetails,
     setIsLocationConfirmed,
@@ -426,7 +427,7 @@ export default function CitizenRequestPage() {
                         void handleSearchAddress();
                       }
                     }}
-                    placeholder="e.g., 1428 Riverbend Dr, 2nd Floor Apt 3B, near Water Tower"
+                    placeholder="e.g., House 24, Civil Lines, near Metro Station, Delhi"
                     type="text"
                     value={address}
                   />
@@ -509,6 +510,24 @@ export default function CitizenRequestPage() {
                 Approximate GPS address. Confirm your location and add a nearby landmark.
               </p>
 
+              {/* OpenStreetMap Attribution when Nominatim provides location */}
+              {locationAttribution && (
+                <div
+                  className="text-[11px] text-on-surface-variant flex items-center gap-1 mt-0.5"
+                  data-testid="osm-attribution"
+                >
+                  <span>Location data: </span>
+                  <a
+                    className="underline hover:text-primary"
+                    href={locationAttribution.url}
+                    rel="noopener noreferrer"
+                    target="_blank"
+                  >
+                    {locationAttribution.text}
+                  </a>
+                </div>
+              )}
+
               {/* Reverse Geocoding Guidance on Unavailable / Error */}
               {(reverseGeocodeStatus === 'UNAVAILABLE' || reverseGeocodeStatus === 'ERROR') &&
                 reverseGeocodeMessage && (
@@ -569,14 +588,14 @@ export default function CitizenRequestPage() {
                             <span>
                               {candidate.lat.toFixed(4)}, {candidate.lng.toFixed(4)}
                             </span>
-                            {candidate.confidence ? (
-                              <span className="text-emerald-700 dark:text-emerald-400">
-                                Match: {Math.round(candidate.confidence * 100)}%
-                              </span>
-                            ) : null}
                             {candidate.resultType && (
                               <span className="uppercase text-[10px] bg-surface-container px-1.5 py-0.2 rounded">
                                 {candidate.resultType}
+                              </span>
+                            )}
+                            {candidate.attribution && (
+                              <span className="text-[10px] text-on-surface-variant">
+                                {candidate.attribution}
                               </span>
                             )}
                           </div>

@@ -22,6 +22,96 @@ export const NOMINATIM_USER_AGENT =
 export const REVERSE_GEOCODE_UNAVAILABLE_MESSAGE =
   'Automatic address lookup is temporarily unavailable. Your GPS coordinates are saved — please specify your street name or a nearby landmark.';
 
+export const DEFAULT_NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org';
+export const DEFAULT_NOMINATIM_ALLOWED_HOSTS = ['nominatim.openstreetmap.org'];
+
+export const NOMINATIM_DEFAULT_MIN_INTERVAL_MS = 1000;
+export const NOMINATIM_MIN_INTERVAL_MS = 1000;
+
+export const MAX_REGIONAL_LANDMARK_DISTANCE_KM = 5.0;
+
+export const OSM_ATTRIBUTION = 'OpenStreetMap contributors';
+export const OSM_ATTRIBUTION_URL = 'https://www.openstreetmap.org/copyright';
+
+/**
+ * Validates and returns the configured Nominatim base URL.
+ * Enforces HTTPS, disallows embedded credentials, disallows non-standard ports/paths/queries,
+ * and restricts hosts to an explicit allowlist to prevent SSRF and untrusted redirects.
+ */
+export function getValidatedNominatimBaseUrl(): string {
+  const envUrl = process.env.NOMINATIM_BASE_URL?.trim();
+  if (!envUrl) {
+    return DEFAULT_NOMINATIM_BASE_URL;
+  }
+
+  try {
+    const parsed = new URL(envUrl);
+    if (parsed.protocol !== 'https:') {
+      console.warn(
+        '[geocoding] Insecure protocol in NOMINATIM_BASE_URL rejected; must use https:. Falling back to default.',
+      );
+      return DEFAULT_NOMINATIM_BASE_URL;
+    }
+    if (parsed.username || parsed.password) {
+      console.warn(
+        '[geocoding] Embedded credentials in NOMINATIM_BASE_URL rejected. Falling back to default.',
+      );
+      return DEFAULT_NOMINATIM_BASE_URL;
+    }
+    if (parsed.port && parsed.port !== '443') {
+      console.warn(
+        '[geocoding] Non-standard port in NOMINATIM_BASE_URL rejected. Falling back to default.',
+      );
+      return DEFAULT_NOMINATIM_BASE_URL;
+    }
+    if (parsed.search || parsed.hash) {
+      console.warn(
+        '[geocoding] Query parameters or fragments in NOMINATIM_BASE_URL rejected. Falling back to default.',
+      );
+      return DEFAULT_NOMINATIM_BASE_URL;
+    }
+    if (parsed.pathname && parsed.pathname !== '/' && parsed.pathname !== '') {
+      console.warn(
+        '[geocoding] Custom subpath in NOMINATIM_BASE_URL rejected. Falling back to default.',
+      );
+      return DEFAULT_NOMINATIM_BASE_URL;
+    }
+
+    const customHosts = process.env.NOMINATIM_ALLOWED_HOSTS
+      ? process.env.NOMINATIM_ALLOWED_HOSTS.split(',')
+          .map((h) => h.trim().toLowerCase())
+          .filter(Boolean)
+      : [];
+    const allowedHosts = new Set([...DEFAULT_NOMINATIM_ALLOWED_HOSTS, ...customHosts]);
+
+    if (!allowedHosts.has(parsed.hostname.toLowerCase())) {
+      console.warn(
+        `[geocoding] Host "${parsed.hostname}" is not in approved NOMINATIM allowlist. Falling back to default.`,
+      );
+      return DEFAULT_NOMINATIM_BASE_URL;
+    }
+
+    return parsed.origin;
+  } catch {
+    console.warn('[geocoding] Malformed NOMINATIM_BASE_URL rejected. Falling back to default.');
+    return DEFAULT_NOMINATIM_BASE_URL;
+  }
+}
+
+/**
+ * Returns the configured request spacing interval in milliseconds (default 1000ms).
+ * Strictly enforces a positive integer.
+ */
+export function getNominatimMinIntervalMs(): number {
+  const envVal = process.env.NOMINATIM_MIN_INTERVAL_MS?.trim();
+  if (!envVal) return NOMINATIM_DEFAULT_MIN_INTERVAL_MS;
+  const parsed = parseInt(envVal, 10);
+  if (isNaN(parsed) || parsed <= 0) {
+    return NOMINATIM_DEFAULT_MIN_INTERVAL_MS;
+  }
+  return parsed;
+}
+
 /**
  * Defensible regional coverage area for Delhi NCR / Yamuna Basin
  * Bounding Box: minLat 28.44, minLng 76.98, maxLat 28.74, maxLng 77.50
@@ -131,12 +221,14 @@ export function haversineDistanceKm(
 }
 
 /**
- * Identifies the nearest regional landmark fallback if coordinates fall within coverage area.
- * Returns null if coordinates are outside coverage. Never fabricates an exact street address.
+ * Identifies the nearest regional landmark fallback if coordinates fall within coverage area
+ * and within the maximum permitted proximity threshold (MAX_REGIONAL_LANDMARK_DISTANCE_KM = 5.0 km).
+ * Returns null if coordinates are outside coverage or exceed distance cutoff. Never fabricates an exact street address.
  */
 export function findNearestRegionalLandmark(
   lat: number,
   lng: number,
+  maxDistanceKm = MAX_REGIONAL_LANDMARK_DISTANCE_KM,
 ): { landmark: RegionalLandmark; distanceKm: number } | null {
   if (!isWithinRegionalCoverage(lat, lng)) {
     return null;
@@ -153,7 +245,11 @@ export function findNearestRegionalLandmark(
     }
   }
 
-  return nearest ? { landmark: nearest, distanceKm: minDistance } : null;
+  if (!nearest || minDistance > maxDistanceKm) {
+    return null;
+  }
+
+  return { landmark: nearest, distanceKm: minDistance };
 }
 
 export interface NominatimAddressDetails {
@@ -229,7 +325,6 @@ export function formatNominatimAddress(raw: RawNominatimReverseResponse): string
 
 export const NOMINATIM_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour TTL
 export const NOMINATIM_MAX_CACHE_SIZE = 500; // Bounded capacity
-export const NOMINATIM_MIN_INTERVAL_MS = 1000; // Minimum 1 request per second spacing
 
 export interface CacheEntry<T> {
   data: T;
@@ -239,6 +334,8 @@ export interface CacheEntry<T> {
 export interface NominatimReverseResult {
   address: string | null;
   confidence?: number;
+  attribution?: string;
+  attributionUrl?: string;
 }
 
 export interface NominatimSearchResultItem {
@@ -248,15 +345,20 @@ export interface NominatimSearchResultItem {
   confidence?: number;
   resultType?: string;
   attribution?: string;
+  attributionUrl?: string;
 }
 
 // Bounded in-memory caches
 const reverseCache = new Map<string, CacheEntry<NominatimReverseResult>>();
 const searchCache = new Map<string, CacheEntry<NominatimSearchResultItem[]>>();
 
-// In-flight single-flight promises for concurrent duplicate deduplication
-const inFlightReverse = new Map<string, Promise<NominatimReverseResult | null>>();
-const inFlightSearch = new Map<string, Promise<NominatimSearchResultItem[]>>();
+interface SharedInFlight<T> {
+  addCaller: (signal?: AbortSignal) => Promise<T>;
+}
+
+// In-flight single-flight structures for concurrent duplicate deduplication
+const inFlightReverse = new Map<string, SharedInFlight<NominatimReverseResult | null>>();
+const inFlightSearch = new Map<string, SharedInFlight<NominatimSearchResultItem[]>>();
 
 // Request serializer state
 let lastScheduledRequestTime = 0;
@@ -319,7 +421,7 @@ export function getNominatimCacheStats(): {
 }
 
 /**
- * Shared serializer scheduling Nominatim outgoing requests spaced at least 1,000ms apart.
+ * Shared serializer scheduling Nominatim outgoing requests spaced at least NOMINATIM_MIN_INTERVAL_MS apart.
  * Respects AbortSignal cancellation and timeout without automatic retries.
  */
 async function scheduleNominatimRequest<T>(
@@ -352,8 +454,9 @@ async function scheduleNominatimRequest<T>(
         throw controller.signal.reason || new DOMException('Aborted', 'AbortError');
       }
 
+      const minInterval = getNominatimMinIntervalMs();
       const now = Date.now();
-      const waitTime = Math.max(0, lastScheduledRequestTime + NOMINATIM_MIN_INTERVAL_MS - now);
+      const waitTime = Math.max(0, lastScheduledRequestTime + minInterval - now);
       if (waitTime > 0) {
         await new Promise<void>((resolve, reject) => {
           const timer = setTimeout(resolve, waitTime);
@@ -412,60 +515,118 @@ export async function fetchNominatimReverse(
   }
 
   // 2. Single-flight in-flight deduplication
-  const existingInFlight = inFlightReverse.get(key);
-  if (existingInFlight) {
-    return existingInFlight;
+  let inFlight = inFlightReverse.get(key);
+  if (!inFlight) {
+    const internalController = new AbortController();
+    let activeCallers = 0;
+
+    const executeTask = async (): Promise<NominatimReverseResult | null> => {
+      try {
+        return await scheduleNominatimRequest(
+          async (reqSignal) => {
+            const baseUrl = getValidatedNominatimBaseUrl();
+            const url = new URL(`${baseUrl}/reverse`);
+            url.searchParams.set('lat', lat.toString());
+            url.searchParams.set('lon', lng.toString());
+            url.searchParams.set('format', 'jsonv2');
+            url.searchParams.set('addressdetails', '1');
+
+            const res = await fetch(url.toString(), {
+              method: 'GET',
+              headers: {
+                Accept: 'application/json',
+                'User-Agent': NOMINATIM_USER_AGENT,
+              },
+              signal: reqSignal,
+            });
+
+            if (!res.ok) {
+              return null;
+            }
+
+            const data = (await res.json().catch(() => null)) as RawNominatimReverseResponse | null;
+            if (!data || data.error) {
+              return null;
+            }
+
+            const formatted = formatNominatimAddress(data);
+            if (!formatted) {
+              return null;
+            }
+
+            const result: NominatimReverseResult = {
+              address: formatted,
+              confidence: 0.8,
+              attribution: OSM_ATTRIBUTION,
+              attributionUrl: OSM_ATTRIBUTION_URL,
+            };
+            // Only cache successful, non-null responses
+            setInCache(reverseCache, key, result);
+            return result;
+          },
+          { signal: internalController.signal, timeoutMs },
+        );
+      } catch {
+        return null;
+      } finally {
+        inFlightReverse.delete(key);
+      }
+    };
+
+    const task = executeTask();
+
+    inFlight = {
+      addCaller: (callerSignal?: AbortSignal): Promise<NominatimReverseResult | null> => {
+        if (callerSignal?.aborted) {
+          return Promise.resolve(null);
+        }
+        activeCallers++;
+
+        return new Promise<NominatimReverseResult | null>((resolve) => {
+          let resolved = false;
+
+          const onAbort = () => {
+            if (resolved) return;
+            resolved = true;
+            activeCallers--;
+            if (activeCallers <= 0) {
+              internalController.abort(
+                callerSignal?.reason || new DOMException('Aborted', 'AbortError'),
+              );
+            }
+            resolve(null);
+          };
+
+          if (callerSignal) {
+            callerSignal.addEventListener('abort', onAbort, { once: true });
+          }
+
+          task.then(
+            (res) => {
+              if (!resolved) {
+                resolved = true;
+                activeCallers--;
+                if (callerSignal) callerSignal.removeEventListener('abort', onAbort);
+                resolve(res);
+              }
+            },
+            () => {
+              if (!resolved) {
+                resolved = true;
+                activeCallers--;
+                if (callerSignal) callerSignal.removeEventListener('abort', onAbort);
+                resolve(null);
+              }
+            },
+          );
+        });
+      },
+    };
+
+    inFlightReverse.set(key, inFlight);
   }
 
-  const requestPromise = (async (): Promise<NominatimReverseResult | null> => {
-    try {
-      return await scheduleNominatimRequest(
-        async (reqSignal) => {
-          const url = new URL('https://nominatim.openstreetmap.org/reverse');
-          url.searchParams.set('lat', lat.toString());
-          url.searchParams.set('lon', lng.toString());
-          url.searchParams.set('format', 'jsonv2');
-          url.searchParams.set('addressdetails', '1');
-
-          const res = await fetch(url.toString(), {
-            method: 'GET',
-            headers: {
-              Accept: 'application/json',
-              'User-Agent': NOMINATIM_USER_AGENT,
-            },
-            signal: reqSignal,
-          });
-
-          if (!res.ok) {
-            return null;
-          }
-
-          const data = (await res.json().catch(() => null)) as RawNominatimReverseResponse | null;
-          if (!data || data.error) {
-            return null;
-          }
-
-          const formatted = formatNominatimAddress(data);
-          if (!formatted) {
-            return null;
-          }
-
-          const result: NominatimReverseResult = { address: formatted, confidence: 0.8 };
-          // Only cache successful, non-null responses
-          setInCache(reverseCache, key, result);
-          return result;
-        },
-        { signal, timeoutMs },
-      );
-    } catch {
-      return null;
-    } finally {
-      inFlightReverse.delete(key);
-    }
-  })();
-
-  inFlightReverse.set(key, requestPromise);
-  return requestPromise;
+  return inFlight.addCaller(signal);
 }
 
 /**
@@ -492,84 +653,140 @@ export async function fetchNominatimSearch(
   }
 
   // 2. Single-flight in-flight deduplication
-  const existingInFlight = inFlightSearch.get(key);
-  if (existingInFlight) {
-    return existingInFlight;
-  }
+  let inFlight = inFlightSearch.get(key);
+  if (!inFlight) {
+    const internalController = new AbortController();
+    let activeCallers = 0;
 
-  const requestPromise = (async (): Promise<NominatimSearchResultItem[]> => {
-    try {
-      return await scheduleNominatimRequest(
-        async (reqSignal) => {
-          const url = new URL('https://nominatim.openstreetmap.org/search');
-          url.searchParams.set('q', trimmed);
-          url.searchParams.set('format', 'jsonv2');
-          url.searchParams.set('addressdetails', '1');
-          url.searchParams.set('limit', '5');
+    const executeTask = async (): Promise<NominatimSearchResultItem[]> => {
+      try {
+        return await scheduleNominatimRequest(
+          async (reqSignal) => {
+            const baseUrl = getValidatedNominatimBaseUrl();
+            const url = new URL(`${baseUrl}/search`);
+            url.searchParams.set('q', trimmed);
+            url.searchParams.set('format', 'jsonv2');
+            url.searchParams.set('addressdetails', '1');
+            url.searchParams.set('limit', '5');
 
-          const res = await fetch(url.toString(), {
-            method: 'GET',
-            headers: {
-              Accept: 'application/json',
-              'User-Agent': NOMINATIM_USER_AGENT,
-            },
-            signal: reqSignal,
-          });
-
-          if (!res.ok) {
-            return [];
-          }
-
-          const data = (await res.json().catch(() => null)) as RawNominatimSearchItem[] | null;
-          if (!Array.isArray(data)) {
-            return [];
-          }
-
-          const results: NominatimSearchResultItem[] = [];
-
-          for (const item of data) {
-            if (!item || typeof item !== 'object') continue;
-            const latNum = parseFloat(item.lat || '');
-            const lngNum = parseFloat(item.lon || '');
-
-            if (isNaN(latNum) || latNum < -90 || latNum > 90) continue;
-            if (isNaN(lngNum) || lngNum < -180 || lngNum > 180) continue;
-
-            const formatted =
-              formatNominatimAddress(item as RawNominatimReverseResponse) ||
-              item.display_name?.trim();
-            if (!formatted) continue;
-
-            const confidence =
-              typeof item.importance === 'number' ? Math.min(Math.max(item.importance, 0), 1) : 0.6;
-
-            results.push({
-              formatted,
-              lat: latNum,
-              lng: lngNum,
-              confidence,
-              resultType: item.type,
-              attribution: 'OpenStreetMap contributors',
+            const res = await fetch(url.toString(), {
+              method: 'GET',
+              headers: {
+                Accept: 'application/json',
+                'User-Agent': NOMINATIM_USER_AGENT,
+              },
+              signal: reqSignal,
             });
 
-            if (results.length >= 5) break;
+            if (!res.ok) {
+              return [];
+            }
+
+            const data = (await res.json().catch(() => null)) as RawNominatimSearchItem[] | null;
+            if (!Array.isArray(data)) {
+              return [];
+            }
+
+            const results: NominatimSearchResultItem[] = [];
+
+            for (const item of data) {
+              if (!item || typeof item !== 'object') continue;
+              const latNum = parseFloat(item.lat || '');
+              const lngNum = parseFloat(item.lon || '');
+
+              if (isNaN(latNum) || latNum < -90 || latNum > 90) continue;
+              if (isNaN(lngNum) || lngNum < -180 || lngNum > 180) continue;
+
+              const formatted =
+                formatNominatimAddress(item as RawNominatimReverseResponse) ||
+                item.display_name?.trim();
+              if (!formatted) continue;
+
+              const confidence =
+                typeof item.importance === 'number'
+                  ? Math.min(Math.max(item.importance, 0), 1)
+                  : 0.6;
+
+              results.push({
+                formatted,
+                lat: latNum,
+                lng: lngNum,
+                confidence,
+                resultType: item.type,
+                attribution: OSM_ATTRIBUTION,
+                attributionUrl: OSM_ATTRIBUTION_URL,
+              });
+
+              if (results.length >= 5) break;
+            }
+
+            // Only cache successful non-empty results
+            if (results.length > 0) {
+              setInCache(searchCache, key, results);
+            }
+            return results;
+          },
+          { signal: internalController.signal, timeoutMs },
+        );
+      } catch {
+        return [];
+      } finally {
+        inFlightSearch.delete(key);
+      }
+    };
+
+    const task = executeTask();
+
+    inFlight = {
+      addCaller: (callerSignal?: AbortSignal): Promise<NominatimSearchResultItem[]> => {
+        if (callerSignal?.aborted) {
+          return Promise.resolve([]);
+        }
+        activeCallers++;
+
+        return new Promise<NominatimSearchResultItem[]>((resolve) => {
+          let resolved = false;
+
+          const onAbort = () => {
+            if (resolved) return;
+            resolved = true;
+            activeCallers--;
+            if (activeCallers <= 0) {
+              internalController.abort(
+                callerSignal?.reason || new DOMException('Aborted', 'AbortError'),
+              );
+            }
+            resolve([]);
+          };
+
+          if (callerSignal) {
+            callerSignal.addEventListener('abort', onAbort, { once: true });
           }
 
-          // Only cache successful non-empty results
-          if (results.length > 0) {
-            setInCache(searchCache, key, results);
-          }
-          return results;
-        },
-        { signal, timeoutMs },
-      );
-    } catch {
-      return [];
-    } finally {
-      inFlightSearch.delete(key);
-    }
-  })();
+          task.then(
+            (res) => {
+              if (!resolved) {
+                resolved = true;
+                activeCallers--;
+                if (callerSignal) callerSignal.removeEventListener('abort', onAbort);
+                resolve(res);
+              }
+            },
+            () => {
+              if (!resolved) {
+                resolved = true;
+                activeCallers--;
+                if (callerSignal) callerSignal.removeEventListener('abort', onAbort);
+                resolve([]);
+              }
+            },
+          );
+        });
+      },
+    };
 
-  inFlightSearch.set(key, requestPromise);
-  return requestPromise;
+    inFlightSearch.set(key, inFlight);
+  }
+
+  return inFlight.addCaller(signal);
 }

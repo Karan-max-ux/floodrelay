@@ -380,6 +380,10 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
       // Placeholders must indicate example usage
       expect(html).toContain('placeholder="e.g. 29.7604"');
       expect(html).toContain('placeholder="e.g. -95.3698"');
+      expect(html).toContain(
+        'placeholder="e.g., House 24, Civil Lines, near Metro Station, Delhi"',
+      );
+      expect(html).not.toContain('placeholder="e.g., 1428 Riverbend Dr');
 
       // Location confirmed card is NOT present initially
       expect(html).not.toContain('data-testid="location-confirmed-card"');
@@ -1945,6 +1949,89 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
       expect(submitRes.success).toBe(true);
       expect(apiClient.createRequest).toHaveBeenCalledTimes(1);
       expect(mockRouterPush).toHaveBeenCalledWith('/citizen/confirmation');
+    });
+
+    // 21. Visible OpenStreetMap attribution displayed only when Nominatim provides the location
+    it('21. Visible OpenStreetMap attribution displayed when Nominatim provides location and omitted for Geoapify', async () => {
+      let handle!: HarnessHandle;
+      act(() => {
+        root.render(
+          <CitizenLocationHarness
+            onMount={(h) => {
+              handle = h;
+            }}
+          />,
+        );
+      });
+
+      // Nominatim reverse-geocode response (provider = 'nominatim')
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            address: 'Civil Lines, North Delhi, Delhi',
+            provider: 'nominatim',
+            attribution: 'OpenStreetMap contributors',
+            attributionUrl: 'https://www.openstreetmap.org/copyright',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+
+      await act(async () => {
+        await handle.location.triggerReverseGeocode(28.675, 77.225);
+      });
+
+      expect(handle.location.locationAttribution).toEqual({
+        text: 'OpenStreetMap contributors',
+        url: 'https://www.openstreetmap.org/copyright',
+      });
+
+      // Now simulate a Geoapify response (provider = 'geoapify')
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            address: 'Yamuna Bank, Delhi',
+            provider: 'geoapify',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+
+      await act(async () => {
+        await handle.location.triggerReverseGeocode(28.625, 77.265);
+      });
+
+      // Must be null for Geoapify
+      expect(handle.location.locationAttribution).toBeNull();
+    });
+
+    // 22. Manual user editing clears any active attribution
+    it('22. Manual user editing clears active OpenStreetMap attribution', async () => {
+      let handle!: HarnessHandle;
+      act(() => {
+        root.render(
+          <CitizenLocationHarness
+            onMount={(h) => {
+              handle = h;
+            }}
+          />,
+        );
+      });
+
+      act(() => {
+        handle.location.setLocationAttribution({
+          text: 'OpenStreetMap contributors',
+          url: 'https://www.openstreetmap.org/copyright',
+        });
+      });
+      expect(handle.location.locationAttribution).not.toBeNull();
+
+      act(() => {
+        handle.location.handleAddressChange('Edited Address by User');
+      });
+      expect(handle.location.locationAttribution).toBeNull();
     });
   });
 });

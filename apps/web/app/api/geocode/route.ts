@@ -14,6 +14,7 @@ export interface GeocodeCandidate {
   matchType?: string;
   resultType?: string;
   attribution?: string;
+  attributionUrl?: string;
 }
 
 export interface GeocodeSuccessResponse {
@@ -134,12 +135,12 @@ export async function POST(request: Request): Promise<NextResponse<GeocodeRespon
           },
           signal: AbortSignal.timeout(8000),
         });
-      } catch (fetchErr: unknown) {
-        const msg = fetchErr instanceof Error ? fetchErr.message : 'Network error';
+      } catch {
         geoapifyError = {
           status: 502,
           error: 'PROVIDER_NETWORK_ERROR',
-          message: `Failed to reach geocoding provider: ${msg}`,
+          message:
+            'Failed to reach geocoding provider. Please try again or specify location manually.',
         };
       }
 
@@ -152,11 +153,10 @@ export async function POST(request: Request): Promise<NextResponse<GeocodeRespon
               'Geocoding provider rate limit reached. Please wait a moment or enter coordinates manually.',
           };
         } else if (!providerRes.ok) {
-          const errText = await providerRes.text().catch(() => '');
           geoapifyError = {
             status: 502,
             error: 'PROVIDER_ERROR',
-            message: `Geocoding provider responded with status ${providerRes.status}: ${errText.slice(0, 200)}`,
+            message: `Geocoding provider responded with error (status ${providerRes.status}). Please try again or specify location manually.`,
           };
         } else {
           const data = await providerRes.json().catch(() => null);

@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import {
   fetchNominatimReverse,
   findNearestRegionalLandmark,
+  MAX_REGIONAL_LANDMARK_DISTANCE_KM,
+  OSM_ATTRIBUTION,
+  OSM_ATTRIBUTION_URL,
   REVERSE_GEOCODE_UNAVAILABLE_MESSAGE,
 } from '../../../lib/geocoding';
 
@@ -17,6 +20,8 @@ export interface ReverseGeocodeSuccessResponse {
   message?: string;
   isApproximate?: boolean;
   provider?: 'geoapify' | 'nominatim' | 'regional_fallback';
+  attribution?: string;
+  attributionUrl?: string;
 }
 
 export interface ReverseGeocodeErrorResponse {
@@ -84,6 +89,7 @@ export async function POST(request: Request): Promise<NextResponse<ReverseGeocod
     // Step 1: Prefer Geoapify when GEOAPIFY_API_KEY is configured
     const apiKey = process.env.GEOAPIFY_API_KEY;
     let geoapifyError: { status: number; error: string; message: string } | null = null;
+    let geoapifyEmpty = false;
 
     if (apiKey && apiKey.trim()) {
       const geoapifyUrl = new URL('https://api.geoapify.com/v1/geocode/reverse');
@@ -101,22 +107,21 @@ export async function POST(request: Request): Promise<NextResponse<ReverseGeocod
           },
           signal: AbortSignal.timeout(8000),
         });
-      } catch (fetchErr: unknown) {
-        const msg = fetchErr instanceof Error ? fetchErr.message : 'Network error';
+      } catch {
         geoapifyError = {
           status: 502,
           error: 'PROVIDER_NETWORK_ERROR',
-          message: `Failed to reach reverse geocoding provider: ${msg}`,
+          message:
+            'Failed to reach reverse geocoding provider. Please try again or specify location manually.',
         };
       }
 
       if (providerRes) {
         if (!providerRes.ok) {
-          const errText = await providerRes.text().catch(() => '');
           geoapifyError = {
             status: 502,
             error: 'PROVIDER_ERROR',
-            message: `Reverse geocoding provider responded with status ${providerRes.status}: ${errText.slice(0, 200)}`,
+            message: `Reverse geocoding provider responded with error (status ${providerRes.status}). Please try again or specify location manually.`,
           };
         } else {
           const data = await providerRes.json().catch(() => null);
@@ -152,22 +157,15 @@ export async function POST(request: Request): Promise<NextResponse<ReverseGeocod
               );
             }
 
-            // Remote coordinates with no street address found by Geoapify
-            return NextResponse.json(
-              {
-                success: true,
-                address: null,
-                message:
-                  'No street address found for these coordinates. Please enter your street address or landmark manually.',
-              },
-              { status: 200 },
-            );
+            // Geoapify returned 200 but had empty results or no address:
+            // Do NOT short-circuit! Fall through to Step 2 (Nominatim) and Step 3 (Landmarks).
+            geoapifyEmpty = true;
           }
         }
       }
     }
 
-    // Step 2: Fall back to OpenStreetMap Nominatim when Geoapify is missing or unavailable
+    // Step 2: Fall back to OpenStreetMap Nominatim when Geoapify is missing, returned empty, or failed
     const nominatimResult = await fetchNominatimReverse(latNum, lngNum, 8000, request.signal);
     if (nominatimResult && nominatimResult.address && nominatimResult.address.trim()) {
       return NextResponse.json(
@@ -176,13 +174,19 @@ export async function POST(request: Request): Promise<NextResponse<ReverseGeocod
           address: nominatimResult.address.trim(),
           confidence: nominatimResult.confidence,
           provider: 'nominatim',
+          attribution: nominatimResult.attribution || OSM_ATTRIBUTION,
+          attributionUrl: nominatimResult.attributionUrl || OSM_ATTRIBUTION_URL,
         },
         { status: 200 },
       );
     }
 
-    // Step 3: Deterministic Regional Landmark Fallback (Delhi NCR coverage area)
-    const regionalLandmark = findNearestRegionalLandmark(latNum, lngNum);
+    // Step 3: Deterministic Regional Landmark Fallback (Delhi NCR coverage area within 5.0 km)
+    const regionalLandmark = findNearestRegionalLandmark(
+      latNum,
+      lngNum,
+      MAX_REGIONAL_LANDMARK_DISTANCE_KM,
+    );
     if (regionalLandmark) {
       return NextResponse.json(
         {
@@ -215,7 +219,9 @@ export async function POST(request: Request): Promise<NextResponse<ReverseGeocod
       {
         success: true,
         address: null,
-        message: REVERSE_GEOCODE_UNAVAILABLE_MESSAGE,
+        message: geoapifyEmpty
+          ? 'No street address found for these coordinates. Please enter your street address or landmark manually.'
+          : REVERSE_GEOCODE_UNAVAILABLE_MESSAGE,
       },
       { status: 200 },
     );
