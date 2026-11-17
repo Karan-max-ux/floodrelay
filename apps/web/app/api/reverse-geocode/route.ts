@@ -168,7 +168,7 @@ export async function POST(request: Request): Promise<NextResponse<ReverseGeocod
     }
 
     // Step 2: Fall back to OpenStreetMap Nominatim when Geoapify is missing or unavailable
-    const nominatimResult = await fetchNominatimReverse(latNum, lngNum);
+    const nominatimResult = await fetchNominatimReverse(latNum, lngNum, 8000, request.signal);
     if (nominatimResult && nominatimResult.address && nominatimResult.address.trim()) {
       return NextResponse.json(
         {

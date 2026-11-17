@@ -268,7 +268,7 @@ export async function POST(request: Request): Promise<NextResponse<GeocodeRespon
 
     // 4. Step 2: Fall back to Nominatim when Geoapify is unconfigured or unavailable
     try {
-      const nominatimCandidates = await fetchNominatimSearch(trimmedQuery);
+      const nominatimCandidates = await fetchNominatimSearch(trimmedQuery, 8000, request.signal);
       if (nominatimCandidates.length > 0) {
         return NextResponse.json(
           {

@@ -4,6 +4,7 @@ import ReactDOM from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 import { POST as geocodePOST } from '../app/api/geocode/route';
 import { resetRateLimiter, getClientIp } from '@/lib/rateLimiter';
+import { clearNominatimCache } from '../lib/geocoding';
 import CitizenRequestPage from '../app/citizen/request/page';
 import { useCitizenLocation } from '@/hooks/useCitizenLocation';
 import { apiClient } from '../lib/api/client';
@@ -125,10 +126,12 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
   beforeEach(() => {
     vi.restoreAllMocks();
     resetRateLimiter();
+    clearNominatimCache();
     process.env.GEOAPIFY_API_KEY = 'test_valid_geoapify_key';
   });
 
   afterEach(() => {
+    clearNominatimCache();
     process.env.GEOAPIFY_API_KEY = originalEnv;
   });
 

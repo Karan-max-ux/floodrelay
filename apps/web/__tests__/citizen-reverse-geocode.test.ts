@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 import { POST } from '../app/api/reverse-geocode/route';
+import { clearNominatimCache } from '../lib/geocoding';
 import CitizenRequestPage from '../app/citizen/request/page';
 import type { UrgencyLevel } from '@floodrelay/shared';
 import type { CreateRequestInput } from '../lib/api/types';
@@ -15,9 +16,11 @@ describe('Citizen GPS Address Autofill & Reverse Geocoding', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    clearNominatimCache();
   });
 
   afterEach(() => {
+    clearNominatimCache();
     process.env.GEOAPIFY_API_KEY = originalEnv;
   });
 
