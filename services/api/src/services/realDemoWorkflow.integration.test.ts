@@ -344,11 +344,11 @@ describe.runIf(shouldRun)(
       // Stage 8: Operational audit history & foreign-key safe teardown
       // =========================================================================
       const auditRes = await request(app)
-        .get('/audit?limit=50')
+        .get('/audit/events?limit=50')
         .set('Authorization', `Bearer ${dispatcherToken}`);
       expect(auditRes.status).toBe(200);
       expect(auditRes.body.success).toBe(true);
-      expect(Array.isArray(auditRes.body.data.events)).toBe(true);
+      expect(Array.isArray(auditRes.body.data)).toBe(true);
 
       // Teardown: delete only tracked fixtures in foreign-key-safe order
       await registry.cleanup(pool);
