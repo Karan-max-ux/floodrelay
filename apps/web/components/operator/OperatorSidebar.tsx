@@ -49,10 +49,10 @@ export function OperatorSidebar() {
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-primary-fixed" />
               </span>
               <span className="text-[11px] font-mono font-bold text-inverse-on-surface tracking-tight">
-                ONLINE - SECTOR 4
+                ONLINE - DELHI NCR
               </span>
             </div>
-            <span className="text-[10px] font-mono text-primary-fixed font-bold">EST</span>
+            <span className="text-[10px] font-mono text-primary-fixed font-bold">IST</span>
           </div>
 
           {/* Navigation Links */}
@@ -196,7 +196,7 @@ export function OperatorSidebar() {
               </span>
               <div className="flex flex-col truncate">
                 <span className="text-xs font-semibold text-inverse-on-surface truncate">
-                  {operator?.name || 'Capt. R. Vance'}
+                  {operator?.name || 'Authorized Operator'}
                 </span>
                 <span className="text-[10px] text-surface-dim font-mono truncate">
                   {operator?.role || 'OPERATOR'} • {operator?.username || 'operator'}

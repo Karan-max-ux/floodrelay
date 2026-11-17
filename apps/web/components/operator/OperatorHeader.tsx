@@ -13,14 +13,14 @@ export function OperatorHeader({ onToggleMobileNav }: OperatorHeaderProps) {
   const pathname = usePathname();
   const { operator, logout } = useOperatorAuth();
 
-  let pageTitle = 'Command Overview';
+  let pageTitle = 'Delhi Operations Overview';
   let subRoute = '/operator';
 
   if (pathname.startsWith('/operator/requests')) {
     pageTitle = 'Rescue Request Management';
     subRoute = '/operator/requests';
   } else if (pathname.startsWith('/operator/map')) {
-    pageTitle = 'Operations GIS Tactical Map';
+    pageTitle = 'Delhi Response Map';
     subRoute = '/operator/map';
   } else if (pathname.startsWith('/operator/assignments/')) {
     pageTitle = 'Assignment Inspection & Human Commit';

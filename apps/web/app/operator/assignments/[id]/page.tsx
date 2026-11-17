@@ -1,5 +1,6 @@
 'use client';
 
+import { formatRegionDateTime } from '@/lib/region';
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import StatusBadge from '@/components/ui/StatusBadge';
@@ -187,23 +188,11 @@ export default function AssignmentReviewPage({ params }: PageProps) {
 
   const createdDate = new Date(plan.created_at ?? plan.createdAt);
   const formattedCreated = !isNaN(createdDate.getTime())
-    ? createdDate.toLocaleString([], {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      })
+    ? formatRegionDateTime(createdDate)
     : 'Unknown';
 
   const committedDate = plan.committed_at ?? plan.committedAt;
-  const formattedCommitted = committedDate
-    ? new Date(committedDate).toLocaleString([], {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      })
-    : null;
+  const formattedCommitted = committedDate ? formatRegionDateTime(committedDate) : null;
 
   return (
     <div className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -387,7 +376,7 @@ export default function AssignmentReviewPage({ params }: PageProps) {
             <div className="font-bold text-slate-900 flex items-center gap-2">
               <span>Human-in-the-Loop Supervisory Protocol</span>
               <span className="font-mono text-slate-500 font-normal">
-                (Standard Incident Command §4.2)
+                (Operator Safety Verification Protocol)
               </span>
             </div>
             <p className="text-slate-600 mt-1 leading-relaxed">

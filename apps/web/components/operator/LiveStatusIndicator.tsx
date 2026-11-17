@@ -1,5 +1,6 @@
 'use client';
 
+import { formatRegionTime } from '@/lib/region';
 import React from 'react';
 import type { LivePollingStatus } from '@/hooks/useLivePolling';
 
@@ -20,7 +21,7 @@ export function LiveStatusIndicator({
 }: LiveStatusIndicatorProps) {
   const formatTime = (date: Date | null): string => {
     if (!date) return 'Not yet updated';
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return formatRegionTime(date, true);
   };
 
   const getStatusColor = (): { dot: string; text: string; bg: string } => {

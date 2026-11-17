@@ -144,7 +144,7 @@ export function OperatorMobileNav({ isOpen, onClose }: OperatorMobileNavProps) {
         </div>
 
         <div className="pt-3 border-t border-outline-variant/15 text-xs text-surface-dim flex items-center justify-between">
-          <span>Harris County EOC</span>
+          <span>Delhi Operations Centre</span>
           <span className="font-mono text-primary-fixed text-[10px] font-bold">ONLINE</span>
         </div>
       </aside>
