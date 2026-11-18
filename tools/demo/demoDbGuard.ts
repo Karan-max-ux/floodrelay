@@ -6,10 +6,12 @@ export interface VerifiedDemoDbInfo {
   dbUser: string;
 }
 
+export const DEMO_OPERATOR_OWNERSHIP_TABLE = 'demo_operator_ownership';
+
 export interface DemoRunManifest {
   runId: string;
   createdAt?: string;
-  status?: 'ACTIVE' | 'CLEANED';
+  status?: 'INITIALIZING' | 'ACTIVE' | 'FAILED' | 'CLEANED';
   scenarioId?: string;
   requestIds: string[];
   assignmentIds: string[];
@@ -20,6 +22,8 @@ export interface DemoRunManifest {
   operationalEventIds: string[];
   auditEventIds: string[];
   operatorUsernames: string[];
+  createdOperatorUsernames?: string[];
+  reusedOperatorUsernames?: string[];
 }
 
 export interface DemoCleanupCounts {
@@ -267,7 +271,7 @@ export async function provisionDisposableDemoMarker(pool: pg.Pool): Promise<void
 }
 
 /**
- * Creates the demo run manifest table if it does not exist.
+ * Creates the demo run manifest and operator ownership tables if they do not exist.
  */
 export async function ensureDemoManifestTable(pool: pg.Pool): Promise<void> {
   const client = await pool.connect();
@@ -286,7 +290,19 @@ export async function ensureDemoManifestTable(pool: pg.Pool): Promise<void> {
         blocked_zone_ids text[] NOT NULL DEFAULT '{}',
         operational_event_ids text[] NOT NULL DEFAULT '{}',
         audit_event_ids text[] NOT NULL DEFAULT '{}',
-        operator_usernames text[] NOT NULL DEFAULT '{}'
+        operator_usernames text[] NOT NULL DEFAULT '{}',
+        created_operator_usernames text[] NOT NULL DEFAULT '{}',
+        reused_operator_usernames text[] NOT NULL DEFAULT '{}'
+      );
+
+      ALTER TABLE ${DEMO_MANIFEST_TABLE} ADD COLUMN IF NOT EXISTS created_operator_usernames text[] NOT NULL DEFAULT '{}';
+      ALTER TABLE ${DEMO_MANIFEST_TABLE} ADD COLUMN IF NOT EXISTS reused_operator_usernames text[] NOT NULL DEFAULT '{}';
+
+      CREATE TABLE IF NOT EXISTS ${DEMO_OPERATOR_OWNERSHIP_TABLE} (
+        username text PRIMARY KEY,
+        created_by_run_id text NOT NULL,
+        is_demo boolean NOT NULL DEFAULT true,
+        created_at timestamptz NOT NULL DEFAULT NOW()
       );
     `);
   } finally {
@@ -310,9 +326,10 @@ export async function recordDemoRunManifest(
         run_id, status, scenario_id,
         request_ids, assignment_ids, assignment_stop_ids,
         resource_ids, shelter_ids, blocked_zone_ids,
-        operational_event_ids, audit_event_ids, operator_usernames
+        operational_event_ids, audit_event_ids, operator_usernames,
+        created_operator_usernames, reused_operator_usernames
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       ON CONFLICT (run_id) DO UPDATE SET
         status = EXCLUDED.status,
         scenario_id = EXCLUDED.scenario_id,
@@ -324,7 +341,9 @@ export async function recordDemoRunManifest(
         blocked_zone_ids = EXCLUDED.blocked_zone_ids,
         operational_event_ids = EXCLUDED.operational_event_ids,
         audit_event_ids = EXCLUDED.audit_event_ids,
-        operator_usernames = EXCLUDED.operator_usernames;
+        operator_usernames = EXCLUDED.operator_usernames,
+        created_operator_usernames = EXCLUDED.created_operator_usernames,
+        reused_operator_usernames = EXCLUDED.reused_operator_usernames;
     `,
       [
         manifest.runId,
@@ -339,6 +358,8 @@ export async function recordDemoRunManifest(
         manifest.operationalEventIds,
         manifest.auditEventIds,
         manifest.operatorUsernames,
+        manifest.createdOperatorUsernames || [],
+        manifest.reusedOperatorUsernames || [],
       ],
     );
   } finally {
@@ -347,7 +368,7 @@ export async function recordDemoRunManifest(
 }
 
 /**
- * Retrieves active demo run manifests.
+ * Retrieves active or recoverable demo run manifests.
  */
 export async function getActiveDemoRunManifests(
   pool: pg.Pool,
@@ -356,7 +377,7 @@ export async function getActiveDemoRunManifests(
   await ensureDemoManifestTable(pool);
   const client = await pool.connect();
   try {
-    let query = `SELECT * FROM ${DEMO_MANIFEST_TABLE} WHERE status = 'ACTIVE'`;
+    let query = `SELECT * FROM ${DEMO_MANIFEST_TABLE} WHERE status IN ('ACTIVE', 'INITIALIZING', 'FAILED')`;
     const params: unknown[] = [];
     if (runId) {
       query += ` AND run_id = $1`;
@@ -365,7 +386,7 @@ export async function getActiveDemoRunManifests(
     const res = await client.query<{
       run_id: string;
       created_at: Date;
-      status: 'ACTIVE' | 'CLEANED';
+      status: 'INITIALIZING' | 'ACTIVE' | 'FAILED' | 'CLEANED';
       scenario_id: string | null;
       request_ids: string[];
       assignment_ids: string[];
@@ -376,6 +397,8 @@ export async function getActiveDemoRunManifests(
       operational_event_ids: string[];
       audit_event_ids: string[];
       operator_usernames: string[];
+      created_operator_usernames: string[];
+      reused_operator_usernames: string[];
     }>(query, params);
 
     return res.rows.map((row) => ({
@@ -392,6 +415,8 @@ export async function getActiveDemoRunManifests(
       operationalEventIds: row.operational_event_ids || [],
       auditEventIds: row.audit_event_ids || [],
       operatorUsernames: row.operator_usernames || [],
+      createdOperatorUsernames: row.created_operator_usernames || [],
+      reusedOperatorUsernames: row.reused_operator_usernames || [],
     }));
   } finally {
     client.release();
@@ -431,7 +456,6 @@ export async function cleanupTrackedDemoFixtures(
   const allRequests = Array.from(new Set(manifests.flatMap((m) => m.requestIds)));
   const allResources = Array.from(new Set(manifests.flatMap((m) => m.resourceIds)));
   const allShelters = Array.from(new Set(manifests.flatMap((m) => m.shelterIds)));
-  const allOperators = Array.from(new Set(manifests.flatMap((m) => m.operatorUsernames)));
   const runIds = manifests.map((m) => m.runId);
 
   const client = await pool.connect();
@@ -510,12 +534,31 @@ export async function cleanupTrackedDemoFixtures(
       deletedShelters = res.rowCount ?? 0;
     }
 
+    // Strictly delete ONLY operators that were newly created by the target runs
+    // and have verified demo ownership matching the run IDs being cleaned up.
+    // Reused demo operators and pre-existing unrelated operators are NEVER deleted.
+    const createdOperators = Array.from(
+      new Set(manifests.flatMap((m) => m.createdOperatorUsernames || [])),
+    );
+
     let deletedOperators = 0;
-    if (allOperators.length > 0) {
-      const res = await client.query(`DELETE FROM operators WHERE username = ANY($1::text[])`, [
-        allOperators,
-      ]);
+    if (createdOperators.length > 0) {
+      const res = await client.query(
+        `DELETE FROM operators 
+         WHERE username = ANY($1::text[]) 
+           AND username IN (
+             SELECT username FROM ${DEMO_OPERATOR_OWNERSHIP_TABLE} 
+             WHERE created_by_run_id = ANY($2::text[]) AND is_demo = true
+           )`,
+        [createdOperators, runIds],
+      );
       deletedOperators = res.rowCount ?? 0;
+
+      // Clean up demo ownership tracking rows
+      await client.query(
+        `DELETE FROM ${DEMO_OPERATOR_OWNERSHIP_TABLE} WHERE created_by_run_id = ANY($1::text[])`,
+        [runIds],
+      );
     }
 
     // Mark manifests as CLEANED

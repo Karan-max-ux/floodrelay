@@ -247,5 +247,156 @@ describe('Demo Database Safety Guard & Manifest Tracking Suite', () => {
       );
       expect(updateManifestQuery).toBeDefined();
     });
+
+    it('protects pre-existing and reused operators from being deleted during cleanup', async () => {
+      process.env.ALLOW_DISPOSABLE_DEMO_DB = '1';
+
+      const executedQueries: { text: string; params: unknown[] }[] = [];
+      const manifestWithReused: DemoRunManifest = {
+        runId: 'demo_run_reused_test',
+        status: 'ACTIVE',
+        requestIds: ['req-1'],
+        assignmentIds: [],
+        assignmentStopIds: [],
+        resourceIds: [],
+        shelterIds: [],
+        blockedZoneIds: [],
+        operationalEventIds: [],
+        auditEventIds: [],
+        operatorUsernames: ['demo_operator'],
+        createdOperatorUsernames: [], // Reused account, NOT created by this run!
+        reusedOperatorUsernames: ['demo_operator'],
+      };
+
+      const mockClient = {
+        query: vi.fn().mockImplementation((query: string, params: unknown[] = []) => {
+          executedQueries.push({ text: query, params });
+          if (query.includes(`SELECT * FROM ${DEMO_MANIFEST_TABLE}`)) {
+            return Promise.resolve({
+              rows: [
+                {
+                  run_id: manifestWithReused.runId,
+                  created_at: new Date(),
+                  status: 'ACTIVE',
+                  request_ids: manifestWithReused.requestIds,
+                  assignment_ids: [],
+                  assignment_stop_ids: [],
+                  resource_ids: [],
+                  shelter_ids: [],
+                  blocked_zone_ids: [],
+                  operational_event_ids: [],
+                  audit_event_ids: [],
+                  operator_usernames: manifestWithReused.operatorUsernames,
+                  created_operator_usernames: manifestWithReused.createdOperatorUsernames,
+                  reused_operator_usernames: manifestWithReused.reusedOperatorUsernames,
+                },
+              ],
+            });
+          }
+          if (query.startsWith('DELETE FROM')) {
+            return Promise.resolve({ rowCount: 1 });
+          }
+          return Promise.resolve({ rows: [] });
+        }),
+        release: vi.fn(),
+      };
+
+      const mockPool = {
+        connect: vi.fn().mockResolvedValue(mockClient),
+      } as unknown as pg.Pool;
+
+      const counts = await cleanupTrackedDemoFixtures(mockPool);
+      // Because createdOperatorUsernames was empty, zero operators should be deleted!
+      expect(counts.deletedOperators).toBe(0);
+
+      const deleteOpQuery = executedQueries.find((q) => q.text.includes('DELETE FROM operators'));
+      expect(deleteOpQuery).toBeUndefined();
+    });
+
+    it('cleans up and recovers runs in INITIALIZING and FAILED states', async () => {
+      process.env.ALLOW_DISPOSABLE_DEMO_DB = '1';
+
+      const executedQueries: { text: string; params: unknown[] }[] = [];
+      const failedManifest: DemoRunManifest = {
+        runId: 'demo_run_failed_midway',
+        status: 'FAILED',
+        requestIds: ['req-orphan-1'],
+        assignmentIds: [],
+        assignmentStopIds: [],
+        resourceIds: [],
+        shelterIds: [],
+        blockedZoneIds: [],
+        operationalEventIds: [],
+        auditEventIds: [],
+        operatorUsernames: [],
+        createdOperatorUsernames: [],
+      };
+
+      const mockClient = {
+        query: vi.fn().mockImplementation((query: string, params: unknown[] = []) => {
+          executedQueries.push({ text: query, params });
+          if (query.includes(`SELECT * FROM ${DEMO_MANIFEST_TABLE}`)) {
+            expect(query).toContain("status IN ('ACTIVE', 'INITIALIZING', 'FAILED')");
+            return Promise.resolve({
+              rows: [
+                {
+                  run_id: failedManifest.runId,
+                  created_at: new Date(),
+                  status: 'FAILED',
+                  request_ids: failedManifest.requestIds,
+                  assignment_ids: [],
+                  assignment_stop_ids: [],
+                  resource_ids: [],
+                  shelter_ids: [],
+                  blocked_zone_ids: [],
+                  operational_event_ids: [],
+                  audit_event_ids: [],
+                  operator_usernames: [],
+                  created_operator_usernames: [],
+                  reused_operator_usernames: [],
+                },
+              ],
+            });
+          }
+          if (query.startsWith('DELETE FROM')) {
+            return Promise.resolve({ rowCount: 1 });
+          }
+          return Promise.resolve({ rows: [] });
+        }),
+        release: vi.fn(),
+      };
+
+      const mockPool = {
+        connect: vi.fn().mockResolvedValue(mockClient),
+      } as unknown as pg.Pool;
+
+      const counts = await cleanupTrackedDemoFixtures(mockPool);
+      expect(counts.cleanedRuns).toBe(1);
+      expect(counts.deletedRequests).toBe(1);
+    });
+
+    it('is completely idempotent when cleanup is executed multiple times', async () => {
+      process.env.ALLOW_DISPOSABLE_DEMO_DB = '1';
+
+      const mockClient = {
+        query: vi.fn().mockImplementation((query: string) => {
+          if (query.includes(`SELECT * FROM ${DEMO_MANIFEST_TABLE}`)) {
+            return Promise.resolve({ rows: [] }); // No active manifests
+          }
+          return Promise.resolve({ rows: [] });
+        }),
+        release: vi.fn(),
+      };
+
+      const mockPool = {
+        connect: vi.fn().mockResolvedValue(mockClient),
+      } as unknown as pg.Pool;
+
+      const counts1 = await cleanupTrackedDemoFixtures(mockPool);
+      expect(counts1.cleanedRuns).toBe(0);
+
+      const counts2 = await cleanupTrackedDemoFixtures(mockPool);
+      expect(counts2.cleanedRuns).toBe(0);
+    });
   });
 });
