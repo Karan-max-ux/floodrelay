@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import type { SelectedMapEntity } from './LeafletMapCanvas';
+import { formatRegionDateTime } from '@/lib/region';
 import { UrgencyBadge } from '@/components/ui/UrgencyBadge';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 
@@ -75,9 +76,15 @@ export function MapInspectorDrawer({ selectedEntity, onClose }: MapInspectorDraw
               </span>
             </div>
             <div className="p-2.5 rounded-lg bg-surface border border-outline-variant/60">
-              <span className="text-[10px] text-on-surface-variant block">Intake Source</span>
-              <span className="font-mono font-bold text-on-surface text-xs">
-                {selectedEntity.item.source || 'REPORTED'}
+              <span className="text-[10px] text-on-surface-variant block">Intake Provenance</span>
+              <span
+                className={`inline-flex items-center font-mono font-bold text-[11px] px-1.5 py-0.5 rounded mt-0.5 ${
+                  selectedEntity.item.source === 'SIMULATED'
+                    ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                    : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                }`}
+              >
+                {selectedEntity.item.source === 'SIMULATED' ? 'SIMULATED' : 'REAL / REPORTED'}
               </span>
             </div>
           </div>
@@ -120,11 +127,11 @@ export function MapInspectorDrawer({ selectedEntity, onClose }: MapInspectorDraw
 
           <div>
             <span className="text-[10px] uppercase font-mono text-on-surface-variant font-bold block mb-1">
-              Logged Timestamp
+              Logged Timestamp (IST)
             </span>
             <div className="p-2 rounded bg-surface font-mono text-on-surface text-[11px] border border-outline-variant/40">
               {selectedEntity.item.createdAt
-                ? new Date(selectedEntity.item.createdAt).toLocaleString()
+                ? formatRegionDateTime(selectedEntity.item.createdAt)
                 : 'Unknown'}
             </div>
           </div>
@@ -134,13 +141,18 @@ export function MapInspectorDrawer({ selectedEntity, onClose }: MapInspectorDraw
       {/* ------------------ CRAFT DETAILS ------------------ */}
       {selectedEntity.type === 'craft' && (
         <div className="space-y-3.5">
-          <div className="p-3 rounded-lg bg-teal-50 border border-teal-200 text-teal-950">
-            <div className="font-bold text-xs text-teal-900 flex items-center gap-1.5">
-              <span className="material-symbols-outlined text-[16px]">directions_boat</span>
-              <span>{selectedEntity.item.name}</span>
+          <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-950">
+            <div className="flex items-center justify-between gap-2">
+              <div className="font-bold text-xs text-amber-950 flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-[16px]">directions_boat</span>
+                <span>{selectedEntity.item.name}</span>
+              </div>
+              <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-200 text-amber-950 shrink-0">
+                {selectedEntity.item.source || 'SIMULATED'}
+              </span>
             </div>
-            <div className="text-[11px] text-teal-800 mt-0.5">
-              Reference asset (simulated) • Yamuna basin standby
+            <div className="text-[11px] text-amber-900 mt-0.5">
+              Simulated demonstration asset • Delhi–Yamuna Floodplain reference
             </div>
           </div>
 
@@ -174,10 +186,11 @@ export function MapInspectorDrawer({ selectedEntity, onClose }: MapInspectorDraw
           </div>
 
           <div className="p-2.5 rounded-lg bg-surface-container border border-outline-variant text-[11px] text-on-surface-variant">
-            <span className="font-bold block text-on-surface">Provenance Notice:</span>
+            <span className="font-bold block text-on-surface">Provenance Notice (SIMULATED):</span>
             <span>
-              Staged sector asset inventory. Real-time GPS vessel transponders connect during active
-              deployment.
+              Synthetic reference fleet marker from the Delhi–Yamuna demonstration scenario. Not
+              linked to live field transponders, official NDRF units, or authoritative PostgreSQL
+              fleet inventory.
             </span>
           </div>
         </div>
@@ -186,27 +199,46 @@ export function MapInspectorDrawer({ selectedEntity, onClose }: MapInspectorDraw
       {/* ------------------ SHELTER DETAILS ------------------ */}
       {selectedEntity.type === 'shelter' && (
         <div className="space-y-3.5">
-          <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-950">
-            <div className="font-bold text-xs text-emerald-900 flex items-center gap-1.5">
-              <span className="material-symbols-outlined text-[16px]">night_shelter</span>
-              <span>{selectedEntity.item.name}</span>
+          <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-950">
+            <div className="flex items-center justify-between gap-2">
+              <div className="font-bold text-xs text-amber-950 flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-[16px]">night_shelter</span>
+                <span>{selectedEntity.item.name}</span>
+              </div>
+              <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-200 text-amber-950 shrink-0">
+                {selectedEntity.item.source || 'SIMULATED'}
+              </span>
             </div>
-            <div className="text-[11px] text-emerald-800 mt-0.5">{selectedEntity.item.status}</div>
+            <div className="text-[11px] text-amber-900 mt-0.5">{selectedEntity.item.status}</div>
           </div>
 
           <div className="grid grid-cols-2 gap-2">
             <div className="p-2.5 rounded-lg bg-surface border border-outline-variant/60">
-              <span className="text-[10px] text-on-surface-variant block">Available Beds</span>
-              <span className="font-bold text-emerald-700 text-base">
+              <span className="text-[10px] text-on-surface-variant block">
+                Simulated Capacity Headroom
+              </span>
+              <span className="font-bold text-on-surface text-base">
                 {selectedEntity.item.availableBeds} Beds
               </span>
             </div>
             <div className="p-2.5 rounded-lg bg-surface border border-outline-variant/60">
-              <span className="text-[10px] text-on-surface-variant block">Total Capacity</span>
+              <span className="text-[10px] text-on-surface-variant block">
+                Simulated Total Capacity
+              </span>
               <span className="font-bold text-on-surface text-base">
                 {selectedEntity.item.capacity} Beds
               </span>
             </div>
+          </div>
+
+          <div className="p-2.5 rounded-lg bg-surface-container border border-outline-variant text-[11px] text-on-surface-variant">
+            <span className="font-bold block text-on-surface">
+              Unverified Reference Shelter (SIMULATED):
+            </span>
+            <span>
+              This marker represents a synthetic planning reference. FloodRelay does not verify live
+              shelter opening status, staffing, or real-time bed availability.
+            </span>
           </div>
 
           <div>

@@ -27,7 +27,6 @@ import {
   STAGED_SECTOR_BLOCKED_ZONES,
   MAP_SCENARIO_NAME,
   MAP_SCENARIO_COORDINATES,
-  rebaseLatLng,
 } from '@/lib/fixtures/mapReferenceData';
 
 function OperatorMapContent() {
@@ -142,12 +141,12 @@ function OperatorMapContent() {
     setLayers((prev) => ({ ...prev, [layer]: !prev[layer] }));
   };
 
-  // Repair route polyline vectors for comparison overlay (rebased from baseline anchor to Delhi anchor)
+  // Native Delhi repair route polyline vectors for read-only comparison overlay (no rebasing)
   const repairRoutePolylines = useMemo(() => {
     return (
       SIMULATED_REPAIR_RESULT.proposedPlan?.routes.map((r) => ({
         resourceId: r.resourceId,
-        latlngs: extractRouteLatLngs(r).map((coord) => rebaseLatLng(coord)),
+        latlngs: extractRouteLatLngs(r),
       })) || []
     );
   }, []);
@@ -624,15 +623,15 @@ function OperatorMapContent() {
               </div>
               <div className="flex items-center gap-2">
                 <span className="w-3.5 h-3.5 rounded-full bg-red-600 border border-red-300 animate-pulse" />
-                <span>Critical Distress (Pax Count)</span>
+                <span>Critical Distress (DB: REAL / SIMULATED)</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="w-3.5 h-3.5 rounded-full bg-amber-600 border border-amber-300" />
-                <span>High Urgency Incident</span>
+                <span>High Urgency Incident (DB)</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="w-3.5 h-3.5 rounded-full bg-yellow-500 border border-yellow-200" />
-                <span>Moderate / Low Incident</span>
+                <span>Moderate / Low Incident (DB)</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="w-3.5 h-3.5 rounded bg-teal-600 border border-teal-300 flex items-center justify-center">
@@ -640,7 +639,7 @@ function OperatorMapContent() {
                     directions_boat
                   </span>
                 </span>
-                <span>Staged Sector Craft (Standby)</span>
+                <span>Reference Fleet [SIMULATED]</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="w-3.5 h-3.5 rounded bg-emerald-700 border border-emerald-300 flex items-center justify-center">
@@ -648,7 +647,11 @@ function OperatorMapContent() {
                     night_shelter
                   </span>
                 </span>
-                <span>Designated Relief Shelter</span>
+                <span>Reference Shelter [SIMULATED • Unverified]</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-3.5 h-3.5 rounded border border-dashed border-red-500 bg-red-500/20 inline-block" />
+                <span>Reference Hazard Zone [SIMULATED]</span>
               </div>
             </div>
           </div>

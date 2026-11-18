@@ -11,7 +11,11 @@ export const REGION_CONFIG = {
   locale: 'en-IN',
   timeZone: 'Asia/Kolkata',
   emergencyNumber: '112',
+  /** Central Delhi NCR presentation anchor (New Delhi). */
   defaultMapCentre: { lat: 28.6139, lng: 77.209 },
+  /** North Delhi / Yamuna Floodplain tactical map default centre (matches sample-scenario.json). */
+  tacticalDemoCentre: { lat: 28.671, lng: 77.234 },
+  tacticalDemoZoom: 12,
 } as const;
 
 type DateValue = string | number | Date;

@@ -1,15 +1,15 @@
 {
   "id": "scenario-delhi-yamuna-demo",
   "simulated": true,
-  "syntheticDataNote": "This scenario contains purely simulated synthetic data generated for testing and algorithmic evaluation. It does not represent real-world incidents.",
+  "syntheticDataNote": "This scenario contains purely simulated synthetic data generated for testing and algorithmic evaluation. It does not represent real-world incidents or official agency assets.",
   "metadata": {
     "id": "scenario-delhi-yamuna-demo",
     "name": "Yamuna Flood Relief - North Delhi Basin (Simulated)",
-    "description": "Simulated flood rescue operations covering 10 rescue requests, 3 resources, and 2 relief camps along the Yamuna floodplains.",
+    "description": "Simulated flood rescue operations covering 5 rescue requests, 3 simulated resources, and 2 simulated relief camps along the Delhi–Yamuna floodplains. Demonstration-only synthetic dataset; no official agency affiliation.",
     "region": "Delhi NCR",
     "seed": 2026,
     "simulated": true,
-    "syntheticDataNote": "This scenario contains purely simulated synthetic data generated for testing and algorithmic evaluation.",
+    "syntheticDataNote": "This scenario contains purely simulated synthetic data generated for testing and algorithmic evaluation. No official NDRF or government affiliation.",
     "createdAt": "2026-10-15T12:00:00.000Z",
     "bounds": {
       "minLat": 28.6,
@@ -71,59 +71,64 @@
   "resources": [
     {
       "id": "res-boat-01",
-      "name": "NDRF Boat Alpha",
+      "name": "Simulated Rescue Boat Alpha (Demo — Not Official NDRF)",
       "type": "BOAT",
       "capacity": 8,
       "speedKmH": 25,
       "lat": 28.66,
       "lng": 77.22,
       "status": "AVAILABLE",
-      "depotId": "shelter-kashmere-gate"
+      "depotId": "shelter-kashmere-gate",
+      "source": "SIMULATED"
     },
     {
       "id": "res-boat-02",
-      "name": "NDRF Boat Bravo",
+      "name": "Simulated Rescue Boat Bravo (Demo — Not Official NDRF)",
       "type": "BOAT",
       "capacity": 10,
       "speedKmH": 25,
       "lat": 28.68,
       "lng": 77.23,
       "status": "AVAILABLE",
-      "depotId": "shelter-wazirabad"
+      "depotId": "shelter-wazirabad",
+      "source": "SIMULATED"
     },
     {
       "id": "res-truck-01",
-      "name": "High-Clearance Rescue Truck 1",
+      "name": "Simulated High-Clearance Truck 1 (Demo)",
       "type": "HIGH_WATER_VEHICLE",
       "capacity": 15,
       "speedKmH": 40,
       "lat": 28.65,
       "lng": 77.21,
-      "status": "AVAILABLE"
+      "status": "AVAILABLE",
+      "source": "SIMULATED"
     }
   ],
   "shelters": [
     {
       "id": "shelter-kashmere-gate",
-      "name": "Kashmere Gate Relief Camp",
+      "name": "Kashmere Gate Relief Camp (Simulated Reference)",
       "lat": 28.668,
       "lng": 77.232,
       "capacity": 120,
-      "currentOccupancy": 20
+      "currentOccupancy": 20,
+      "source": "SIMULATED"
     },
     {
       "id": "shelter-wazirabad",
-      "name": "Wazirabad Community Relief Centre",
+      "name": "Wazirabad Community Relief Centre (Simulated Reference)",
       "lat": 28.705,
       "lng": 77.228,
       "capacity": 150,
-      "currentOccupancy": 35
+      "currentOccupancy": 35,
+      "source": "SIMULATED"
     }
   ],
   "blockedZones": [
     {
       "id": "zone-old-railway-bridge",
-      "name": "Old Railway Bridge - Submerged",
+      "name": "Old Railway Bridge — Submerged (Simulated Reference)",
       "severity": "BLOCKED",
       "polygon": [
         { "lat": 28.662, "lng": 77.24 },
