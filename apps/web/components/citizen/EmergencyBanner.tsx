@@ -1,6 +1,9 @@
 import React from 'react';
+import { getCitizenMessages } from '@/lib/i18n';
+import { REGION_CONFIG } from '@/lib/region';
 
 export function EmergencyBanner() {
+  const messages = getCitizenMessages();
   return (
     <aside
       aria-label="Emergency warning"
@@ -18,15 +21,15 @@ export function EmergencyBanner() {
           <span>Immediate life-threatening danger?</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="hidden sm:inline">India emergency helpline:</span>
+          <span className="hidden sm:inline">{messages.emergency.bannerLabel}</span>
           <a
             className="inline-flex items-center gap-1 bg-surface-container-lowest text-tertiary px-2.5 py-0.5 rounded text-xs font-bold uppercase hover:bg-surface-container transition-colors"
-            href="tel:112"
+            href={`tel:${REGION_CONFIG.emergencyNumber}`}
           >
             <span className="material-symbols-outlined text-[14px]" data-icon="call">
               call
             </span>
-            <span>Call 112 Now</span>
+            <span>{messages.emergency.callCta}</span>
           </a>
         </div>
       </div>

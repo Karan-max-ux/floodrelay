@@ -8,6 +8,7 @@ import { apiClient } from '@/lib/api/client';
 import { ApiClientError } from '@/lib/api/errors';
 import type { CreateRequestInput } from '@/lib/api/types';
 import CitizenLocationPreview from '@/components/citizen/CitizenLocationPreview';
+import { getCitizenMessages } from '@/lib/i18n';
 import {
   useCitizenLocation,
   type GpsStatus,
@@ -46,6 +47,7 @@ function generateUUID(): string {
 
 export default function CitizenRequestPage() {
   const router = useRouter();
+  const messages = getCitizenMessages();
 
   // Idempotency & Submission State
   const [idempotencyKey, setIdempotencyKey] = useState<string>(() => generateUUID());
@@ -117,33 +119,30 @@ export default function CitizenRequestPage() {
     const lngNum = parseFloat(lng);
 
     if (!lat.trim()) {
-      newErrors.lat =
-        'Latitude is required. Use "Find Location", "Use My Current Location", or enter coordinates.';
+      newErrors.lat = messages.validation.latRequired;
     } else if (isNaN(latNum) || latNum < -90 || latNum > 90) {
-      newErrors.lat = 'Valid latitude between -90 and 90 is required';
+      newErrors.lat = messages.validation.latRange;
     }
 
     if (!lng.trim()) {
-      newErrors.lng =
-        'Longitude is required. Use "Find Location", "Use My Current Location", or enter coordinates.';
+      newErrors.lng = messages.validation.lngRequired;
     } else if (isNaN(lngNum) || lngNum < -180 || lngNum > 180) {
-      newErrors.lng = 'Valid longitude between -180 and 180 is required';
+      newErrors.lng = messages.validation.lngRange;
     }
 
     if (!address.trim()) {
-      newErrors.address = 'Street address or location landmark is required';
+      newErrors.address = messages.validation.addressRequired;
     }
 
     if (!isLocationConfirmed) {
-      newErrors.location =
-        'Please verify and confirm your location before submitting. Use "Find Location" or click "Confirm Location".';
+      newErrors.location = messages.validation.locationConfirmationRequired;
     }
 
     if (!waterLevel) {
-      newErrors.waterLevel = 'Please select the current water level situation';
+      newErrors.waterLevel = messages.validation.waterLevelRequired;
     }
     if (partyCount < 1) {
-      newErrors.partyCount = 'At least 1 person must be reported';
+      newErrors.partyCount = messages.validation.partyCountMin;
     }
 
     setErrors(newErrors);
@@ -427,7 +426,7 @@ export default function CitizenRequestPage() {
                         void handleSearchAddress();
                       }
                     }}
-                    placeholder="e.g., House 24, Civil Lines, near Metro Station, Delhi"
+                    placeholder={messages.request.addressPlaceholder}
                     type="text"
                     value={address}
                   />
@@ -615,7 +614,7 @@ export default function CitizenRequestPage() {
               )}
 
               <p className="text-xs text-on-surface-variant/80">
-                Include floor level, color of exterior walls, or landmarks visible to responders.
+                Include floor level, colour of exterior walls, or landmarks visible to responders.
               </p>
             </div>
 
@@ -754,7 +753,7 @@ export default function CitizenRequestPage() {
                     disabled={isSubmitting}
                     id="latInput"
                     onChange={(e) => handleCoordinateChange('lat', e.target.value)}
-                    placeholder="e.g. 29.7604"
+                    placeholder={messages.request.latPlaceholder}
                     type="text"
                     value={lat}
                   />
@@ -782,7 +781,7 @@ export default function CitizenRequestPage() {
                     disabled={isSubmitting}
                     id="lngInput"
                     onChange={(e) => handleCoordinateChange('lng', e.target.value)}
-                    placeholder="e.g. -95.3698"
+                    placeholder={messages.request.lngPlaceholder}
                     type="text"
                     value={lng}
                   />
@@ -1039,7 +1038,7 @@ export default function CitizenRequestPage() {
                     injury.
                   </p>
                   <p className="text-xs text-on-surface-variant mt-0.5">
-                    Prioritizes nearest active swift-water boat or air rescue craft.
+                    Prioritises nearest active swift-water boat or air rescue craft.
                   </p>
                 </div>
               </label>
@@ -1118,7 +1117,7 @@ export default function CitizenRequestPage() {
                     Power outage, road access blocked, but structure currently dry and stable.
                   </p>
                   <p className="text-xs text-on-surface-variant mt-0.5">
-                    Included in planned neighborhood transit runs.
+                    Included in planned neighbourhood transit runs.
                   </p>
                 </div>
               </label>
@@ -1154,7 +1153,7 @@ export default function CitizenRequestPage() {
                     </span>
                   </div>
                   <p className="text-sm text-on-surface font-medium">
-                    Precautionary evacuation request or general supplies inquiry.
+                    Precautionary evacuation request or general supplies enquiry.
                   </p>
                 </div>
               </label>
@@ -1187,7 +1186,7 @@ export default function CitizenRequestPage() {
                   setNotes(e.target.value);
                   markEdited();
                 }}
-                placeholder="e.g., White bedsheet tied to chimney; please approach from south side to avoid submerged fence."
+                placeholder={messages.request.notesPlaceholder}
                 value={notes}
               />
             </div>

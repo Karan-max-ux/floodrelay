@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { formatRegionDateTime } from '@/lib/region';
 import type {
   OperationalEvent,
   OperationalEventType,
@@ -19,18 +20,8 @@ export function OperationalEventCard({
   isSelected = false,
 }: OperationalEventCardProps) {
   const formatTimestamp = (iso: string): string => {
-    try {
-      const d = new Date(iso);
-      return d.toLocaleString([], {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      });
-    } catch {
-      return iso;
-    }
+    const formatted = formatRegionDateTime(iso);
+    return formatted === 'Unknown' ? iso : formatted;
   };
 
   const getEventTypeMeta = (

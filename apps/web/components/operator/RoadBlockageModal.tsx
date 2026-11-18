@@ -143,7 +143,7 @@ export function RoadBlockageModal({ isOpen, onClose, onZoneCreated }: RoadBlocka
               className="w-full h-10 px-3 rounded-lg bg-surface border border-outline-variant text-xs text-on-surface focus:ring-2 focus:ring-primary placeholder:text-outline"
               id="zoneName"
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Buffalo Bayou Parkway Underpass Inundated"
+              placeholder="e.g. Old Railway Bridge Approach Road Inundated"
               required
               type="text"
               value={name}
@@ -196,7 +196,7 @@ export function RoadBlockageModal({ isOpen, onClose, onZoneCreated }: RoadBlocka
                 max="90"
                 min="-90"
                 onChange={(e) => setCenterLat(e.target.value)}
-                placeholder="e.g. 29.7604"
+                placeholder="e.g. 28.6620"
                 required
                 step="0.000001"
                 type="number"
@@ -214,7 +214,7 @@ export function RoadBlockageModal({ isOpen, onClose, onZoneCreated }: RoadBlocka
                 max="180"
                 min="-180"
                 onChange={(e) => setCenterLng(e.target.value)}
-                placeholder="e.g. -95.3698"
+                placeholder="e.g. 77.2420"
                 required
                 step="0.000001"
                 type="number"
@@ -231,7 +231,7 @@ export function RoadBlockageModal({ isOpen, onClose, onZoneCreated }: RoadBlocka
               className="w-full h-10 px-3 rounded-lg bg-surface border border-outline-variant text-xs text-on-surface focus:ring-2 focus:ring-primary placeholder:text-outline"
               id="hazardReason"
               onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g. Police barricade placed due to 4ft water crest"
+              placeholder="e.g. Delhi Police barricade placed due to 1.2 m water crest"
               type="text"
               value={reason}
             />
