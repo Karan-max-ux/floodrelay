@@ -1,5 +1,6 @@
 'use client';
 
+import { REGION_CONFIG, formatRegionTime } from '@/lib/region';
 import React, { useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import type { RescueRequest, RescueResource } from '@floodrelay/shared';
@@ -256,11 +257,11 @@ export default function OperatorOverviewPage() {
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
             <h1 className="font-bold text-lg md:text-xl text-on-surface">
-              Sector 4 Emergency Operations Command
+              {REGION_CONFIG.operatorTitle}
             </h1>
           </div>
           <p className="text-xs text-on-surface-variant font-mono mt-0.5">
-            Harris County Flood Basin • Live Decision-Support System
+            {REGION_CONFIG.floodplain} • Human-supervised decision support
           </p>
         </div>
 
@@ -687,7 +688,9 @@ export default function OperatorOverviewPage() {
                 <span className="material-symbols-outlined text-sky-400 text-3xl">
                   location_searching
                 </span>
-                <div className="text-xs font-semibold text-slate-200">Sector 4 — Tactical Map</div>
+                <div className="text-xs font-semibold text-slate-200">
+                  Delhi — Response Map Preview
+                </div>
                 <p className="text-[11px] text-slate-400 max-w-xs">
                   {metrics.totalRequests} Distress reports • {resources.length} Craft staged
                 </p>
@@ -745,10 +748,7 @@ export default function OperatorOverviewPage() {
                       </span>
                     </div>
                     <span className="text-[10px] font-mono text-on-surface-variant shrink-0">
-                      {new Date(evt.recordedAt).toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
+                      {formatRegionTime(evt.recordedAt)}
                     </span>
                   </div>
                 ))}

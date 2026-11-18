@@ -243,7 +243,7 @@ export default function CitizenRequestPage() {
         if (err.statusCode === 409 || err.code === 'IDEMPOTENCY_KEY_REUSED') {
           setIs409Conflict(true);
           setSubmitError(
-            'Idempotency Conflict: An earlier rescue request was already recorded on the dispatch server with this submission reference, but containing differing information. To prevent creating accidental duplicate dispatches, this request was not submitted. Submitting this form creates a NEW, separate request and does NOT update your existing ticket. If you require a separate dispatch ticket, click "Submit as New Separate Request" below.',
+            'Idempotency Conflict: An earlier rescue request was already recorded on the server with this submission reference, but containing differing information. To prevent creating accidental duplicate records, this request was not submitted. Submitting this form creates a NEW, separate request and does NOT update your existing ticket. If you require a separate request ticket, click "Submit as New Separate Request" below.',
           );
           return;
         }
@@ -259,7 +259,7 @@ export default function CitizenRequestPage() {
       } else {
         const errorMsg = (err as Error)?.message || 'Network communication failure';
         setSubmitError(
-          `Unable to connect to civil defense emergency intake server: ${errorMsg}. Your information is preserved. Please tap Retry Submission.`,
+          `Unable to contact FloodRelay API: ${errorMsg}. Your information is preserved. Please tap Retry Submission.`,
         );
       }
     }
@@ -290,11 +290,11 @@ export default function CitizenRequestPage() {
             </span>
             <span className="font-semibold text-on-surface-variant">Intake Status:</span>
             <span className="text-on-surface">
-              Live Intake Protocol Active. High-priority dispatch connection ready.
+              FloodRelay request form available. Submission requires API connectivity.
             </span>
           </div>
           <span className="hidden md:inline font-mono text-[11px] font-bold text-primary uppercase bg-surface px-2 py-0.5 rounded border border-outline-variant">
-            Live Intake Node
+            Delhi NCR
           </span>
         </div>
       </aside>
@@ -312,14 +312,14 @@ export default function CitizenRequestPage() {
           </Link>
           <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-secondary-container text-on-secondary-fixed mb-3 ml-3 text-xs font-mono font-bold uppercase">
             <span className="material-symbols-outlined text-xs">verified_user</span>
-            <span>Civil Defense Dispatch Tier-1</span>
+            <span>FloodRelay • Delhi Region</span>
           </div>
           <h1 className="font-manrope text-2xl md:text-4xl font-bold text-on-surface tracking-tight mb-2">
             Request Flood Rescue Assistance
           </h1>
           <p className="text-sm md:text-base text-on-surface-variant max-w-2xl leading-relaxed">
-            Complete this form to alert active emergency dispatch teams. Enter your address or use
-            your device GPS to report your exact location.
+            Submit your rescue needs to FloodRelay for operator review. Enter an address or use your
+            device GPS to provide your location.
           </p>
         </div>
 
@@ -586,8 +586,7 @@ export default function CitizenRequestPage() {
               )}
 
               <p className="text-xs text-on-surface-variant/80">
-                Include floor level, color of exterior walls, or high visibility markers for air and
-                boat crews.
+                Include floor level, color of exterior walls, or landmarks visible to responders.
               </p>
             </div>
 
@@ -642,7 +641,7 @@ export default function CitizenRequestPage() {
 
                 <div className="flex items-center justify-between pt-1">
                   <span className="text-xs text-emerald-800 dark:text-emerald-300 font-medium">
-                    Dispatch coordinates ready for rescue routing.
+                    Coordinates verified for request review.
                   </span>
                   <button
                     className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 underline"
@@ -871,7 +870,7 @@ export default function CitizenRequestPage() {
             {/* Special Circumstances */}
             <div className="space-y-3">
               <div className="text-sm font-semibold text-on-surface">
-                Special needs or dispatch requirements
+                Special assistance or access needs
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <label className="flex items-start gap-3 p-3.5 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low transition-colors cursor-pointer">
@@ -1149,7 +1148,7 @@ export default function CitizenRequestPage() {
 
             <div className="space-y-1.5">
               <label className="block text-sm font-semibold text-on-surface" htmlFor="notesInput">
-                Additional Instructions for Rescue Crews
+                Additional Instructions / Landmark Details
               </label>
               <textarea
                 className="w-full h-24 p-3 bg-surface-container-lowest border border-outline-variant rounded-lg text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
@@ -1193,7 +1192,7 @@ export default function CitizenRequestPage() {
                   <span className="material-symbols-outlined text-sm">edit_note</span>
                   <span>
                     Notice: Form details were modified. Submitting will transmit a new separate
-                    dispatch ticket, not modify an existing one.
+                    request ticket, not modify an existing one.
                   </span>
                 </div>
               )}
@@ -1249,7 +1248,9 @@ export default function CitizenRequestPage() {
           <div className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="text-xs text-on-surface-variant flex items-center gap-1.5">
               <span className="material-symbols-outlined text-primary text-[18px]">lock</span>
-              <span>All details transmitted via encrypted civil defense protocol</span>
+              <span>
+                Request details are submitted to FloodRelay. In immediate danger, call 112.
+              </span>
             </div>
 
             <button
@@ -1260,12 +1261,12 @@ export default function CitizenRequestPage() {
               {isSubmitting ? (
                 <>
                   <span className="w-5 h-5 border-2 border-on-primary border-t-transparent rounded-full animate-spin inline-block" />
-                  <span>Transmitting Dispatch Request...</span>
+                  <span>Submitting Rescue Request...</span>
                 </>
               ) : (
                 <>
                   <span className="material-symbols-outlined text-[20px]">send</span>
-                  <span>Transmit Emergency Dispatch Request</span>
+                  <span>Submit Rescue Request</span>
                 </>
               )}
             </button>

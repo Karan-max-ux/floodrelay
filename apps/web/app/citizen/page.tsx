@@ -1,3 +1,4 @@
+import { REGION_CONFIG } from '@/lib/region';
 import React from 'react';
 import Link from 'next/link';
 
@@ -21,7 +22,7 @@ export default function CitizenHomePage() {
             <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded bg-surface-container text-primary border border-outline-variant mb-4">
               <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
               <span className="text-xs font-bold uppercase tracking-wider text-on-surface-variant font-mono">
-                Official Citizen Relief Portal
+                FloodRelay • Delhi Region
               </span>
             </div>
 
@@ -32,8 +33,8 @@ export default function CitizenHomePage() {
 
             {/* Reassuring Subhead */}
             <p className="text-base md:text-lg text-on-surface-variant mb-8 leading-relaxed max-w-2xl">
-              Connect directly with verified community rescue units and municipal flood response
-              coordinators. Submit your situation and exact coordinates securely.
+              Report your location and rescue needs to FloodRelay for operator review. This
+              prototype does not directly dispatch emergency services.
             </p>
 
             {/* Primary & Secondary Actions */}
@@ -70,7 +71,7 @@ export default function CitizenHomePage() {
                 >
                   verified_user
                 </span>
-                <span>Direct dispatch coordination</span>
+                <span>Operator-assisted request review</span>
               </div>
               <div className="flex items-center gap-2">
                 <span
@@ -102,17 +103,17 @@ export default function CitizenHomePage() {
             <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-surface-container-highest font-mono text-xs uppercase font-bold text-on-surface">
               Region Status
             </span>
-            <span className="font-semibold text-on-surface">Crest Watch Active:</span>
-            <span>Basin gauges monitored in real time across response sectors.</span>
+            <span className="font-semibold text-on-surface">Selected Region:</span>
+            <span>{REGION_CONFIG.floodplain} • No live water-level feed</span>
           </div>
           <div className="flex items-center gap-4 text-xs font-medium">
             <span className="flex items-center gap-1 text-primary">
               <span className="material-symbols-outlined text-[16px]" data-icon="check_circle">
                 check_circle
               </span>
-              Community Triage Active
+              Request form available
             </span>
-            <span className="text-on-surface-variant">Updated moments ago</span>
+            <span className="text-on-surface-variant">Check official flood advisories</span>
           </div>
         </div>
       </section>
@@ -121,14 +122,14 @@ export default function CitizenHomePage() {
       <section className="py-12 md:py-16 max-w-7xl mx-auto px-4 md:px-8">
         <div className="mb-10 text-left max-w-2xl">
           <div className="font-mono text-xs uppercase text-primary tracking-wider font-bold mb-2">
-            How Dispatch Operates
+            How Request Review Operates
           </div>
           <h2 className="font-manrope text-2xl md:text-3xl text-on-surface font-bold tracking-tight">
-            Three Steps from Intake to Safe Extraction
+            Three Steps from Request to Response Planning
           </h2>
           <p className="text-sm md:text-base text-on-surface-variant mt-2">
-            Every request is triaged immediately by emergency coordinators and designated rescue
-            teams.
+            Submitted requests may be reviewed by authorised operators when the FloodRelay backend
+            is available.
           </p>
         </div>
 
@@ -152,7 +153,7 @@ export default function CitizenHomePage() {
               </h3>
               <p className="text-sm text-on-surface-variant leading-relaxed">
                 Provide your location, occupant head count, and flood level conditions. Flag
-                mobility or medical needs so suitable rescue craft can be dispatched.
+                mobility or medical needs to help operators evaluate response requirements.
               </p>
             </div>
             <div className="mt-6 pt-4 border-t border-outline-variant/60 flex items-center text-xs text-primary font-semibold">
@@ -178,12 +179,12 @@ export default function CitizenHomePage() {
                 Triage &amp; Review
               </h3>
               <p className="text-sm text-on-surface-variant leading-relaxed">
-                Dispatch team validates incident location and urgency priority. Incidents involving
-                roof isolation and critical medical risks receive priority status.
+                Authorised operators review incident location and urgency priority. Incidents
+                involving roof isolation and critical medical risks receive priority review.
               </p>
             </div>
             <div className="mt-6 pt-4 border-t border-outline-variant/60 flex items-center text-xs text-primary font-semibold">
-              <span>Verified queue tracking</span>
+              <span>Operator review workflow</span>
             </div>
           </div>
 
@@ -202,15 +203,15 @@ export default function CitizenHomePage() {
                 </span>
               </div>
               <h3 className="font-manrope text-lg text-on-surface font-bold mb-2">
-                Coordinated Response
+                Response Planning
               </h3>
               <p className="text-sm text-on-surface-variant leading-relaxed">
-                Rescue crews receive your location ticket and navigate via accessible corridors
-                toward designated safe relief shelters.
+                If an authorised rescue team accepts the request, it may use the recorded location
+                to plan a response. Submission does not guarantee deployment.
               </p>
             </div>
             <div className="mt-6 pt-4 border-t border-outline-variant/60 flex items-center text-xs text-primary font-semibold">
-              <span>Direct craft identification</span>
+              <span>Operator decision support</span>
             </div>
           </div>
         </div>
@@ -232,7 +233,7 @@ export default function CitizenHomePage() {
               </h2>
             </div>
             <p className="text-xs md:text-sm text-on-surface-variant max-w-md">
-              Adhere strictly to civil protection procedures while emergency units navigate blocked
+              Follow instructions from official emergency services. Avoid flooded roads, drains and
               waterways.
             </p>
           </div>
@@ -334,7 +335,7 @@ export default function CitizenHomePage() {
                       What to Prepare While Waiting
                     </h3>
                     <p className="text-xs text-on-surface-variant">
-                      Checklist for impending extraction
+                      Checklist while awaiting assistance
                     </p>
                   </div>
                 </div>
@@ -402,8 +403,8 @@ export default function CitizenHomePage() {
                   info
                 </span>
                 <p className="text-xs text-on-surface-variant leading-tight">
-                  Remain calm and conserve phone power. Units prioritize life-threatening medical
-                  reports first.
+                  Remain calm and conserve phone power. Authorised operators evaluate
+                  life-threatening medical reports first.
                 </p>
               </div>
             </div>
@@ -422,20 +423,20 @@ export default function CitizenHomePage() {
             </div>
             <div>
               <h3 className="font-manrope text-lg font-bold text-on-surface">
-                Need Non-Emergency Information or Shelter Locations?
+                Need Emergency Assistance?
               </h3>
               <p className="text-sm text-on-surface-variant mt-1 max-w-xl">
-                Regional assistance centers operate 24/7 to provide information on evacuation
-                staging grounds and family reunification shelters.
+                For immediate danger, call 112. FloodRelay does not verify live shelter availability
+                or guarantee a physical rescue response.
               </p>
             </div>
           </div>
           <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
             <a
               className="px-5 py-2.5 rounded bg-surface-container text-on-surface font-semibold text-sm border border-outline-variant text-center hover:bg-surface-container-high transition-colors"
-              href="tel:311"
+              href="tel:112"
             >
-              Call 311 Support
+              Call 112 Emergency
             </a>
             <Link
               className="px-5 py-2.5 rounded bg-primary-container text-on-primary font-semibold text-sm text-center hover:bg-primary transition-colors"

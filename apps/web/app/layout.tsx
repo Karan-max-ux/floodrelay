@@ -2,9 +2,9 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'FloodRelay — Flood Rescue Decision Support Platform',
+  title: 'FloodRelay — Delhi Flood Rescue Decision Support',
   description:
-    'Civic rescue request portal and human-supervised operator command center for flood emergency response.',
+    'Delhi-focused flood rescue request prototype with human-supervised operator decision support.',
 };
 
 export default function RootLayout({
@@ -13,7 +13,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en-IN">
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />

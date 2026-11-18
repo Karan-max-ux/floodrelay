@@ -56,7 +56,7 @@ function OperatorLoginForm() {
           </div>
           <h1 className="text-2xl font-extrabold text-white tracking-tight">FloodRelay Command</h1>
           <p className="text-xs font-mono font-semibold text-primary-fixed tracking-wider mt-1">
-            EMERGENCY OPERATIONS CENTER • OPERATOR PORTAL
+            DELHI FLOOD OPERATIONS CENTRE • OPERATOR PORTAL
           </p>
         </div>
 
@@ -88,7 +88,7 @@ function OperatorLoginForm() {
                 className="block text-xs font-semibold text-on-surface mb-1.5"
                 htmlFor="operator-username"
               >
-                Operator Call Sign / Username
+                Operator Username
               </label>
               <div className="relative">
                 <span className="material-symbols-outlined absolute left-3 top-2.5 text-on-surface-variant text-[20px]">
@@ -166,7 +166,7 @@ function OperatorLoginForm() {
 
         {/* Footer Sector Status */}
         <div className="text-center mt-6 text-[11px] text-white/50 font-mono">
-          FloodRelay Emergency Response System • Sector 4 Basin
+          FloodRelay Decision Support • Delhi NCR
         </div>
       </div>
     </div>
