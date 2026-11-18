@@ -26,11 +26,42 @@ The demonstration system provides a deterministic, reproducible, end-to-end envi
 
 ### Running the Demonstration Setup
 
-To seed the database, provision the demonstration operator, establish the committed baseline plan, and inject disruption events:
+To seed the database, provision the demonstration operator, establish the baseline rescue proposal in **Simulation Preview Mode** (retaining synthetic entities in `PROPOSED` status per PR #41 operational provenance rules), and inject disruption events for incremental repair evaluation:
 
 ```powershell
 npm run demo:setup
 ```
+
+### Simulation Preview vs. Operational Commitment
+
+FloodRelay strictly separates synthetic demonstration scenarios from live operational dispatch:
+
+- **Simulation Preview Mode (Demo CLI):**
+  - Evaluates synthetic requests, rescue resources, and shelters labeled `source: 'SIMULATED'`.
+  - Proposals remain in `PROPOSED` status (`frozenStopsCount: 0`).
+  - PR #41 strictly prevents committing synthetic entities to operational dispatch (`SIMULATED_REQUEST_FORBIDDEN` / `SIMULATED_RESOURCE_FORBIDDEN`).
+  - Evaluators observe route optimization, simulated disruptions, and incremental repair without altering live operational state or fabricating fake in-flight rescues.
+
+- **Operational Dispatch (Real Disaster Response / Integration Tests):**
+  - Operates on verified citizen requests (`source: 'REPORTED'`) and registered fleet assets (`source: 'REAL'`).
+  - An authorized human dispatcher explicitly commits the deployment plan via `POST /assignments/:id/commit`.
+  - In-flight mission stops are locked (`is_frozen = true`).
+  - Incremental repair guarantees zero churn violations on frozen stops (`churn.frozenStopsViolated = 0`).
+
+### Forecast Freshness & Provenance Guarantees
+
+The hydrological forecast context layer (`GET /forecast/context`) enforces strict scientific provenance:
+
+- `FRESH`: Authentic, newly retrieved data from Copernicus EMS GloFAS 4.0 via Open-Meteo.
+- `CACHED`: Authentic forecast served from the in-memory cache within TTL.
+- `STALE`: Authentic previously cached forecast served with an explicit notice when the upstream provider experiences a temporary outage.
+- `UNAVAILABLE`: Returned when the upstream provider is unreachable and no authentic cache exists. Never fabricates low or normal river levels.
+- `OFFLINE_FIXTURE`: Deterministic synthetic fixture (`source: 'SIMULATED FORECAST — DEMO ONLY'`, `riskCategory: 'UNKNOWN'`) served **ONLY** when `FORECAST_ENABLE_OFFLINE_FIXTURE=1` is explicitly set in non-production. Offline fixtures are isolated from the authentic forecast cache and can never be promoted to `CACHED` or `READY`.
+
+### Dependency Security Audit Scope
+
+- **Production Dependencies (`npm audit --omit=dev --audit-level=high`):** 0 vulnerabilities. Verified in CI.
+- **Development Tooling (`npm audit`):** 21 vulnerabilities (8 moderate, 13 high) isolated to build/test tools (`minimatch` in ESLint, `picomatch` in Vitest/Tailwind). These tools are not bundled or reachable in production runtime environments.
 
 ### Running the Web Applications
 

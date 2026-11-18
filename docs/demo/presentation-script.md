@@ -45,7 +45,9 @@ _(Navigate to Assignments -> Propose -> Commit)_
 >
 > We enforce human-in-the-loop decision support: the system proposes, but an authorized human operator commits.
 >
-> When I click **Commit Deployment Plan**, two critical database invariants occur:
+> For our synthetic demonstration scenario, FloodRelay operates in **Simulation Preview Mode**, retaining the plan in `PROPOSED` status to prevent synthetic test data from leaking into live dispatch (per ADR-41).
+>
+> In real disaster operations with verified citizen requests, when the operator commits the plan:
 >
 > 1. The assignment status moves to `COMMITTED`.
 > 2. All mission stops are marked **`is_frozen = true`**.
