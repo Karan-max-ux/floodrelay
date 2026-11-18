@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { Express } from 'express';
 import { createApp } from './app.js';
 import { AuthService, InMemoryAuthRepository } from './services/authService.js';
@@ -543,6 +543,7 @@ describe('Deterministic End-to-End Demonstration Workflow Walkthrough', () => {
   let adminToken: string;
 
   beforeEach(async () => {
+    process.env.FORECAST_ENABLE_OFFLINE_FIXTURE = '1';
     mockDb = new InMemoryDemoQueryable();
     const repo = new PostgisRepository(mockDb);
     const authRepo = new InMemoryAuthRepository();
@@ -619,6 +620,10 @@ describe('Deterministic End-to-End Demonstration Workflow Walkthrough', () => {
       repairOrchestrationService: repairService,
       forecastService,
     });
+  });
+
+  afterEach(() => {
+    delete process.env.FORECAST_ENABLE_OFFLINE_FIXTURE;
   });
 
   it('executes full 8-step disaster response scenario deterministically', async () => {
