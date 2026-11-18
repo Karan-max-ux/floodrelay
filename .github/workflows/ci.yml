@@ -59,7 +59,10 @@ jobs:
       - name: Install k6
         uses: grafana/setup-k6-action@v1
 
-      - name: Security audit
+      - name: Production dependency security audit
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Critical security audit
         run: npm audit --audit-level=critical
 
       - name: Secrets hygiene check
@@ -90,6 +93,15 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Verify demo CLI lifecycle against PostGIS (setup, credentials, cleanup)
+        env:
+          DATABASE_URL: 'postgres://postgres:postgrespassword@localhost:5432/floodrelay_test'
+          ALLOW_DISPOSABLE_DEMO_DB: '1'
+        run: |
+          npm run demo:setup
+          npm run demo:credentials
+          npm run demo:cleanup
 
       - name: Format check
         run: npm run format:check
