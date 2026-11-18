@@ -14,8 +14,29 @@ export interface UseFloodForecastOptions {
   autoFetch?: boolean;
 }
 
+export interface ForecastQueryIdentity {
+  lat: number;
+  lng: number;
+  days: number;
+}
+
+export function areQueriesEqual(a: ForecastQueryIdentity, b: ForecastQueryIdentity): boolean {
+  return Math.abs(a.lat - b.lat) < 1e-4 && Math.abs(a.lng - b.lng) < 1e-4 && a.days === b.days;
+}
+
 export function useFloodForecast(options?: UseFloodForecastOptions) {
+  const targetLat = options?.lat ?? 28.65;
+  const targetLng = options?.lng ?? 77.23;
+  const targetDays = options?.days ?? 7;
+
+  const currentQuery: ForecastQueryIdentity = {
+    lat: targetLat,
+    lng: targetLng,
+    days: targetDays,
+  };
+
   const [data, setData] = useState<FloodForecastContext | null>(null);
+  const [dataQuery, setDataQuery] = useState<ForecastQueryIdentity | null>(null);
   const [status, setStatus] = useState<ForecastStatus>('INITIAL_LOADING');
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -23,6 +44,29 @@ export function useFloodForecast(options?: UseFloodForecastOptions) {
   const isFetchingRef = useRef(false);
   const latestRequestIdRef = useRef(0);
   const activeAbortControllerRef = useRef<AbortController | null>(null);
+  const lastQueryRef = useRef<ForecastQueryIdentity>(currentQuery);
+  const activeDataRef = useRef<{
+    data: FloodForecastContext | null;
+    query: ForecastQueryIdentity | null;
+  }>({
+    data: null,
+    query: null,
+  });
+
+  // Keep ref updated synchronously
+  activeDataRef.current = { data, query: dataQuery };
+
+  // Explicit query identity invalidation: when location or horizon changes,
+  // invalidate previous location data so Location A's data is never displayed as Location B's.
+  useEffect(() => {
+    if (!areQueriesEqual(lastQueryRef.current, currentQuery)) {
+      lastQueryRef.current = currentQuery;
+      setData(null);
+      setDataQuery(null);
+      setStatus('INITIAL_LOADING');
+      setError(null);
+    }
+  }, [targetLat, targetLng, targetDays]);
 
   const fetchForecast = useCallback(
     async (forceRefresh = false) => {
@@ -36,12 +80,18 @@ export function useFloodForecast(options?: UseFloodForecastOptions) {
       const requestId = ++latestRequestIdRef.current;
       isFetchingRef.current = true;
 
+      const requestedQuery: ForecastQueryIdentity = {
+        lat: targetLat,
+        lng: targetLng,
+        days: targetDays,
+      };
+
       try {
         const result = await apiClient.getFloodForecast(
           {
-            lat: options?.lat,
-            lng: options?.lng,
-            days: options?.days,
+            lat: targetLat,
+            lng: targetLng,
+            days: targetDays,
             forceRefresh,
           },
           abortController.signal,
@@ -53,6 +103,7 @@ export function useFloodForecast(options?: UseFloodForecastOptions) {
         }
 
         setData(result);
+        setDataQuery(requestedQuery);
         if (result.freshness === 'UNAVAILABLE') {
           setStatus('UNAVAILABLE');
         } else if (result.freshness === 'OFFLINE_FIXTURE') {
@@ -75,7 +126,21 @@ export function useFloodForecast(options?: UseFloodForecastOptions) {
 
         const msg = err instanceof Error ? err.message : 'Failed to fetch flood forecast context';
         setError(msg);
-        setStatus((prev) => (prev === 'INITIAL_LOADING' ? 'ERROR' : 'STALE'));
+
+        // Legitimate stale fallback ONLY if existing data belongs to the exact same query identity.
+        // Never represent Location A's data as Location B's stale forecast!
+        const currentActive = activeDataRef.current;
+        if (
+          currentActive.data &&
+          currentActive.query &&
+          areQueriesEqual(currentActive.query, requestedQuery)
+        ) {
+          setStatus('STALE');
+        } else {
+          setData(null);
+          setDataQuery(null);
+          setStatus('ERROR');
+        }
       } finally {
         if (requestId === latestRequestIdRef.current) {
           isFetchingRef.current = false;
@@ -83,7 +148,7 @@ export function useFloodForecast(options?: UseFloodForecastOptions) {
         }
       }
     },
-    [options?.lat, options?.lng, options?.days],
+    [targetLat, targetLng, targetDays],
   );
 
   useEffect(() => {
@@ -103,6 +168,7 @@ export function useFloodForecast(options?: UseFloodForecastOptions) {
 
   return {
     data,
+    queryIdentity: dataQuery,
     status,
     error,
     lastUpdated,

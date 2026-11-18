@@ -305,4 +305,187 @@ describe('useFloodForecast React Hook Lifecycle & State Transitions', () => {
     expect(rendered!.result.current.status).toBe('READY');
     rendered!.unmount();
   });
+
+  it('8. same-location error preserves same-location data as STALE', async () => {
+    const spy = vi
+      .spyOn(apiClient, 'getFloodForecast')
+      .mockResolvedValueOnce(sampleContext)
+      .mockRejectedValueOnce(new Error('Network temporary glitch'));
+
+    let rendered: ReturnType<typeof renderHook<ReturnType<typeof useFloodForecast>>>;
+    act(() => {
+      rendered = renderHook(() => useFloodForecast({ lat: 28.65, lng: 77.23 }));
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(rendered!.result.current.status).toBe('READY');
+
+    // Trigger refresh for same location that fails
+    act(() => {
+      rendered!.result.current.refresh();
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Since it was the same location, fallback to STALE is preserved
+    expect(rendered!.result.current.status).toBe('STALE');
+    expect(rendered!.result.current.data?.currentDischargeM3S).toBe(4.25);
+    expect(spy).toHaveBeenCalledTimes(2);
+    rendered!.unmount();
+  });
+
+  it('9. location change from A to B: A is not represented as B forecast if B fails', async () => {
+    vi.spyOn(apiClient, 'getFloodForecast')
+      .mockResolvedValueOnce(sampleContext) // Location A succeeds
+      .mockRejectedValueOnce(new Error('Location B server unreachable')); // Location B fails
+
+    let currentLat = 28.65;
+    let rendered: ReturnType<typeof renderHook<ReturnType<typeof useFloodForecast>>>;
+
+    act(() => {
+      rendered = renderHook(() => useFloodForecast({ lat: currentLat, lng: 77.23 }));
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(rendered!.result.current.status).toBe('READY');
+    expect(rendered!.result.current.data?.currentDischargeM3S).toBe(4.25);
+
+    // Switch to Location B
+    currentLat = 28.75;
+    act(() => {
+      rendered!.rerender();
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Critical invariant: Location A's data MUST NOT be retained or shown as STALE for Location B!
+    expect(rendered!.result.current.status).toBe('ERROR');
+    expect(rendered!.result.current.data).toBeNull();
+    expect(rendered!.result.current.error).toBe('Location B server unreachable');
+    rendered!.unmount();
+  });
+
+  it('10. handles multiple rapid refreshes cleanly without crashing or corrupting state', async () => {
+    vi.spyOn(apiClient, 'getFloodForecast').mockResolvedValue(sampleContext);
+
+    let rendered: ReturnType<typeof renderHook<ReturnType<typeof useFloodForecast>>>;
+    act(() => {
+      rendered = renderHook(() => useFloodForecast({ lat: 28.65 }));
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Rapid successive manual refreshes
+    act(() => {
+      rendered!.result.current.refresh(true);
+      rendered!.result.current.refresh(true);
+      rendered!.result.current.refresh(true);
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(rendered!.result.current.status).toBe('READY');
+    expect(rendered!.result.current.error).toBeNull();
+    rendered!.unmount();
+  });
+
+  it('11. UNAVAILABLE is never represented as normal risk', async () => {
+    vi.spyOn(apiClient, 'getFloodForecast').mockResolvedValueOnce({
+      ...sampleContext,
+      freshness: 'UNAVAILABLE',
+      riskCategory: 'UNAVAILABLE',
+      currentDischargeM3S: 0,
+      daily: [],
+    });
+
+    let rendered: ReturnType<typeof renderHook<ReturnType<typeof useFloodForecast>>>;
+    act(() => {
+      rendered = renderHook(() => useFloodForecast());
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(rendered!.result.current.status).toBe('UNAVAILABLE');
+    expect(rendered!.result.current.isUnavailable).toBe(true);
+    expect(rendered!.result.current.data?.riskCategory).toBe('UNAVAILABLE');
+    expect(rendered!.result.current.data?.riskCategory).not.toBe('NORMAL');
+    rendered!.unmount();
+  });
+
+  it('12. recovery from network error updates state to READY', async () => {
+    vi.spyOn(apiClient, 'getFloodForecast')
+      .mockRejectedValueOnce(new Error('Network glitch'))
+      .mockResolvedValueOnce(sampleContext);
+
+    let rendered: ReturnType<typeof renderHook<ReturnType<typeof useFloodForecast>>>;
+    act(() => {
+      rendered = renderHook(() => useFloodForecast());
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(rendered!.result.current.status).toBe('ERROR');
+
+    // Trigger recovery refresh
+    act(() => {
+      rendered!.result.current.refresh();
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(rendered!.result.current.status).toBe('READY');
+    expect(rendered!.result.current.data?.currentDischargeM3S).toBe(4.25);
+    expect(rendered!.result.current.error).toBeNull();
+    rendered!.unmount();
+  });
+
+  it('13. changing forecast horizon days invalidates incompatible previous cached data', async () => {
+    const horizon7 = { ...sampleContext, forecastHorizonDays: 7 };
+    const horizon14 = { ...sampleContext, forecastHorizonDays: 14 };
+
+    vi.spyOn(apiClient, 'getFloodForecast')
+      .mockResolvedValueOnce(horizon7)
+      .mockResolvedValueOnce(horizon14);
+
+    let days = 7;
+    let rendered: ReturnType<typeof renderHook<ReturnType<typeof useFloodForecast>>>;
+
+    act(() => {
+      rendered = renderHook(() => useFloodForecast({ days }));
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(rendered!.result.current.data?.forecastHorizonDays).toBe(7);
+
+    // Change horizon to 14
+    days = 14;
+    act(() => {
+      rendered!.rerender();
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(rendered!.result.current.data?.forecastHorizonDays).toBe(14);
+    rendered!.unmount();
+  });
 });
