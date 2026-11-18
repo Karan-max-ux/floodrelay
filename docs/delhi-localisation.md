@@ -1,34 +1,90 @@
-# FloodRelay — Delhi regionalisation (initial milestone)
+# FloodRelay — Delhi NCR Localisation & Geographic Integration
 
-FloodRelay currently defaults its **user-facing experience** to Delhi NCR and
-Indian English (`en-IN`). Region settings and `Asia/Kolkata` formatting are
-centralised in `apps/web/lib/region.ts`. These settings do **not** restrict
-API latitude/longitude, alter routing algorithms, change PostgreSQL time storage,
-or assert the presence of real rescue resources or shelters.
+FloodRelay defaults its **user-facing experience** to **Delhi NCR** and **Indian English (`en-IN`)** with **Indian Standard Time (`Asia/Kolkata` / IST)** display formatting. Centralised region defaults live in `apps/web/lib/region.ts`, and citizen-critical translation keys live in `apps/web/lib/i18n/`.
 
-## Truthful emergency messaging
+> **Prototype Boundary:** Localised UI copy, native Delhi reference datasets, and passing automated tests do **not** make FloodRelay production-ready for live emergency dispatch. FloodRelay remains a human-supervised decision-support prototype.
 
-- India's national emergency number is **112** (Emergency Response Support System,
-  Ministry of Home Affairs): https://www.mha.gov.in/emergency-response-support-system-erss
-- FloodRelay is an independent decision-support **prototype**, not an official
-  government emergency dispatch channel. Web request submission does not confirm
-  that a physical rescue team has been contacted or deployed.
-- Demo geography and simulated assets must remain explicitly identified as
-  synthetic. Existing REAL/SIMULATED/MIXED safeguards remain unchanged.
+---
 
-## Included in this milestone
+## 1. Completed Delhi NCR & Indian English Localisation (`en-IN`)
 
-- Delhi terminology in the Citizen and Operator landing screens and login.
-- Indian English strings and national emergency guidance in key citizen flows.
-- Deterministic Indian date/time presentation for key requests, audits, status
-  indicators and assignment details; no changes to API timestamp formats.
-- Regression tests for regional display helpers.
+- **Regional Defaults (`apps/web/lib/region.ts`):**
+  - `code`: `IN-DL`, `label`: `Delhi NCR`, `floodplain`: `Delhi–Yamuna Floodplain`
+  - `locale`: `en-IN`, `timeZone`: `Asia/Kolkata`, `emergencyNumber`: `112`
+  - `defaultMapCentre`: `{ lat: 28.6139, lng: 77.209 }` (central Delhi NCR)
+  - `tacticalDemoCentre`: `{ lat: 28.671, lng: 77.234 }` (North Delhi / Yamuna Floodplain tactical demonstration centre, zoom `12`)
+- **Timestamp Presentation vs Storage:**
+  - All API contracts, solver inputs, and PostgreSQL/PostGIS timestamps remain ISO 8601 UTC.
+  - Citizen receipts, operator request tables, assignments, audit logs, operational event feeds, and map inspector drawers display timestamps deterministically in IST via `formatRegionDate`, `formatRegionTime`, and `formatRegionDateTime`.
+- **UI Examples & Copy:**
+  - Citizen and Operator portals use Delhi NCR placeholders (e.g., `Civil Lines`, `Old Railway Bridge`, `28.6710`, `77.2340`) and Indian English phrasing (`authorised`, `colour`, `neighbourhood`, `prioritises`, `enquiry`).
+  - Citizen Portal Step 2 (`Triage & Review`) displays `Operator review workflow` and makes no claim that live citizen request tracking is currently available.
+  - Confirmation receipts display `FLOODRELAY REQUEST RECEIPT` (not an official government receipt) and do not promise physical rescue deployment.
 
-## Subsequent milestones (not included here)
+---
 
-- Audit every remaining status card and map overlay for Delhi-specific labels.
-- Validate Delhi fixture coordinates, road restrictions, reference locations,
-  and map centre/bounds independently; never represent fixtures as live incidents.
-- Introduce fully translated and reviewed Hindi (`hi-IN`) citizen messaging.
-- Verify further helplines, field operations, and any shelter network before
-  publication. No unsupported real-time water gauge claims.
+## 2. Native Delhi Synthetic Reference Geometry
+
+Runtime Houston-to-Delhi coordinate rebasing (`HOUSTON_ANCHOR`, `rebaseLatLng`) has been removed from the active map and repair fixtures:
+
+- **`scenarios/sample-scenario.json` (`scenario-delhi-yamuna-demo`):**
+  - Contains **5 simulated rescue requests** (`req-001`–`req-005`), **3 simulated resources** (`res-boat-01`, `res-boat-02`, `res-truck-01`), **2 simulated relief camps** (`shelter-kashmere-gate`, `shelter-wazirabad`), and **1 simulated blocked hazard zone** (`zone-old-railway-bridge`) within `lat [28.60, 28.75]`, `lng [77.18, 77.28]`.
+  - Every request, resource, and shelter carries explicit `"source": "SIMULATED"` provenance.
+- **`apps/web/lib/fixtures/mapReferenceData.ts`:**
+  - Mirrors `scenarios/sample-scenario.json` directly for the Operator GIS Tactical Map reference layers and derives `TACTICAL_MAP_DEFAULT_CENTRE` from `REGION_CONFIG`.
+- **`apps/web/lib/fixtures/repairFixtures.ts`:**
+  - Defines native North Delhi / Yamuna Floodplain repair evaluation plans (`delhi-yamuna-north-baseline` and `delhi-yamuna-north-repaired`) referencing `res-boat-01`, `res-boat-02`, `res-truck-01`, `shelter-kashmere-gate`, `shelter-wazirabad`, and `DELHI_REPAIR_SCENARIO_REQUESTS` (`req-001`–`req-005`, `req-delhi-repair-006`, `req-delhi-repair-007`).
+  - Strictly read-only preview fixtures; database commitment is disabled in UI and enforced server-side.
+
+---
+
+## 3. Real vs Simulated Asset Separation & Agency Non-Affiliation
+
+- **Authoritative Database vs Reference Map Layers:**
+  - The Operator Overview fleet roster (`ResourceStatusPanel`) reads authoritative PostgreSQL fleet inventory (`GET /operations/resources`) and blocks mutations on `SIMULATED` records.
+  - The GIS Tactical Map displays live database distress incidents (`REAL / REPORTED` or `SIMULATED`) and backend-supplied assignment routes verbatim at their actual WGS84 coordinates (including coordinates outside Delhi NCR).
+  - Reference fleet markers, shelters, and blocked zones are visibly badged `SIMULATED` across map popups, the legend (`Map & Route Key`), and `MapInspectorDrawer`.
+- **No Official Agency Affiliation:**
+  - Fictional demo vessels (`Simulated Rescue Boat Alpha (Demo — Not Official NDRF)`, `Simulated Rescue Boat Bravo (Demo — Not Official NDRF)`) are explicitly labelled demonstration-only and do not represent official NDRF, DDMA, or government assets.
+- **Provenance Safety Guardrails (PR #41):**
+  - Server-side `commitAssignment()` continues to reject simulated resources (`SIMULATED_RESOURCE_FORBIDDEN`), simulated requests (`SIMULATED_REQUEST_FORBIDDEN`), and simulated shelters (`SIMULATED_SHELTER_FORBIDDEN`) in operational plans.
+
+---
+
+## 4. Geocoding Pipeline & Limitations
+
+Citizen location intake (`apps/web/lib/geocoding.ts`, `apps/web/hooks/useCitizenLocation.ts`, `/api/geocode`, `/api/reverse-geocode`) follows a strict fallback hierarchy:
+
+1. **Primary Lookup:** Geoapify forward/reverse geocoding (when `GEOAPIFY_API_KEY` is configured).
+2. **OpenStreetMap Nominatim Fallback:** Policy-compliant HTTPS client with descriptive `User-Agent`, 1 req/sec in-memory request serializer, single-flight deduplication, 1-hour bounded LRU cache (max 500 entries), allowlisted host validation, and OpenStreetMap attribution.
+3. **Bounded Regional Landmark Fallback:** Within the Delhi NCR reference coverage box (`lat 28.44–28.74`, `lng 76.98–77.50`) and strictly within `5.0 km`, falls back to an explicitly labelled `(Approximate Landmark)` description.
+4. **Graceful Manual Entry:** When all lookup providers are unavailable or coordinates fall outside coverage, citizens can still enter an address/landmark and confirm coordinates manually.
+
+**Non-negotiable geocoding invariants:**
+
+- Citizen-provided GPS or manual coordinates are **never replaced** by an approximate landmark's coordinates.
+- Valid WGS84 coordinates outside the Delhi NCR reference bounding box are **never rejected**.
+- In horizontally scaled multi-instance or serverless deployments, process-local Nominatim caching/rate-limiting does not provide a global distributed rate limit; deploy a dedicated Nominatim gateway or commercial API key for multi-instance production use.
+
+---
+
+## 5. Emergency Numbers & Unverified Real-World Data
+
+| Category                                                           | Status                          | Source / Policy                                                                                                                                                                        |
+| ------------------------------------------------------------------ | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **National Emergency Helpline (`112`)**                            | **Verified**                    | Emergency Response Support System (ERSS), Ministry of Home Affairs, Government of India (`https://www.mha.gov.in/emergency-response-support-system-erss`; verified 2026-11-18).        |
+| **District / Local Helplines (e.g. DDMA / Flood Control numbers)** | **Omitted**                     | Not published in UI without authoritative source attribution and periodic verification workflow.                                                                                       |
+| **Live Relief Shelters & Bed Availability**                        | **Unverified / Simulated Only** | Map shelter markers (`Kashmere Gate Relief Camp`, `Wazirabad Community Relief Centre`) are labelled `SIMULATED • Unverified Reference` and never claim live `Open` operational status. |
+| **Live Yamuna Water-Level / River-Gauge Feed**                     | **Not Integrated**              | Citizen status bar explicitly states `No live water-level feed`. No fabricated flood-extent polygons or synthetic live gauge readings are displayed.                                   |
+
+---
+
+## 6. Hindi (`hi-IN`) Localisation Status
+
+- **Architecture Ready (`apps/web/lib/i18n/`):**
+  - Typed `CitizenMessages` keys cover citizen-critical domains: `home`, `request`, `validation`, `emergency`, and `confirmation`.
+  - `EN_IN_MESSAGES` (`en-IN`) is active and verified as `DEFAULT_LOCALE`.
+  - `HI_IN_MESSAGES_DRAFT` (`hi-IN`) is scaffolded with `reviewStatus: 'PENDING_HUMAN_REVIEW'` and **`enabled: false`**. `resolveActiveLocale('hi-IN')` safely resolves to `'en-IN'`.
+- **Remaining Task Before Enabling Hindi Selector:**
+  - Engage a qualified native Hindi reviewer/disaster-communications specialist to author and review all keys in `apps/web/lib/i18n/hi-IN.ts` (especially life-safety `112` emergency notices, non-deployment disclaimers, form validation errors, and receipt wording), followed by automated and manual UI QA in `hi-IN`.
+  - Machine-generated translations must **not** be enabled for safety-critical citizen workflows without human review.
