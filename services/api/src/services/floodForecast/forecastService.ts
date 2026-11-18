@@ -40,13 +40,29 @@ export class ForecastService {
     try {
       // 2. Fetch from upstream provider
       const freshData = await this.provider.getForecast(options);
+
+      // CRITICAL PROVENANCE PRESERVATION:
+      // Offline simulated fixtures must NEVER enter the authentic forecast cache.
+      // They must always retain OFFLINE_FIXTURE provenance and never be promoted to FRESH or CACHED.
+      if (freshData.freshness === 'OFFLINE_FIXTURE') {
+        // If authentic data was previously cached, authentic STALE data takes precedence over simulated fixture
+        if (cached) {
+          return {
+            ...cached.data,
+            freshness: 'STALE',
+            disclaimer: `${cached.data.disclaimer} (NOTICE: Serving stale cached forecast as upstream update timed out).`,
+          };
+        }
+        return freshData;
+      }
+
       this.cache.set(cacheKey, {
         data: freshData,
         cachedAt: now,
       });
       return freshData;
     } catch {
-      // 3. Fallback to stale cached data if available
+      // 3. Fallback to stale cached data if available (only authentic upstream data exists in this.cache)
       if (cached) {
         return {
           ...cached.data,
@@ -60,8 +76,16 @@ export class ForecastService {
         process.env.FORECAST_ENABLE_OFFLINE_FIXTURE === '1' ||
         process.env.FORECAST_ENABLE_OFFLINE_FIXTURE === 'true';
 
-      if (allowOffline && this.provider instanceof OpenMeteoFloodForecastProvider) {
-        return this.provider.getFallbackFixture(options?.lat, options?.lng, options?.days);
+      if (
+        allowOffline &&
+        'getFallbackFixture' in this.provider &&
+        typeof (this.provider as { getFallbackFixture?: unknown }).getFallbackFixture === 'function'
+      ) {
+        return (
+          this.provider as {
+            getFallbackFixture: (lat?: number, lng?: number, days?: number) => FloodForecastContext;
+          }
+        ).getFallbackFixture(options?.lat, options?.lng, options?.days);
       }
 
       // 5. Otherwise return explicit UNAVAILABLE structure without fabricating normal discharge

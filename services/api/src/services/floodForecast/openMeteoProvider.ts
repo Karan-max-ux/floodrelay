@@ -35,6 +35,21 @@ export const DEFAULT_FORECAST_DAYS = 7;
 export const FORECAST_DISCLAIMER =
   'Informational hydrological context based on European Centre for Medium-Range Weather Forecasts (ECMWF) GloFAS 4.0 gridded river discharge model via Open-Meteo (CC BY 4.0). GloFAS simulates river discharge in cubic meters per second (m³/s) and does not measure localized street inundation, urban flash flooding, or measured gauge levels at Delhi Old Railway Bridge (Central Water Commission Yamuna Warning Level: 204.5 m, Danger Level: 205.33 m above MSL). All discharge risk thresholds (50, 200, 800 m³/s) are experimental model indicators and do NOT constitute official public flood warnings. This layer is informational only and does not trigger autonomous rescue dispatch or modify committed routes.';
 
+export function isValidCalendarDate(dateStr: string): boolean {
+  if (typeof dateStr !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return false;
+  }
+  const [yearStr, monthStr, dayStr] = dateStr.split('-');
+  const year = parseInt(yearStr!, 10);
+  const month = parseInt(monthStr!, 10);
+  const day = parseInt(dayStr!, 10);
+  if (month < 1 || month > 12 || day < 1 || day > 31) {
+    return false;
+  }
+  const d = new Date(Date.UTC(year, month - 1, day));
+  return d.getUTCFullYear() === year && d.getUTCMonth() === month - 1 && d.getUTCDate() === day;
+}
+
 export function classifyDischargeRisk(maxDischargeM3S: number): ForecastRiskLevel {
   if (
     typeof maxDischargeM3S !== 'number' ||
@@ -128,10 +143,24 @@ export class OpenMeteoFloodForecastProvider implements FloodForecastProvider {
       throw new Error('Upstream flood provider returned empty or missing daily.time array');
     }
 
-    const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/;
-    for (const d of dates) {
-      if (typeof d !== 'string' || !isoDateRegex.test(d)) {
-        throw new Error(`Malformed forecast date string in daily.time: "${d}"`);
+    for (let i = 0; i < dates.length; i++) {
+      const d = dates[i];
+      if (typeof d !== 'string' || !isValidCalendarDate(d)) {
+        throw new Error(`Malformed or invalid calendar date in daily.time: "${d}"`);
+      }
+      if (i > 0 && d <= dates[i - 1]!) {
+        throw new Error(
+          `Out-of-order or duplicate forecast date in daily.time: "${d}" follows "${dates[i - 1]}"`,
+        );
+      }
+    }
+
+    if (json.daily_units?.river_discharge) {
+      const unit = json.daily_units.river_discharge.trim();
+      if (unit !== 'm³/s' && unit !== 'm3/s') {
+        throw new Error(
+          `Incompatible measurement unit for river_discharge: expected "m³/s", received "${unit}"`,
+        );
       }
     }
 
@@ -163,6 +192,40 @@ export class OpenMeteoFloodForecastProvider implements FloodForecastProvider {
       const rawMean = mean ? mean[idx] : undefined;
       const rawMax = max ? max[idx] : undefined;
       const rawMin = min ? min[idx] : undefined;
+
+      // Reject non-finite, null, or negative values immediately
+      for (const [metricName, val] of [
+        ['river_discharge', rawDischarge],
+        ['river_discharge_mean', rawMean],
+        ['river_discharge_max', rawMax],
+        ['river_discharge_min', rawMin],
+      ] as const) {
+        if (
+          val !== undefined &&
+          (val === null || typeof val !== 'number' || !Number.isFinite(val) || val < 0)
+        ) {
+          throw new Error(
+            `Invalid or non-finite measurement for ${metricName} on ${date}: received ${val}`,
+          );
+        }
+      }
+
+      // Check min/mean/max bounds consistency when provided
+      if (rawMin !== undefined && rawMax !== undefined && rawMax < rawMin) {
+        throw new Error(
+          `Inconsistent discharge bounds on ${date}: max (${rawMax}) < min (${rawMin})`,
+        );
+      }
+      if (rawMin !== undefined && rawMean !== undefined && rawMean < rawMin - 0.05) {
+        throw new Error(
+          `Inconsistent discharge bounds on ${date}: mean (${rawMean}) < min (${rawMin})`,
+        );
+      }
+      if (rawMean !== undefined && rawMax !== undefined && rawMean > rawMax + 0.05) {
+        throw new Error(
+          `Inconsistent discharge bounds on ${date}: mean (${rawMean}) > max (${rawMax})`,
+        );
+      }
 
       const effectiveDischarge = rawDischarge ?? rawMean ?? rawMax;
       if (

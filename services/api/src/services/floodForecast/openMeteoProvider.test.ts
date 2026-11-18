@@ -98,7 +98,125 @@ describe('OpenMeteoFloodForecastProvider Unit Tests', () => {
 
       // @ts-expect-error private method test
       expect(() => provider.transformResponse(malformed, 28.65, 77.23, 7, 'FRESH')).toThrow(
-        /Malformed forecast date string/,
+        /Malformed or invalid calendar date/,
+      );
+    });
+
+    it('rejects semantically impossible calendar dates such as February 30 or April 31', () => {
+      const feb30 = {
+        latitude: 28.65,
+        longitude: 77.23,
+        generationtime_ms: 1.2,
+        utc_offset_seconds: 0,
+        timezone: 'UTC',
+        timezone_abbreviation: 'UTC',
+        daily_units: { time: 'iso8601', river_discharge: 'm³/s' },
+        daily: {
+          time: ['2026-02-30'],
+          river_discharge: [10],
+        },
+      };
+      // @ts-expect-error private method test
+      expect(() => provider.transformResponse(feb30, 28.65, 77.23, 1, 'FRESH')).toThrow(
+        /Malformed or invalid calendar date/,
+      );
+
+      const apr31 = {
+        latitude: 28.65,
+        longitude: 77.23,
+        generationtime_ms: 1.2,
+        utc_offset_seconds: 0,
+        timezone: 'UTC',
+        timezone_abbreviation: 'UTC',
+        daily_units: { time: 'iso8601', river_discharge: 'm³/s' },
+        daily: {
+          time: ['2026-04-31'],
+          river_discharge: [10],
+        },
+      };
+      // @ts-expect-error private method test
+      expect(() => provider.transformResponse(apr31, 28.65, 77.23, 1, 'FRESH')).toThrow(
+        /Malformed or invalid calendar date/,
+      );
+    });
+
+    it('rejects duplicate or out-of-order dates in daily.time', () => {
+      const outOfOrder = {
+        latitude: 28.65,
+        longitude: 77.23,
+        generationtime_ms: 1.2,
+        utc_offset_seconds: 0,
+        timezone: 'UTC',
+        timezone_abbreviation: 'UTC',
+        daily_units: { time: 'iso8601', river_discharge: 'm³/s' },
+        daily: {
+          time: ['2026-11-09', '2026-11-08'],
+          river_discharge: [10, 20],
+        },
+      };
+      // @ts-expect-error private method test
+      expect(() => provider.transformResponse(outOfOrder, 28.65, 77.23, 2, 'FRESH')).toThrow(
+        /Out-of-order or duplicate forecast date/,
+      );
+
+      const duplicateDate = {
+        latitude: 28.65,
+        longitude: 77.23,
+        generationtime_ms: 1.2,
+        utc_offset_seconds: 0,
+        timezone: 'UTC',
+        timezone_abbreviation: 'UTC',
+        daily_units: { time: 'iso8601', river_discharge: 'm³/s' },
+        daily: {
+          time: ['2026-11-08', '2026-11-08'],
+          river_discharge: [10, 20],
+        },
+      };
+      // @ts-expect-error private method test
+      expect(() => provider.transformResponse(duplicateDate, 28.65, 77.23, 2, 'FRESH')).toThrow(
+        /Out-of-order or duplicate forecast date/,
+      );
+    });
+
+    it('rejects incompatible measurement units for river_discharge', () => {
+      const incompatibleUnit = {
+        latitude: 28.65,
+        longitude: 77.23,
+        generationtime_ms: 1.2,
+        utc_offset_seconds: 0,
+        timezone: 'UTC',
+        timezone_abbreviation: 'UTC',
+        daily_units: { time: 'iso8601', river_discharge: 'cfs' },
+        daily: {
+          time: ['2026-11-08'],
+          river_discharge: [10],
+        },
+      };
+      // @ts-expect-error private method test
+      expect(() => provider.transformResponse(incompatibleUnit, 28.65, 77.23, 1, 'FRESH')).toThrow(
+        /Incompatible measurement unit for river_discharge/,
+      );
+    });
+
+    it('rejects inconsistent discharge bounds where max < min or mean is outside [min, max]', () => {
+      const maxLessThanMin = {
+        latitude: 28.65,
+        longitude: 77.23,
+        generationtime_ms: 1.2,
+        utc_offset_seconds: 0,
+        timezone: 'UTC',
+        timezone_abbreviation: 'UTC',
+        daily_units: { time: 'iso8601', river_discharge: 'm³/s' },
+        daily: {
+          time: ['2026-11-08'],
+          river_discharge: [10],
+          river_discharge_min: [20],
+          river_discharge_max: [15],
+        },
+      };
+      // @ts-expect-error private method test
+      expect(() => provider.transformResponse(maxLessThanMin, 28.65, 77.23, 1, 'FRESH')).toThrow(
+        /Inconsistent discharge bounds on 2026-11-08: max \(15\) < min \(20\)/,
       );
     });
 
@@ -160,7 +278,7 @@ describe('OpenMeteoFloodForecastProvider Unit Tests', () => {
 
       // @ts-expect-error private method test
       expect(() => provider.transformResponse(malformed, 28.65, 77.23, 7, 'FRESH')).toThrow(
-        /Invalid or missing river discharge measurement/,
+        /Invalid (or non-finite measurement|or missing river discharge measurement)/,
       );
     });
 

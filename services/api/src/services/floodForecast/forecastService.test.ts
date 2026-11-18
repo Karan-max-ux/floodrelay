@@ -165,6 +165,155 @@ describe('FloodForecast Provider & Service Suite', () => {
     expect(fallback.disclaimer).toContain('SIMULATED FORECAST — DEMO ONLY');
   });
 
+  describe('Provenance Preservation & Cache Contamination Prevention (Phase 2 Regressions)', () => {
+    it('1. Initial genuine forecast returns FRESH and 2. Repeated genuine request returns CACHED', async () => {
+      const first = await service.getForecastContext({ lat: 28.65, lng: 77.23 });
+      expect(first.freshness).toBe('FRESH');
+
+      const second = await service.getForecastContext({ lat: 28.65, lng: 77.23 });
+      expect(second.freshness).toBe('CACHED');
+    });
+
+    it('3. Explicit offline fixture returns OFFLINE_FIXTURE and 4. Repeated offline fixture request remains OFFLINE_FIXTURE (never promoted to CACHED or READY)', async () => {
+      process.env.FORECAST_ENABLE_OFFLINE_FIXTURE = '1';
+      const realProvider = new OpenMeteoFloodForecastProvider();
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network offline'));
+
+      const offlineService = new ForecastService({ provider: realProvider });
+      const first = await offlineService.getForecastContext({ lat: 28.65, lng: 77.23 });
+      expect(first.freshness).toBe('OFFLINE_FIXTURE');
+      expect(first.source).toBe('SIMULATED FORECAST — DEMO ONLY');
+      expect(first.riskCategory).toBe('UNKNOWN');
+
+      // Second request must remain OFFLINE_FIXTURE — must NEVER be promoted to CACHED!
+      const second = await offlineService.getForecastContext({ lat: 28.65, lng: 77.23 });
+      expect(second.freshness).toBe('OFFLINE_FIXTURE');
+      expect(second.source).toBe('SIMULATED FORECAST — DEMO ONLY');
+    });
+
+    it('5. Simulated fixture never enters the authentic forecast cache', async () => {
+      process.env.FORECAST_ENABLE_OFFLINE_FIXTURE = '1';
+      const realProvider = new OpenMeteoFloodForecastProvider();
+      vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('Network offline'));
+
+      const offlineService = new ForecastService({ provider: realProvider });
+      const fixtureRes = await offlineService.getForecastContext({ lat: 28.65, lng: 77.23 });
+      expect(fixtureRes.freshness).toBe('OFFLINE_FIXTURE');
+
+      // Now disable offline fixture flag — subsequent query should NOT find a cached entry!
+      delete process.env.FORECAST_ENABLE_OFFLINE_FIXTURE;
+      vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('Network offline'));
+
+      const nextRes = await offlineService.getForecastContext({ lat: 28.65, lng: 77.23 });
+      // Must degrade to UNAVAILABLE, proving the simulated fixture was NEVER stored in cache
+      expect(nextRes.freshness).toBe('UNAVAILABLE');
+    });
+
+    it('6. Force refresh preserves provenance', async () => {
+      process.env.FORECAST_ENABLE_OFFLINE_FIXTURE = '1';
+      const realProvider = new OpenMeteoFloodForecastProvider();
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network offline'));
+
+      const offlineService = new ForecastService({ provider: realProvider });
+      const res = await offlineService.getForecastContext({
+        lat: 28.65,
+        lng: 77.23,
+        forceRefresh: true,
+      });
+      expect(res.freshness).toBe('OFFLINE_FIXTURE');
+    });
+
+    it('7. Provider recovery replaces the simulated display with genuine data', async () => {
+      process.env.FORECAST_ENABLE_OFFLINE_FIXTURE = '1';
+      let requestNum = 0;
+      const recoverableProvider = {
+        name: 'RecoverableProvider',
+        getForecast: vi.fn().mockImplementation(() => {
+          requestNum++;
+          if (requestNum === 1) {
+            // First request fails and returns offline fixture
+            const p = new OpenMeteoFloodForecastProvider();
+            return Promise.resolve(p.getFallbackFixture(28.65, 77.23, 7));
+          }
+          // Second request recovers with genuine upstream data
+          return Promise.resolve(mockFreshContext);
+        }),
+      };
+
+      const recoveryService = new ForecastService({ provider: recoverableProvider });
+      const first = await recoveryService.getForecastContext({ lat: 28.65, lng: 77.23 });
+      expect(first.freshness).toBe('OFFLINE_FIXTURE');
+
+      // When network recovers, real forecast data safely replaces the demonstration display
+      const second = await recoveryService.getForecastContext({
+        lat: 28.65,
+        lng: 77.23,
+        forceRefresh: true,
+      });
+      expect(second.freshness).toBe('FRESH');
+      expect(second.source).toContain('ECMWF GloFAS 4.0');
+    });
+
+    it('8. Provider failure after genuine cached data returns appropriately labelled STALE', async () => {
+      process.env.FORECAST_ENABLE_OFFLINE_FIXTURE = '1';
+      // First call succeeds with genuine data
+      await service.getForecastContext({ lat: 28.65, lng: 77.23 });
+
+      // Provider fails on subsequent refresh
+      (mockProvider.getForecast as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error('Upstream timeout'),
+      );
+
+      const staleRes = await service.getForecastContext({
+        lat: 28.65,
+        lng: 77.23,
+        forceRefresh: true,
+      });
+      // Genuine cache takes precedence over offline fixture
+      expect(staleRes.freshness).toBe('STALE');
+      expect(staleRes.disclaimer).toContain('Serving stale cached forecast');
+    });
+
+    it('9. Provider failure without genuine cache returns UNAVAILABLE unless an explicitly enabled fixture is requested', async () => {
+      delete process.env.FORECAST_ENABLE_OFFLINE_FIXTURE;
+      (mockProvider.getForecast as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error('Upstream down'),
+      );
+
+      const unavail = await service.getForecastContext({ lat: 28.65, lng: 77.23 });
+      expect(unavail.freshness).toBe('UNAVAILABLE');
+      expect(unavail.riskCategory).toBe('UNAVAILABLE');
+    });
+
+    it('10. Disabling offline fixtures prevents continued use of previously generated simulated data', async () => {
+      process.env.FORECAST_ENABLE_OFFLINE_FIXTURE = '1';
+      const realProvider = new OpenMeteoFloodForecastProvider();
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network offline'));
+
+      const s = new ForecastService({ provider: realProvider });
+      const first = await s.getForecastContext({ lat: 28.65, lng: 77.23 });
+      expect(first.freshness).toBe('OFFLINE_FIXTURE');
+
+      // Now disable flag
+      delete process.env.FORECAST_ENABLE_OFFLINE_FIXTURE;
+      const second = await s.getForecastContext({ lat: 28.65, lng: 77.23 });
+      expect(second.freshness).toBe('UNAVAILABLE');
+    });
+
+    it('11. No simulated forecast becomes READY as authentic information', async () => {
+      process.env.FORECAST_ENABLE_OFFLINE_FIXTURE = '1';
+      const realProvider = new OpenMeteoFloodForecastProvider();
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network offline'));
+
+      const s = new ForecastService({ provider: realProvider });
+      const fixture = await s.getForecastContext({ lat: 28.65, lng: 77.23 });
+      expect(fixture.freshness).toBe('OFFLINE_FIXTURE');
+      expect(fixture.freshness).not.toBe('FRESH');
+      expect(fixture.freshness).not.toBe('CACHED');
+      expect(fixture.riskCategory).toBe('UNKNOWN');
+    });
+  });
+
   it('validates coordinates and rejects invalid out-of-bounds parameters', async () => {
     const provider = new OpenMeteoFloodForecastProvider();
     await expect(provider.getForecast({ lat: 105, lng: 77.23 })).rejects.toThrow(
