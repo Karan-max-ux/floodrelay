@@ -18,7 +18,7 @@ export function EmergencyBanner() {
           <span>Immediate life-threatening danger?</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="hidden sm:inline">Call emergency dispatch directly:</span>
+          <span className="hidden sm:inline">India emergency helpline:</span>
           <a
             className="inline-flex items-center gap-1 bg-surface-container-lowest text-tertiary px-2.5 py-0.5 rounded text-xs font-bold uppercase hover:bg-surface-container transition-colors"
             href="tel:112"
@@ -26,7 +26,7 @@ export function EmergencyBanner() {
             <span className="material-symbols-outlined text-[14px]" data-icon="call">
               call
             </span>
-            <span>Dial 112 / 911 Now</span>
+            <span>Call 112 Now</span>
           </a>
         </div>
       </div>
