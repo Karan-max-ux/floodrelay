@@ -377,9 +377,11 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
       expect(html).not.toContain('value="28.6139"');
       expect(html).not.toContain('value="77.2090"');
 
-      // Placeholders must indicate example usage
-      expect(html).toContain('placeholder="e.g. 29.7604"');
-      expect(html).toContain('placeholder="e.g. -95.3698"');
+      // Placeholders must indicate Delhi NCR example usage (no Houston placeholders)
+      expect(html).toContain('placeholder="e.g. 28.6710"');
+      expect(html).toContain('placeholder="e.g. 77.2340"');
+      expect(html).not.toContain('placeholder="e.g. 29.7604"');
+      expect(html).not.toContain('placeholder="e.g. -95.3698"');
       expect(html).toContain(
         'placeholder="e.g., House 24, Civil Lines, near Metro Station, Delhi"',
       );

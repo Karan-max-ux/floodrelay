@@ -7,45 +7,20 @@ import {
   STAGED_SECTOR_BLOCKED_ZONES,
   MAP_SCENARIO_NAME,
   MAP_SCENARIO_COORDINATES,
-  HOUSTON_ANCHOR,
-  DELHI_ANCHOR,
-  rebaseLatLng,
+  TACTICAL_MAP_DEFAULT_CENTRE,
+  TACTICAL_MAP_DEFAULT_ZOOM,
 } from '../lib/fixtures/mapReferenceData';
+import { REGION_CONFIG } from '../lib/region';
 
-describe('Operator Map Reference Data & Coordinate Translation Invariants', () => {
-  it('(a) rebaseLatLng maps the from anchor exactly to the to anchor and preserves relative offsets', () => {
-    // Exact anchor mapping
-    const rebasedTuple = rebaseLatLng(HOUSTON_ANCHOR, HOUSTON_ANCHOR, DELHI_ANCHOR);
-    expect(rebasedTuple[0]).toBeCloseTo(DELHI_ANCHOR[0], 6);
-    expect(rebasedTuple[1]).toBeCloseTo(DELHI_ANCHOR[1], 6);
-
-    const rebasedObj = rebaseLatLng(
-      { lat: HOUSTON_ANCHOR[0], lng: HOUSTON_ANCHOR[1] },
-      HOUSTON_ANCHOR,
-      DELHI_ANCHOR,
-    );
-    expect(rebasedObj.lat).toBeCloseTo(DELHI_ANCHOR[0], 6);
-    expect(rebasedObj.lng).toBeCloseTo(DELHI_ANCHOR[1], 6);
-
-    // Relative offset preservation
-    const offsetLat = 0.042;
-    const offsetLng = -0.018;
-
-    const offsetTuple = rebaseLatLng(
-      [HOUSTON_ANCHOR[0] + offsetLat, HOUSTON_ANCHOR[1] + offsetLng],
-      HOUSTON_ANCHOR,
-      DELHI_ANCHOR,
-    );
-    expect(offsetTuple[0]).toBeCloseTo(DELHI_ANCHOR[0] + offsetLat, 6);
-    expect(offsetTuple[1]).toBeCloseTo(DELHI_ANCHOR[1] + offsetLng, 6);
-
-    const offsetObj = rebaseLatLng(
-      { lat: HOUSTON_ANCHOR[0] + offsetLat, lng: HOUSTON_ANCHOR[1] + offsetLng },
-      HOUSTON_ANCHOR,
-      DELHI_ANCHOR,
-    );
-    expect(offsetObj.lat).toBeCloseTo(DELHI_ANCHOR[0] + offsetLat, 6);
-    expect(offsetObj.lng).toBeCloseTo(DELHI_ANCHOR[1] + offsetLng, 6);
+describe('Operator Map Reference Data & Native Delhi Coordinate Invariants', () => {
+  it('(a) exposes centralised Delhi–Yamuna tactical map centre derived from REGION_CONFIG without rebasing', () => {
+    expect(TACTICAL_MAP_DEFAULT_CENTRE).toEqual([
+      REGION_CONFIG.tacticalDemoCentre.lat,
+      REGION_CONFIG.tacticalDemoCentre.lng,
+    ]);
+    expect(TACTICAL_MAP_DEFAULT_CENTRE[0]).toBeCloseTo(28.671, 4);
+    expect(TACTICAL_MAP_DEFAULT_CENTRE[1]).toBeCloseTo(77.234, 4);
+    expect(TACTICAL_MAP_DEFAULT_ZOOM).toBe(REGION_CONFIG.tacticalDemoZoom);
   });
 
   it('(b) fixture data matches real seed file scenarios/sample-scenario.json exactly', () => {
@@ -60,47 +35,70 @@ describe('Operator Map Reference Data & Coordinate Translation Invariants', () =
     expect(MAP_SCENARIO_NAME).toBe('Yamuna Flood Relief - North Delhi Basin (Simulated)');
     expect(MAP_SCENARIO_COORDINATES).toBe('28.67° N, 77.23° E');
 
-    // Resources comparison (IDs, types, capacities, speeds, coordinates)
+    // Resources comparison (IDs, names, types, capacities, speeds, coordinates, provenance)
     expect(STAGED_SECTOR_FLEET).toHaveLength(seed.resources.length);
     seed.resources.forEach(
       (seedRes: {
         id: string;
+        name: string;
         type: string;
         capacity: number;
         speedKmH: number;
         lat: number;
         lng: number;
+        source?: string;
       }) => {
         const match = STAGED_SECTOR_FLEET.find((r) => r.id === seedRes.id);
         expect(match).toBeDefined();
+        expect(match?.name).toBe(seedRes.name);
         expect(match?.type).toBe(seedRes.type);
         expect(match?.capacity).toBe(seedRes.capacity);
         expect(match?.speedKmH).toBe(seedRes.speedKmH);
         expect(match?.lat).toBe(seedRes.lat);
         expect(match?.lng).toBe(seedRes.lng);
         expect(match?.source).toBe('SIMULATED');
+        expect(seedRes.source).toBe('SIMULATED');
       },
     );
 
-    // Shelters comparison (IDs, capacities, coordinates)
+    // Shelters comparison (IDs, names, capacities, occupancy headroom, coordinates, provenance)
     expect(STAGED_SECTOR_SHELTERS).toHaveLength(seed.shelters.length);
     seed.shelters.forEach(
-      (seedShelter: { id: string; capacity: number; lat: number; lng: number }) => {
+      (seedShelter: {
+        id: string;
+        name: string;
+        capacity: number;
+        currentOccupancy?: number;
+        lat: number;
+        lng: number;
+        source?: string;
+      }) => {
         const match = STAGED_SECTOR_SHELTERS.find((s) => s.id === seedShelter.id);
         expect(match).toBeDefined();
+        expect(match?.name).toBe(seedShelter.name);
         expect(match?.capacity).toBe(seedShelter.capacity);
+        expect(match?.availableBeds).toBe(
+          seedShelter.capacity - (seedShelter.currentOccupancy ?? 0),
+        );
         expect(match?.lat).toBe(seedShelter.lat);
         expect(match?.lng).toBe(seedShelter.lng);
         expect(match?.source).toBe('SIMULATED');
+        expect(seedShelter.source).toBe('SIMULATED');
       },
     );
 
-    // Blocked zones comparison (IDs, severities, polygon vertices)
+    // Blocked zones comparison (IDs, names, severities, polygon vertices)
     expect(STAGED_SECTOR_BLOCKED_ZONES).toHaveLength(seed.blockedZones.length);
     seed.blockedZones.forEach(
-      (seedZone: { id: string; severity: string; polygon: { lat: number; lng: number }[] }) => {
+      (seedZone: {
+        id: string;
+        name: string;
+        severity: string;
+        polygon: { lat: number; lng: number }[];
+      }) => {
         const match = STAGED_SECTOR_BLOCKED_ZONES.find((z) => z.id === seedZone.id);
         expect(match).toBeDefined();
+        expect(match?.name).toBe(seedZone.name);
         expect(match?.severity).toBe(seedZone.severity);
         expect(match?.polygon).toHaveLength(seedZone.polygon.length);
         seedZone.polygon.forEach((pt: { lat: number; lng: number }, idx: number) => {
@@ -112,10 +110,12 @@ describe('Operator Map Reference Data & Coordinate Translation Invariants', () =
     );
   });
 
-  it('(c) scans operator/map and components/operator/map sources and finds no forbidden legacy strings', () => {
+  it('(c) scans operator/map, components/operator/map, mapReferenceData and repairFixtures for forbidden legacy patterns', () => {
     const targets = [
       path.resolve(__dirname, '../app/operator/map'),
       path.resolve(__dirname, '../components/operator/map'),
+      path.resolve(__dirname, '../lib/fixtures/mapReferenceData.ts'),
+      path.resolve(__dirname, '../lib/fixtures/repairFixtures.ts'),
     ];
 
     const forbiddenPatterns = [
@@ -123,8 +123,11 @@ describe('Operator Map Reference Data & Coordinate Translation Invariants', () =
       /\bhouston\b/i,
       /buffalo\s+bayou/i,
       /\bheights\b/i,
+      /\bwestchase\b/i,
       /\bnrg\b/i,
       /95\.36/i,
+      /rebaseLatLng/,
+      /HOUSTON_ANCHOR/,
       /cartocdn/i,
       /carto\.com/i,
       /Sector 4/i,
@@ -134,10 +137,15 @@ describe('Operator Map Reference Data & Coordinate Translation Invariants', () =
     ];
 
     const filesToScan: string[] = [];
-    function collectFiles(dir: string) {
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
+    function collectFiles(targetPath: string) {
+      const stat = fs.statSync(targetPath);
+      if (stat.isFile()) {
+        filesToScan.push(targetPath);
+        return;
+      }
+      const entries = fs.readdirSync(targetPath, { withFileTypes: true });
       for (const entry of entries) {
-        const fullPath = path.join(dir, entry.name);
+        const fullPath = path.join(targetPath, entry.name);
         if (entry.isDirectory()) {
           collectFiles(fullPath);
         } else if (/\.(tsx?|jsx?|css)$/.test(entry.name)) {
@@ -147,7 +155,7 @@ describe('Operator Map Reference Data & Coordinate Translation Invariants', () =
     }
 
     targets.forEach((t) => collectFiles(t));
-    expect(filesToScan.length).toBeGreaterThanOrEqual(4);
+    expect(filesToScan.length).toBeGreaterThanOrEqual(6);
 
     for (const filePath of filesToScan) {
       const content = fs.readFileSync(filePath, 'utf8');

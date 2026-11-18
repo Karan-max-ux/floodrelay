@@ -40,7 +40,8 @@ describe('Phase 6 Feature 3: Operational Limitations & System Boundaries', () =>
       const html = renderToString(React.createElement(LimitationsPage));
       expect(html).toContain('Purpose &amp; Scope of Decision Support');
       expect(html).toContain('operational decision-support system');
-      expect(html).toContain('does not operate as an autonomous 911 dispatch service');
+      expect(html).toContain('does not operate as an autonomous emergency (112) dispatch service');
+      expect(html).not.toContain('911');
     });
 
     it('contains Section 2: GPS & Location Uncertainty', () => {
@@ -96,8 +97,8 @@ describe('Phase 6 Feature 3: Operational Limitations & System Boundaries', () =>
       const html = renderToString(React.createElement(LimitationsPage));
       expect(html).toContain('Life-Threatening Emergency Notice');
       expect(html).toContain('Contact official local emergency services immediately');
-      expect(html).toContain('911');
       expect(html).toContain('112');
+      expect(html).not.toContain('911');
     });
 
     it('provides quick jump anchor navigation for all key sections', () => {
