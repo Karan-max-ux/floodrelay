@@ -159,6 +159,28 @@ describe('Phase 9 — Citizen Portal Delhi NCR Service-Area UI & Safety Safeguar
       expect(messages.serviceArea.tryAgainCta).toBe('Try Location Check Again');
     });
 
+    it('renders exact near-boundary heading and mandatory 4-sentence copy for borderline locations', () => {
+      expect(messages.serviceArea.nearBoundaryHeading).toBe(
+        'Location Close to Service-Area Boundary',
+      );
+      expect(messages.serviceArea.nearBoundaryMessage).toBe(
+        'Your location is close to the Delhi NCR service-area boundary. FloodRelay cannot confirm that this location is supported. Please verify your address or adjust the map pin. No rescue request has been submitted. If you are in immediate danger, call 112.',
+      );
+      // Verify all 4 required sentences
+      expect(messages.serviceArea.nearBoundaryMessage).toContain(
+        'Your location is close to the Delhi NCR service-area boundary.',
+      );
+      expect(messages.serviceArea.nearBoundaryMessage).toContain(
+        'FloodRelay cannot confirm that this location is supported.',
+      );
+      expect(messages.serviceArea.nearBoundaryMessage).toContain(
+        'Please verify your address or adjust the map pin.',
+      );
+      expect(messages.serviceArea.nearBoundaryMessage).toContain(
+        'No rescue request has been submitted. If you are in immediate danger, call 112.',
+      );
+    });
+
     it('outside-area guidance never presents confirmation, ticket IDs, or dispatch promises', () => {
       const copy = [
         messages.serviceArea.outsideHeading,
@@ -273,6 +295,46 @@ describe('Phase 9 — Citizen Portal Delhi NCR Service-Area UI & Safety Safeguar
       });
 
       expect(handle.location.serviceAreaStatus).toBe('OUTSIDE');
+      expect(handle.location.isLocationConfirmed).toBe(false);
+    });
+
+    it('updates serviceAreaStatus to NEAR_BOUNDARY and clears confirmed status when coordinates are within 1000m outside NCR', async () => {
+      let handle!: HarnessHandle;
+      act(() => {
+        root.render(<ServiceAreaHarness onMount={(h) => (handle = h)} />);
+      });
+
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              eligible: false,
+              status: 'NEAR_BOUNDARY_OUTSIDE',
+              distanceToBoundaryMeters: 333.4,
+              regionId: null,
+              regionName: null,
+              boundaryVersion: 'ncrpb-2026-gb-ind-adm2-v1',
+              inclusiveBoundaryPolicy: 'ST_COVERS',
+              uncertaintyAssessment: {
+                isNearBoundary: true,
+                boundaryDistanceMeters: 333.4,
+                thresholdMeters: 1000,
+                justification:
+                  'Point is outside reference polygon but within 1,000m proximity threshold.',
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+
+      await act(async () => {
+        const eligible = await handle.location.checkServiceAreaCoordinates(29.99624, 77.11808);
+        expect(eligible).toBe(false);
+      });
+
+      expect(handle.location.serviceAreaStatus).toBe('NEAR_BOUNDARY');
       expect(handle.location.isLocationConfirmed).toBe(false);
     });
 

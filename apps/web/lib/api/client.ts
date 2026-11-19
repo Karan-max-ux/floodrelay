@@ -181,10 +181,15 @@ export class FloodRelayApiClient {
     lat: number,
     lng: number,
     signal?: AbortSignal,
+    accuracy?: number,
   ): Promise<ServiceAreaCheckResult> {
     const res = await this.request<ServiceAreaCheckResult>('/requests/service-area-check', {
       method: 'POST',
-      body: JSON.stringify({ lat, lng }),
+      body: JSON.stringify({
+        lat,
+        lng,
+        ...(typeof accuracy === 'number' && Number.isFinite(accuracy) ? { accuracy } : {}),
+      }),
       signal,
     });
     return res.data;

@@ -39,8 +39,12 @@ export class RequestService {
     this.serviceAreaService = serviceAreaService ?? new ServiceAreaService(repo);
   }
 
-  async checkServiceArea(lat: number, lng: number): Promise<ServiceAreaCheckResult> {
-    return this.serviceAreaService.checkCoordinates(lat, lng);
+  async checkServiceArea(
+    lat: number,
+    lng: number,
+    accuracy?: number,
+  ): Promise<ServiceAreaCheckResult> {
+    return this.serviceAreaService.checkCoordinates(lat, lng, accuracy);
   }
 
   async submitRequest(input: CreateRequestInput): Promise<CreateRequestResult> {

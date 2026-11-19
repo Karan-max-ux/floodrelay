@@ -32,25 +32,29 @@ Any rescue assistance request submitted with coordinates outside this boundary i
 
 ### Version & Artifact Checksums
 
-- **Version Identifier:** `ncrpb-2026-gb-ind-adm2-v1`
-- **Repository Geometry File:** `services/api/src/geo/delhi-ncr-boundary.geojson`
-  - **File Size:** 212,312 bytes
-  - **SHA-256 Checksum:** `a48e65c666c374c07364e03c79d090a8c0888971f463f804d40baf052104e8ae`
+The project explicitly distinguishes between the following three checksums across metadata and integrity checks:
+
+- **Repository GeoJSON SHA-256 (`repositoryGeoJsonSha256`):**
+  - Value: `a48e65c666c374c07364e03c79d090a8c0888971f463f804d40baf052104e8ae`
+  - File: `services/api/src/geo/delhi-ncr-boundary.geojson` (Prettier-formatted repository artifact verified at runtime by `loadDelhiNcrBoundaryDataset()`).
+- **Upstream GIS Source File SHA-256 (`gisSourceFileSha256`):**
+  - Value: `d68db39cd3e2d0892af268e2b0454166368ce3b5b8a78fcda63069ec92a641db`
+  - Origin: `geoBoundaries-IND-ADM2_simplified.geojson` upstream download from wmgeolab commit `9469f09`.
+- **Initial Raw Export SHA-256 (`initialRawExportSha256`):**
+  - Value: `357d77cdf69c8f5f4016c0c656e70cfcb8b1d585dcba5849e95a15299478fd1d`
+  - Origin: Unformatted single-line raw extraction artifact prior to codebase formatting.
 - **Computed Geodesic Area:** **55,223.3 sq. km** (within 0.25% of NCRPB's published 55,083 sq. km figure).
 - **Topology Integrity:** 0 unclosed rings, 0 duplicate consecutive vertices, 0 holes, 0 proper self-intersections across 9,510 boundary vertices.
 
-### Constituent Administrative Areas (34 ADM2 Polygons)
+### Boundary Provenance, Limitations & Positional Uncertainty
 
-The boundary encompasses the entirety of the following **4 Sub-Regions**:
-
-1. **National Capital Territory of Delhi (11 Districts, 1,483 sq. km):**
-   - Central Delhi, East Delhi, New Delhi, North Delhi, North East Delhi, North West Delhi, Shahdara, South Delhi, South East Delhi, South West Delhi, West Delhi.
-2. **Haryana Sub-Region (14 Notified Districts, 25,327 sq. km):**
-   - Faridabad, Gurugram, Nuh (Mewat), Rohtak, Sonipat, Rewari, Jhajjar, Panipat, Palwal, Bhiwani (encompassing Charkhi Dadri), Mahendragarh, Jind, Karnal.
-3. **Uttar Pradesh Sub-Region (8 Districts, 14,826 sq. km):**
-   - Meerut, Ghaziabad, Gautam Buddha Nagar (Noida & Greater Noida), Bulandshahr, Baghpat, Hapur, Shamli, Muzaffarnagar.
-4. **Rajasthan Sub-Region (2 Districts, 13,447 sq. km):**
-   - Alwar, Bharatpur.
+- **Provenance Characterisation:** The boundary represents an **NCRPB constituent-area-based geographic boundary derived from documented administrative GIS polygons** (`lgdirectory.gov.in` via `geoBoundaries` ADM2). It is **not** a cadastral parcel survey or revenue-village-level land record.
+- **Constituent Count vs Notified Districts:** The dataset comprises **34 ADM2 polygon features** covering the 35 notified administrative districts:
+  - **NCT of Delhi (11 Districts, 1,483 sq. km):** 11 district polygons (Central Delhi, East Delhi, New Delhi, North Delhi, North East Delhi, North West Delhi, Shahdara, South Delhi, South East Delhi, South West Delhi, West Delhi).
+  - **Haryana Sub-Region (14 Notified Districts, 25,327 sq. km):** 13 polygon features covering 14 notified districts (Faridabad, Gurugram, Nuh/Mewat, Rohtak, Sonipat, Rewari, Jhajjar, Panipat, Palwal, Bhiwani, Mahendragarh, Jind, Karnal). The Charkhi Dadri district, bifurcated from Bhiwani, is enclosed within the unified Bhiwani ADM2 polygon in the 2021 LGD release; both districts are 100% within the NCR.
+  - **Uttar Pradesh Sub-Region (8 Districts, 14,826 sq. km):** 8 district polygons (Meerut, Ghaziabad, Gautam Buddha Nagar/Noida & Greater Noida, Bulandshahr, Baghpat, Hapur, Shamli, Muzaffarnagar).
+  - **Rajasthan Sub-Region (2 Districts, 13,447 sq. km):** 2 district polygons (Alwar, Bharatpur; covering recent administrative sub-district splits consistent with NCRPB retention of historical geographical extent).
+- **Positional Uncertainty:** The simplified polygon geometry (~9,510 vertices across 34 constituent features) exhibits approximately **100–300 meters** of positional uncertainty relative to Survey of India high-resolution cadastral boundaries.
 
 ---
 
@@ -191,6 +195,13 @@ Inspects coordinates without authentication:
    - Informs citizen that check is temporarily unavailable without claiming the location is outside NCR.
    - Preserves all entered form data.
    - Provides **Call 112** (`tel:112`) and **Try Location Check Again**.
+6. **Step 3D (Near NCR Boundary Uncertainty Guidance):**
+   - Triggered when coordinates lie outside the NCR boundary polygon but within the conservative 1,000 m proximity buffer (`distanceToBoundaryMeters <= 1000`).
+   - **Critical Safety Rule:** Never bypasses server-side `ST_Covers` enforcement or expands coverage. Server rejects submission with HTTP 422 `OUTSIDE_SERVICE_AREA`. Zero database rows are written.
+   - Blocks submission (submit button disabled). Preserves all entered form data.
+   - Displays exact copy:
+     > _"Your location is close to the Delhi NCR service-area boundary. FloodRelay cannot confirm that this location is supported. Please verify your address or adjust the map pin. No rescue request has been submitted. If you are in immediate danger, call 112."_
+   - Provides actionable controls: **Call 112**, **Change Location**, and **Try Location Check Again**.
 
 ### Confirmation Page Safeguards (`CitizenReceiptCard.tsx`)
 
@@ -239,3 +250,25 @@ To add a new operational service area (e.g. Mumbai MMR, Chennai, Kerala):
 4. **Add Regression Tests:**
    - Add verified point tests in `serviceAreaEnforcement.test.ts` and `integration.test.ts`.
    - Add rollback tests in `00X_add_<region>_service_area.down.sql`.
+
+---
+
+## 8. Mandatory Deployment Sequence & Configuration Requirements
+
+There is **no feature flag** to bypass service-area enforcement (`ENABLE_SERVICE_AREA_CHECK` was an imaginary feature flag; service area enforcement is mandatory and unconditional).
+
+Production deployments must execute the following 8-step sequence:
+
+1. **PostGIS Provisioning:** Provision a PostgreSQL 15+ database instance with the PostGIS extension enabled (`CREATE EXTENSION IF NOT EXISTS postgis;`).
+2. **Core Migrations:** Apply base schema migrations `001_initial_schema.sql` through `004_route_indexes.sql`.
+3. **Service-Area Migration:** Execute `infra/migrations/005_service_areas.sql` to establish the `service_areas` table, insert the authoritative Delhi NCR dissolved boundary geometry, and verify polygon topology and area constraints.
+4. **Migration Verification:** Query PostgreSQL to confirm boundary validity:
+   ```sql
+   SELECT region_id, region_name, boundary_version, ST_IsValid(geometry) AS is_valid, ST_Area(geometry::geography) / 1000000.0 AS area_sq_km
+   FROM service_areas WHERE is_active = TRUE;
+   ```
+   Assert `is_valid = true` and `area_sq_km` between 54,000 and 57,000.
+5. **Backend Deployment:** Deploy the `@floodrelay/api` container with `DATABASE_URL` configured. On startup, the service verifies the SHA-256 integrity of `services/api/src/geo/delhi-ncr-boundary.geojson` against `DELHI_NCR_EXPECTED_DATASET_SHA256`.
+6. **Health & Endpoint Check:** Execute `GET /health` and `POST /requests/service-area-check` with known test coordinates (e.g. Connaught Place `28.6315, 77.2167`) to verify 200 OK response with `status: "INSIDE"`.
+7. **Frontend Deployment:** Deploy the `@floodrelay/web` Next.js frontend with `NEXT_PUBLIC_API_URL` pointing to the API service.
+8. **Traffic Enablement:** Direct ingress load balancers / reverse proxies to route public citizen and operator traffic to the updated deployment.

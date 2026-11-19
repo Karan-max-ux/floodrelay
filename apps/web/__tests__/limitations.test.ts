@@ -34,6 +34,8 @@ describe('Phase 6 Feature 3: Operational Limitations & System Boundaries', () =>
       const html = renderToString(React.createElement(LimitationsPage));
       expect(html).toContain('Operational Limitations &amp; System Boundaries');
       expect(html).toContain('FloodRelay is a human-supervised decision-support platform');
+      expect(html).toContain('FloodRelay System Boundaries &amp; Uncertainty Disclosure');
+      expect(html).not.toContain('Official System Boundaries &amp; Uncertainty Disclosure');
     });
 
     it('contains Section 1: Purpose & Scope of Decision Support', () => {

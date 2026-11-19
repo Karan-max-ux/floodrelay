@@ -201,11 +201,13 @@ export default function CitizenRequestPage() {
     const parsedLat = parseFloat(lat);
     const parsedLng = parseFloat(lng);
 
-    // Guard: Do not allow submission if coordinates are known to be outside service area
-    if (serviceAreaStatus === 'OUTSIDE') {
+    // Guard: Do not allow submission if coordinates are known to be outside service area or near boundary
+    if (serviceAreaStatus === 'OUTSIDE' || serviceAreaStatus === 'NEAR_BOUNDARY') {
       setIsSubmitting(false);
       setSubmitError(
-        'Location Outside FloodRelay’s Service Area. Submission is blocked for coordinates outside Delhi NCR.',
+        serviceAreaStatus === 'NEAR_BOUNDARY'
+          ? messages.serviceArea.nearBoundaryMessage
+          : 'Location Outside FloodRelay’s Service Area. Submission is blocked for coordinates outside Delhi NCR.',
       );
       return;
     }
@@ -877,6 +879,55 @@ export default function CitizenRequestPage() {
               </div>
             )}
 
+            {serviceAreaStatus === 'NEAR_BOUNDARY' && (
+              <div
+                className="p-5 rounded-xl border-2 border-amber-600 bg-amber-50 text-amber-950 space-y-4 shadow-sm"
+                data-testid="service-area-near-boundary-banner"
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="material-symbols-outlined text-amber-600 text-2xl shrink-0">
+                    near_me_disabled
+                  </span>
+                  <h3 className="font-manrope text-base font-bold text-amber-950">
+                    {messages.serviceArea.nearBoundaryHeading}
+                  </h3>
+                </div>
+
+                <div className="space-y-2 text-xs md:text-sm text-amber-900 leading-relaxed">
+                  <p>{messages.serviceArea.nearBoundaryMessage}</p>
+                </div>
+
+                <div className="pt-2 flex flex-wrap items-center gap-3">
+                  <a
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-red-700 text-white font-bold text-xs hover:bg-red-800 transition-colors shadow-xs"
+                    href="tel:112"
+                  >
+                    <span className="material-symbols-outlined text-sm">phone_in_talk</span>
+                    <span>{messages.serviceArea.call112Cta}</span>
+                  </a>
+                  <button
+                    className="px-4 py-2.5 rounded-lg bg-white border border-amber-300 text-amber-950 text-xs font-semibold hover:bg-amber-50 transition-colors"
+                    onClick={() => {
+                      setIsLocationConfirmed(false);
+                      const el = document.getElementById('addressInput');
+                      if (el) el.focus();
+                    }}
+                    type="button"
+                  >
+                    {messages.serviceArea.changeLocationCta}
+                  </button>
+                  <button
+                    className="px-4 py-2.5 rounded-lg bg-white border border-amber-300 text-amber-950 text-xs font-semibold hover:bg-amber-50 transition-colors flex items-center gap-1"
+                    onClick={() => retryServiceAreaCheck()}
+                    type="button"
+                  >
+                    <span className="material-symbols-outlined text-sm">refresh</span>
+                    <span>{messages.serviceArea.tryAgainCta}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {serviceAreaStatus === 'UNAVAILABLE' && (
               <div
                 className="p-5 rounded-xl border-2 border-amber-500 bg-amber-50 text-amber-950 space-y-4 shadow-sm"
@@ -1495,7 +1546,10 @@ export default function CitizenRequestPage() {
             <button
               className="w-full sm:w-auto px-8 py-4 rounded-xl bg-primary-container text-on-primary font-manrope text-base font-bold shadow-md hover:bg-primary transition-all active:scale-[0.99] flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
               disabled={
-                isSubmitting || serviceAreaStatus === 'OUTSIDE' || serviceAreaStatus === 'CHECKING'
+                isSubmitting ||
+                serviceAreaStatus === 'OUTSIDE' ||
+                serviceAreaStatus === 'NEAR_BOUNDARY' ||
+                serviceAreaStatus === 'CHECKING'
               }
               type="submit"
             >

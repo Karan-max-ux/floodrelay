@@ -1005,20 +1005,83 @@ describe('Phase 3: Graceful Address Reverse-Geocoding & Fallback', () => {
     });
 
     it('5.13 getNominatimMinIntervalMs validates positive integers and enforces defaults', () => {
+      // Missing environment value -> 1,000 ms
       delete process.env.NOMINATIM_MIN_INTERVAL_MS;
       expect(getNominatimMinIntervalMs()).toBe(1000);
 
+      // Value below 1000 (e.g. 200, 999) -> strictly clamped to safe default 1000 ms
+      process.env.NOMINATIM_MIN_INTERVAL_MS = '200';
+      expect(getNominatimMinIntervalMs()).toBe(1000);
+
+      process.env.NOMINATIM_MIN_INTERVAL_MS = '999';
+      expect(getNominatimMinIntervalMs()).toBe(1000);
+
+      // Exactly 1000 ms -> 1000 ms
+      process.env.NOMINATIM_MIN_INTERVAL_MS = '1000';
+      expect(getNominatimMinIntervalMs()).toBe(1000);
+
+      // Higher configured interval -> respects higher interval
       process.env.NOMINATIM_MIN_INTERVAL_MS = '1500';
       expect(getNominatimMinIntervalMs()).toBe(1500);
 
-      process.env.NOMINATIM_MIN_INTERVAL_MS = 'invalid-number';
-      expect(getNominatimMinIntervalMs()).toBe(1000);
-
+      // Negative values -> safe default 1000 ms
       process.env.NOMINATIM_MIN_INTERVAL_MS = '-500';
       expect(getNominatimMinIntervalMs()).toBe(1000);
 
+      // Zero -> safe default 1000 ms
       process.env.NOMINATIM_MIN_INTERVAL_MS = '0';
       expect(getNominatimMinIntervalMs()).toBe(1000);
+
+      // NaN and invalid strings -> safe default 1000 ms
+      process.env.NOMINATIM_MIN_INTERVAL_MS = 'invalid-number';
+      expect(getNominatimMinIntervalMs()).toBe(1000);
+
+      process.env.NOMINATIM_MIN_INTERVAL_MS = 'NaN';
+      expect(getNominatimMinIntervalMs()).toBe(1000);
+
+      // Fractional values (not safe integers) -> safe default 1000 ms
+      process.env.NOMINATIM_MIN_INTERVAL_MS = '1200.5';
+      expect(getNominatimMinIntervalMs()).toBe(1000);
+
+      process.env.NOMINATIM_MIN_INTERVAL_MS = '500.25';
+      expect(getNominatimMinIntervalMs()).toBe(1000);
+    });
+
+    it('5.13b consecutive uncached Nominatim calls enforce at least 1,000ms spacing even when env attempts override to 200ms', async () => {
+      vi.useFakeTimers();
+      process.env.NOMINATIM_MIN_INTERVAL_MS = '200'; // Attempt to violate 1 req/sec policy
+
+      const fetchTimestamps: number[] = [];
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+        fetchTimestamps.push(Date.now());
+        return new Response(
+          JSON.stringify({
+            display_name: 'Test Place, Delhi',
+            address: { road: 'Ring Road', city: 'Delhi' },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      });
+
+      // Request 1
+      const p1 = fetchNominatimReverse(28.61, 77.21);
+      await vi.advanceTimersByTimeAsync(0);
+      await p1;
+
+      // Request 2 immediately queued
+      const p2 = fetchNominatimReverse(28.69, 77.29);
+
+      // At 200ms (which the env override requested), request 2 must STILL be waiting!
+      await vi.advanceTimersByTimeAsync(200);
+      expect(fetchTimestamps).toHaveLength(1);
+
+      // At 1000ms total elapsed, request 2 is finally dispatched!
+      await vi.advanceTimersByTimeAsync(800);
+      await p2;
+
+      expect(fetchTimestamps).toHaveLength(2);
+      expect(fetchTimestamps[1] - fetchTimestamps[0]).toBeGreaterThanOrEqual(1000);
+      delete process.env.NOMINATIM_MIN_INTERVAL_MS;
     });
 
     it('5.14 one caller cancelling a shared in-flight request does not cancel another active caller', async () => {

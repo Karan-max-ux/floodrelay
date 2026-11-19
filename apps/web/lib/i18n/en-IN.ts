@@ -71,6 +71,9 @@ export const EN_IN_MESSAGES: CitizenMessages = {
       'If you are in immediate danger in India, please call 112 for emergency assistance. You can also contact your local emergency services.',
     outsideP4:
       'If your location was detected incorrectly, correct your address or coordinates and try again.',
+    nearBoundaryHeading: 'Location Close to Service-Area Boundary',
+    nearBoundaryMessage:
+      'Your location is close to the Delhi NCR service-area boundary. FloodRelay cannot confirm that this location is supported. Please verify your address or adjust the map pin. No rescue request has been submitted. If you are in immediate danger, call 112.',
     unavailableHeading: 'Service-Area Check Temporarily Unavailable',
     unavailableP1:
       'FloodRelay is temporarily unable to verify whether your location is inside its supported Delhi NCR service area. Your entered information has been preserved.',

@@ -52,6 +52,7 @@ export const ServiceAreaCheckSchema = z.object({
     .finite('Longitude must be a finite number')
     .min(-180, 'Longitude must be between -180 and 180')
     .max(180, 'Longitude must be between -180 and 180'),
+  accuracy: z.number().finite().nonnegative().optional(),
 });
 
 export type ServiceAreaCheckInput = z.infer<typeof ServiceAreaCheckSchema>;

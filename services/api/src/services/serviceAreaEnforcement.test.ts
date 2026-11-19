@@ -1,8 +1,10 @@
+import { createHash } from 'node:crypto';
 import request from 'supertest';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createApp } from '../app.js';
 import { PostgisRepository, type Queryable } from '../db/repository.js';
 import { RequestService } from '../services/requestService.js';
+import { ServiceAreaService } from '../services/serviceAreaService.js';
 import { AssignmentService } from '../services/assignmentService.js';
 import { AuthService, InMemoryAuthRepository } from '../services/authService.js';
 import {
@@ -12,6 +14,8 @@ import {
   DELHI_NCR_REGION_NAME,
   evaluateDelhiNcrCoverage,
   loadDelhiNcrBoundaryDataset,
+  validateAndIndexNcrDataset,
+  resetCachedBoundaryDatasetForTest,
 } from '../geo/delhiNcrBoundary.js';
 
 class ServiceAreaMockDb implements Queryable {
@@ -65,6 +69,7 @@ class ServiceAreaMockDb implements Queryable {
             is_valid: true,
             srid: 4326,
             is_covered: evalRes.covered,
+            distance_meters: evalRes.distanceToBoundaryMeters,
           } as unknown as R,
         ],
         command: 'SELECT',
@@ -152,10 +157,13 @@ class ServiceAreaMockDb implements Queryable {
 describe('Phase 9 — Delhi NCR Service-Area Enforcement & Fail-Closed Guardrails', () => {
   let db: ServiceAreaMockDb;
   let app: ReturnType<typeof createApp>;
+  let serviceAreaService: ServiceAreaService;
 
   beforeEach(async () => {
+    resetCachedBoundaryDatasetForTest();
     db = new ServiceAreaMockDb();
     const repo = new PostgisRepository(db);
+    serviceAreaService = new ServiceAreaService(repo);
     const requestService = new RequestService(repo);
     const assignmentService = new AssignmentService(repo, { osrm: null });
     const authService = new AuthService(new InMemoryAuthRepository());
@@ -655,6 +663,179 @@ describe('Phase 9 — Delhi NCR Service-Area Enforcement & Fail-Closed Guardrail
     await expect(repo.commitAssignment('assign-out-1', 'op_1')).rejects.toMatchObject({
       code: 'SERVICE_AREA_UNAVAILABLE',
       statusCode: 503,
+    });
+  });
+
+  describe('Boundary Dataset Integrity & Cryptographic Checksum Guardrails', () => {
+    it('throws DELHI_NCR_BOUNDARY_INTEGRITY_FAILURE when GeoJSON SHA-256 checksum mismatches', () => {
+      const validDataset = loadDelhiNcrBoundaryDataset();
+      const rawJson = JSON.stringify(validDataset.dataset);
+
+      expect(() => {
+        validateAndIndexNcrDataset(
+          rawJson,
+          '0000000000000000000000000000000000000000000000000000000000000000',
+        );
+      }).toThrow(/DELHI_NCR_BOUNDARY_INTEGRITY_FAILURE/i);
+    });
+
+    it('throws DELHI_NCR_BOUNDARY_INTEGRITY_FAILURE on malformed JSON or corrupted GeoJSON schema', () => {
+      expect(() => {
+        validateAndIndexNcrDataset('NOT_VALID_JSON', DELHI_NCR_EXPECTED_DATASET_SHA256);
+      }).toThrow(/DELHI_NCR_BOUNDARY_INTEGRITY_FAILURE/i);
+
+      expect(() => {
+        validateAndIndexNcrDataset(
+          JSON.stringify({ type: 'FeatureCollection', features: 'not-an-array' }),
+          'mismatched-hash',
+        );
+      }).toThrow(/DELHI_NCR_BOUNDARY_INTEGRITY_FAILURE/i);
+    });
+
+    it('rejects unexpected geometry types and invalid coordinate structures', () => {
+      const invalidGeomFeature = {
+        type: 'Feature',
+        properties: {
+          shapeID: 'test',
+          shapeName: 'test',
+          officialName: 'test',
+          subRegion: 'NCT of Delhi',
+        },
+        geometry: { type: 'Point', coordinates: [77.2, 28.6] },
+      };
+      const dataset = {
+        type: 'FeatureCollection',
+        name: 'test',
+        metadata: {},
+        features: [invalidGeomFeature],
+      };
+      const raw = JSON.stringify(dataset);
+      // Hash of this invalid dataset
+      const hash = createHash('sha256').update(raw).digest('hex');
+
+      expect(() => {
+        validateAndIndexNcrDataset(raw, hash);
+      }).toThrow(/Unexpected geometry type "Point"/i);
+    });
+
+    it('rejects non-finite or out-of-range WGS84 coordinates', () => {
+      const invalidCoordFeature = {
+        type: 'Feature',
+        properties: {
+          shapeID: 'test',
+          shapeName: 'test',
+          officialName: 'test',
+          subRegion: 'NCT of Delhi',
+        },
+        geometry: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [200, 28.6], // Longitude > 180
+              [77.3, 28.6],
+              [77.3, 28.7],
+              [200, 28.6],
+            ],
+          ],
+        },
+      };
+      const dataset = {
+        type: 'FeatureCollection',
+        name: 'test',
+        metadata: {},
+        features: [invalidCoordFeature],
+      };
+      const raw = JSON.stringify(dataset);
+      const hash = createHash('sha256').update(raw).digest('hex');
+
+      expect(() => {
+        validateAndIndexNcrDataset(raw, hash);
+      }).toThrow(/Invalid coordinate values/i);
+    });
+  });
+
+  describe('Near-Boundary Proximity & Spatial Uncertainty Assessment', () => {
+    it('distinguishes INSIDE, NEAR_BOUNDARY_OUTSIDE (<=1000m), and OUTSIDE (>1000m)', async () => {
+      // 1. Inside NCR: Connaught Place
+      const insideRes = await serviceAreaService.checkCoordinates(28.6315, 77.2167);
+      expect(insideRes.eligible).toBe(true);
+      expect(insideRes.status).toBe('INSIDE');
+      expect(insideRes.distanceToBoundaryMeters).toBe(0);
+      expect(insideRes.uncertaintyAssessment.isNearBoundary).toBe(false);
+
+      // 2. Near Boundary Outside: ~333m north of northernmost NCR point (29.99624, 77.11808)
+      const nearRes = await serviceAreaService.checkCoordinates(29.99624, 77.11808);
+      expect(nearRes.eligible).toBe(false);
+      expect(nearRes.status).toBe('NEAR_BOUNDARY_OUTSIDE');
+      expect(nearRes.distanceToBoundaryMeters).toBeGreaterThan(0);
+      expect(nearRes.distanceToBoundaryMeters).toBeLessThanOrEqual(1000);
+      expect(nearRes.uncertaintyAssessment.isNearBoundary).toBe(true);
+
+      // 3. Conclusively Outside: Mumbai
+      const farRes = await serviceAreaService.checkCoordinates(19.076, 72.8777);
+      expect(farRes.eligible).toBe(false);
+      expect(farRes.status).toBe('OUTSIDE');
+      expect(farRes.distanceToBoundaryMeters).toBeGreaterThan(1000);
+      expect(farRes.uncertaintyAssessment.isNearBoundary).toBe(false);
+    });
+
+    it('evaluates consumer GPS accuracy degradation (>1000m sets hasPoorAccuracy)', async () => {
+      const goodGps = await serviceAreaService.checkCoordinates(28.6315, 77.2167, 15);
+      expect(goodGps.uncertaintyAssessment.hasPoorAccuracy).toBe(false);
+
+      const degradedGps = await serviceAreaService.checkCoordinates(28.6315, 77.2167, 1500);
+      expect(degradedGps.uncertaintyAssessment.hasPoorAccuracy).toBe(true);
+    });
+
+    it('returns 200 with NEAR_BOUNDARY_OUTSIDE on public service-area-check, but rejects request submission with 422 and zero DB writes', async () => {
+      // Public check returns 200 with status NEAR_BOUNDARY_OUTSIDE
+      const checkRes = await request(app)
+        .post('/requests/service-area-check')
+        .send({ lat: 29.99624, lng: 77.11808, accuracy: 25 })
+        .expect(200);
+
+      expect(checkRes.body).toMatchObject({
+        success: true,
+        data: {
+          eligible: false,
+          status: 'NEAR_BOUNDARY_OUTSIDE',
+          distanceToBoundaryMeters: expect.any(Number),
+          uncertaintyAssessment: {
+            isNearBoundary: true,
+            thresholdMeters: 1000,
+          },
+        },
+      });
+
+      // Attempting to submit a request for this near-boundary location is strictly blocked:
+      // Zero DB writes, 422 OUTSIDE_SERVICE_AREA, with status details
+      const submitRes = await request(app)
+        .post('/requests')
+        .send({
+          lat: 29.99624,
+          lng: 77.11808,
+          accuracy: 25,
+          peopleCount: 2,
+          urgency: 'HIGH',
+          medicalNeeds: false,
+          notes: 'Near border location test',
+          idempotencyKey: 'idem-near-boundary-test-1',
+        })
+        .expect(422);
+
+      expect(submitRes.body.error).toMatchObject({
+        code: 'OUTSIDE_SERVICE_AREA',
+        details: {
+          status: 'NEAR_BOUNDARY_OUTSIDE',
+          isNearBoundary: true,
+          distanceToBoundaryMeters: expect.any(Number),
+        },
+      });
+
+      // Strict enforcement of Zero Database Writes
+      expect(db.insertedRequests).toHaveLength(0);
+      expect(db.insertedEvents).toHaveLength(0);
+      expect(db.insertedAudits).toHaveLength(0);
     });
   });
 });

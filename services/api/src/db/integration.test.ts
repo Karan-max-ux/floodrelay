@@ -3776,17 +3776,27 @@ describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
         region_id: string;
         region_name: string;
         boundary_version: string;
+        dataset_sha256: string;
+        source_metadata: {
+          repositoryGeoJsonSha256?: string;
+          gisSourceFileSha256?: string;
+          initialRawExportSha256?: string;
+        };
         is_valid: boolean;
         srid: number;
         area_sq_km: number;
+        near_distance_meters: number;
       }>(`
         SELECT
           region_id,
           region_name,
           boundary_version,
+          dataset_sha256,
+          source_metadata,
           ST_IsValid(geometry) AS is_valid,
           ST_SRID(geometry) AS srid,
-          ST_Area(geometry::geography) / 1000000.0 AS area_sq_km
+          ST_Area(geometry::geography) / 1000000.0 AS area_sq_km,
+          ST_Distance(geometry::geography, ST_SetSRID(ST_MakePoint(77.11808, 29.99624), 4326)::geography) AS near_distance_meters
         FROM service_areas
         WHERE region_id = 'IN-NCR' AND is_active = TRUE;
       `);
@@ -3797,6 +3807,20 @@ describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
       expect(Number(res.rows[0]?.srid)).toBe(4326);
       expect(Number(res.rows[0]?.area_sq_km)).toBeGreaterThan(54000);
       expect(Number(res.rows[0]?.area_sq_km)).toBeLessThan(57000);
+      expect(res.rows[0]?.dataset_sha256).toBe(
+        'a48e65c666c374c07364e03c79d090a8c0888971f463f804d40baf052104e8ae',
+      );
+      expect(res.rows[0]?.source_metadata.repositoryGeoJsonSha256).toBe(
+        'a48e65c666c374c07364e03c79d090a8c0888971f463f804d40baf052104e8ae',
+      );
+      expect(res.rows[0]?.source_metadata.gisSourceFileSha256).toBe(
+        'd68db39cd3e2d0892af268e2b0454166368ce3b5b8a78fcda63069ec92a641db',
+      );
+      expect(res.rows[0]?.source_metadata.initialRawExportSha256).toBe(
+        '357d77cdf69c8f5f4016c0c656e70cfcb8b1d585dcba5849e95a15299478fd1d',
+      );
+      expect(Number(res.rows[0]?.near_distance_meters)).toBeGreaterThan(300);
+      expect(Number(res.rows[0]?.near_distance_meters)).toBeLessThan(400);
     });
 
     it('accepts verified locations across NCT Delhi, Haryana, UP, Rajasthan, and exact outer boundary vertex via PostGIS ST_Covers', async () => {

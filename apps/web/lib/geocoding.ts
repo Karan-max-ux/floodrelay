@@ -100,15 +100,21 @@ export function getValidatedNominatimBaseUrl(): string {
 
 /**
  * Returns the configured request spacing interval in milliseconds (default 1000ms).
- * Strictly enforces a positive integer.
+ * Strictly enforces a minimum of 1,000 ms for public Nominatim requests to comply
+ * with the public Nominatim Usage Policy, regardless of environment overrides.
+ * Higher configured intervals (>= 1000) remain valid.
  */
 export function getNominatimMinIntervalMs(): number {
-  const envVal = process.env.NOMINATIM_MIN_INTERVAL_MS?.trim();
-  if (!envVal) return NOMINATIM_DEFAULT_MIN_INTERVAL_MS;
-  const parsed = parseInt(envVal, 10);
-  if (isNaN(parsed) || parsed <= 0) {
+  const raw = process.env.NOMINATIM_MIN_INTERVAL_MS?.trim();
+
+  if (!raw) return NOMINATIM_DEFAULT_MIN_INTERVAL_MS;
+
+  const parsed = Number(raw);
+
+  if (!Number.isSafeInteger(parsed) || parsed < 1000) {
     return NOMINATIM_DEFAULT_MIN_INTERVAL_MS;
   }
+
   return parsed;
 }
 

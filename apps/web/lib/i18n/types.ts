@@ -71,6 +71,8 @@ export interface CitizenMessages {
     outsideP2: string;
     outsideP3: string;
     outsideP4: string;
+    nearBoundaryHeading: string;
+    nearBoundaryMessage: string;
     unavailableHeading: string;
     unavailableP1: string;
     unavailableP2: string;

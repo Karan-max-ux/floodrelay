@@ -36,7 +36,11 @@ export function createRequestsRouter(
         }
 
         try {
-          const check = await requestService.checkServiceArea(parsed.data.lat, parsed.data.lng);
+          const check = await requestService.checkServiceArea(
+            parsed.data.lat,
+            parsed.data.lng,
+            parsed.data.accuracy,
+          );
           res.status(200).json({
             success: true,
             data: check,
@@ -44,11 +48,13 @@ export function createRequestsRouter(
         } catch (domainErr: unknown) {
           const code = (domainErr as { code?: string }).code;
           const statusCode = (domainErr as { statusCode?: number }).statusCode;
+          const details = (domainErr as { details?: unknown }).details;
           if (code && statusCode) {
             res.status(statusCode).json({
               error: {
                 code,
                 message: (domainErr as Error).message,
+                ...(details !== undefined ? { details } : {}),
                 timestamp: new Date().toISOString(),
               },
             });
@@ -92,11 +98,13 @@ export function createRequestsRouter(
       } catch (domainErr: unknown) {
         const code = (domainErr as { code?: string }).code;
         const statusCode = (domainErr as { statusCode?: number }).statusCode;
+        const details = (domainErr as { details?: unknown }).details;
         if (code && statusCode) {
           res.status(statusCode).json({
             error: {
               code,
               message: (domainErr as Error).message,
+              ...(details !== undefined ? { details } : {}),
               timestamp: new Date().toISOString(),
             },
           });
@@ -304,11 +312,13 @@ export function createRequestsRouter(
         } catch (domainErr: unknown) {
           const code = (domainErr as { code?: string }).code;
           const statusCode = (domainErr as { statusCode?: number }).statusCode;
+          const details = (domainErr as { details?: unknown }).details;
           if (code && statusCode) {
             res.status(statusCode).json({
               error: {
                 code,
                 message: (domainErr as Error).message,
+                ...(details !== undefined ? { details } : {}),
                 timestamp: new Date().toISOString(),
               },
             });

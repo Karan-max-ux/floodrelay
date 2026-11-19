@@ -117,6 +117,96 @@ function computeFeatureBbox(feature: NcrGeoJsonFeature): {
   return { minLat, maxLat, minLng, maxLng };
 }
 
+export function resetCachedBoundaryDatasetForTest(): void {
+  cachedDataset = null;
+}
+
+export function validateAndIndexNcrDataset(
+  raw: string,
+  expectedSha256 = DELHI_NCR_EXPECTED_DATASET_SHA256,
+): { dataset: NcrBoundaryDataset; sha256: string; indexed: IndexedFeature[] } {
+  const sha256 = crypto.createHash('sha256').update(raw).digest('hex');
+  if (sha256 !== expectedSha256) {
+    throw new Error('DELHI_NCR_BOUNDARY_INTEGRITY_FAILURE');
+  }
+
+  let dataset: NcrBoundaryDataset;
+  try {
+    dataset = JSON.parse(raw) as NcrBoundaryDataset;
+  } catch {
+    throw new Error('Invalid Delhi NCR boundary GeoJSON: malformed JSON syntax');
+  }
+
+  if (dataset.type !== 'FeatureCollection' || !Array.isArray(dataset.features)) {
+    throw new Error('Invalid Delhi NCR boundary GeoJSON: expected FeatureCollection');
+  }
+
+  if (dataset.features.length === 0) {
+    throw new Error('Invalid Delhi NCR boundary GeoJSON: empty feature collection');
+  }
+
+  const indexed = dataset.features.map((feature, idx) => {
+    if (!feature || feature.type !== 'Feature' || !feature.geometry) {
+      throw new Error(`Invalid feature at index ${idx}: must be GeoJSON Feature`);
+    }
+
+    const geomType = feature.geometry.type;
+    if (geomType !== 'Polygon' && geomType !== 'MultiPolygon') {
+      throw new Error(
+        `Unexpected geometry type "${geomType}" at index ${idx}: expected Polygon or MultiPolygon`,
+      );
+    }
+
+    const coords = feature.geometry.coordinates;
+    if (!Array.isArray(coords) || coords.length === 0) {
+      throw new Error(`Invalid coordinates at index ${idx}: coordinates array is empty`);
+    }
+
+    // Validate coordinate numbers and ranges (lng in [-180, 180], lat in [-90, 90])
+    const polygons = geomType === 'Polygon' ? [coords as number[][][]] : (coords as number[][][][]);
+    for (const poly of polygons) {
+      if (!Array.isArray(poly) || poly.length === 0) {
+        throw new Error(`Invalid polygon ring structure at feature index ${idx}`);
+      }
+      for (const ring of poly) {
+        if (!Array.isArray(ring) || ring.length < 4) {
+          throw new Error(
+            `Invalid linear ring at feature index ${idx}: must have at least 4 positions`,
+          );
+        }
+        for (const pt of ring) {
+          if (!Array.isArray(pt) || pt.length < 2) {
+            throw new Error(`Invalid coordinate position at feature index ${idx}`);
+          }
+          const lng = pt[0];
+          const lat = pt[1];
+          if (
+            typeof lng !== 'number' ||
+            typeof lat !== 'number' ||
+            !Number.isFinite(lng) ||
+            !Number.isFinite(lat) ||
+            lng < -180 ||
+            lng > 180 ||
+            lat < -90 ||
+            lat > 90
+          ) {
+            throw new Error(
+              `Invalid coordinate values [${lng}, ${lat}] at feature index ${idx}: must be finite WGS84 coordinates`,
+            );
+          }
+        }
+      }
+    }
+
+    return {
+      feature,
+      ...computeFeatureBbox(feature),
+    };
+  });
+
+  return { dataset, sha256, indexed };
+}
+
 export function loadDelhiNcrBoundaryDataset(): {
   dataset: NcrBoundaryDataset;
   sha256: string;
@@ -128,19 +218,7 @@ export function loadDelhiNcrBoundaryDataset(): {
 
   const filePath = resolveBoundaryPath();
   const raw = fs.readFileSync(filePath, 'utf-8');
-  const sha256 = crypto.createHash('sha256').update(raw).digest('hex');
-  const dataset = JSON.parse(raw) as NcrBoundaryDataset;
-
-  if (dataset.type !== 'FeatureCollection' || !Array.isArray(dataset.features)) {
-    throw new Error('Invalid Delhi NCR boundary GeoJSON: expected FeatureCollection');
-  }
-
-  const indexed = dataset.features.map((feature) => ({
-    feature,
-    ...computeFeatureBbox(feature),
-  }));
-
-  cachedDataset = { dataset, sha256, indexed };
+  cachedDataset = validateAndIndexNcrDataset(raw);
   return cachedDataset;
 }
 
@@ -206,6 +284,76 @@ function polygonCoversPoint(lng: number, lat: number, coords: number[][][]): boo
   return true;
 }
 
+function distanceToSegmentMeters(
+  lat: number,
+  lng: number,
+  p1Lng: number,
+  p1Lat: number,
+  p2Lng: number,
+  p2Lat: number,
+): number {
+  const latRad = (lat * Math.PI) / 180;
+  const kx = Math.cos(latRad) * 111319.5;
+  const ky = 111132.9;
+
+  const px = lng * kx;
+  const py = lat * ky;
+  const x1 = p1Lng * kx;
+  const y1 = p1Lat * ky;
+  const x2 = p2Lng * kx;
+  const y2 = p2Lat * ky;
+
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lenSq = dx * dx + dy * dy;
+
+  if (lenSq === 0) {
+    return Math.hypot(px - x1, py - y1);
+  }
+
+  const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lenSq));
+  const projX = x1 + t * dx;
+  const projY = y1 + t * dy;
+
+  return Math.hypot(px - projX, py - projY);
+}
+
+export function computeMinDistanceToBoundaryMeters(lat: number, lng: number): number {
+  const { indexed } = loadDelhiNcrBoundaryDataset();
+  let minDistance = Infinity;
+
+  const latRad = (lat * Math.PI) / 180;
+  const kx = Math.cos(latRad) * 111319.5;
+  const ky = 111132.9;
+
+  for (const entry of indexed) {
+    const dLatBbox = Math.max(0, entry.minLat - lat, lat - entry.maxLat) * ky;
+    const dLngBbox = Math.max(0, entry.minLng - lng, lng - entry.maxLng) * kx;
+    const bboxDist = Math.hypot(dLatBbox, dLngBbox);
+    if (bboxDist >= minDistance) {
+      continue;
+    }
+
+    const { geometry } = entry.feature;
+    const polygons = geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates;
+
+    for (const poly of polygons) {
+      const outerRing = poly[0];
+      if (!outerRing) continue;
+      for (let i = 0, j = outerRing.length - 1; i < outerRing.length; j = i++) {
+        const p1 = outerRing[j]!;
+        const p2 = outerRing[i]!;
+        const d = distanceToSegmentMeters(lat, lng, p1[0]!, p1[1]!, p2[0]!, p2[1]!);
+        if (d < minDistance) {
+          minDistance = d;
+        }
+      }
+    }
+  }
+
+  return Math.round(minDistance * 10) / 10;
+}
+
 /**
  * Pure reference evaluator matching PostGIS ST_Covers(geometry, ST_SetSRID(ST_MakePoint(lng, lat), 4326))
  * over the verified 34-district Delhi NCR GeoJSON dataset.
@@ -218,6 +366,7 @@ export function evaluateDelhiNcrCoverage(
   lng: number,
 ): {
   covered: boolean;
+  distanceToBoundaryMeters: number;
   matchedDistrict: string | null;
   matchedSubRegion: string | null;
 } {
@@ -231,7 +380,12 @@ export function evaluateDelhiNcrCoverage(
     lng < -180 ||
     lng > 180
   ) {
-    return { covered: false, matchedDistrict: null, matchedSubRegion: null };
+    return {
+      covered: false,
+      distanceToBoundaryMeters: Infinity,
+      matchedDistrict: null,
+      matchedSubRegion: null,
+    };
   }
 
   const { indexed } = loadDelhiNcrBoundaryDataset();
@@ -253,11 +407,19 @@ export function evaluateDelhiNcrCoverage(
     if (hit) {
       return {
         covered: true,
+        distanceToBoundaryMeters: 0,
         matchedDistrict: properties.officialName,
         matchedSubRegion: properties.subRegion,
       };
     }
   }
 
-  return { covered: false, matchedDistrict: null, matchedSubRegion: null };
+  const distanceToBoundaryMeters = computeMinDistanceToBoundaryMeters(lat, lng);
+
+  return {
+    covered: false,
+    distanceToBoundaryMeters,
+    matchedDistrict: null,
+    matchedSubRegion: null,
+  };
 }

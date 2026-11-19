@@ -65,7 +65,7 @@ export default function LimitationsPage() {
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded bg-slate-100 border border-slate-200 text-slate-700 text-xs font-mono font-semibold uppercase tracking-wider mb-4">
             <span className="w-2 h-2 rounded-full bg-[#0066CC]" />
-            Official System Boundaries & Uncertainty Disclosure
+            FloodRelay System Boundaries & Uncertainty Disclosure
           </div>
           <h1 className="font-manrope text-3xl md:text-4xl font-extrabold text-[#0A2540] tracking-tight mb-4">
             Operational Limitations & System Boundaries

@@ -878,7 +878,7 @@ export default function AssignmentReviewPage({ params }: PageProps) {
                 </>
               ) : (
                 <>
-                  This plan is officially committed. Recorded by{' '}
+                  This plan is committed. Recorded by{' '}
                   <strong className="text-slate-900">{plan.committed_by || 'Operator'}</strong> at{' '}
                   {formattedCommitted}.
                 </>

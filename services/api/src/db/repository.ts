@@ -102,6 +102,7 @@ export interface ServiceAreaCoverageRow {
   is_valid: boolean;
   srid: number;
   is_covered: boolean;
+  distance_meters?: number;
 }
 
 export class PostgisRepository {
@@ -2136,7 +2137,8 @@ export class PostgisRepository {
         boundary_version,
         ST_IsValid(geometry) AS is_valid,
         ST_SRID(geometry) AS srid,
-        ST_Covers(geometry, ST_SetSRID(ST_MakePoint($1, $2), 4326)) AS is_covered
+        ST_Covers(geometry, ST_SetSRID(ST_MakePoint($1, $2), 4326)) AS is_covered,
+        ST_Distance(geometry::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS distance_meters
       FROM service_areas
       WHERE is_active = TRUE;
     `;

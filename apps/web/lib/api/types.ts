@@ -60,12 +60,23 @@ export type {
   SolverPlan,
 };
 
+export interface ServiceAreaUncertaintyAssessment {
+  isNearBoundary: boolean;
+  boundaryDistanceMeters: number;
+  thresholdMeters: number;
+  justification: string;
+  hasPoorAccuracy?: boolean;
+}
+
 export interface ServiceAreaCheckResult {
   eligible: boolean;
+  status: 'INSIDE' | 'NEAR_BOUNDARY_OUTSIDE' | 'OUTSIDE';
+  distanceToBoundaryMeters: number;
   regionId: string;
   regionName: string;
   boundaryVersion: string;
   inclusiveBoundaryPolicy: 'ST_COVERS';
+  uncertaintyAssessment?: ServiceAreaUncertaintyAssessment;
 }
 
 export interface CreateRequestInput {

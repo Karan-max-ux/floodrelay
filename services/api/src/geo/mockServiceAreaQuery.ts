@@ -36,6 +36,8 @@ export function handleMockServiceAreaQuery<R extends Record<string, unknown>>(
         srid: 4326,
         is_covered: evaluation.covered,
         isCovered: evaluation.covered,
+        distance_meters: evaluation.distanceToBoundaryMeters,
+        distanceMeters: evaluation.distanceToBoundaryMeters,
       } as unknown as R,
     ],
     command: 'SELECT',

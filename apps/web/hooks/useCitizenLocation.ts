@@ -9,7 +9,8 @@ export type GpsStatus =
 export type ReverseGeocodeStatus = 'IDLE' | 'LOOKING_UP' | 'FOUND' | 'UNAVAILABLE' | 'ERROR';
 export type GeocodeStatus = 'IDLE' | 'SEARCHING' | 'FOUND' | 'NO_MATCH' | 'ERROR';
 export type LocationSource = 'NONE' | 'GPS' | 'GEOCODED' | 'MANUAL';
-export type ServiceAreaStatus = 'IDLE' | 'CHECKING' | 'ELIGIBLE' | 'OUTSIDE' | 'UNAVAILABLE';
+export type ServiceAreaStatus =
+  'IDLE' | 'CHECKING' | 'ELIGIBLE' | 'OUTSIDE' | 'NEAR_BOUNDARY' | 'UNAVAILABLE';
 
 export interface LocationAttribution {
   text: string;
@@ -87,7 +88,11 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
     invalidateServiceArea();
   };
 
-  const checkServiceAreaCoordinates = async (latNum: number, lngNum: number): Promise<boolean> => {
+  const checkServiceAreaCoordinates = async (
+    latNum: number,
+    lngNum: number,
+    accuracyMeters?: number,
+  ): Promise<boolean> => {
     if (!options.enableServiceAreaCheck) {
       return true;
     }
@@ -120,7 +125,13 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
       const res = await fetch('/requests/service-area-check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lat: latNum, lng: lngNum }),
+        body: JSON.stringify({
+          lat: latNum,
+          lng: lngNum,
+          ...(typeof accuracyMeters === 'number' && Number.isFinite(accuracyMeters)
+            ? { accuracy: accuracyMeters }
+            : {}),
+        }),
         signal: abortController.signal,
       });
 
@@ -135,6 +146,14 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
           setServiceAreaStatus('ELIGIBLE');
           setServiceAreaError(null);
           return true;
+        } else if (
+          data.data.status === 'NEAR_BOUNDARY_OUTSIDE' ||
+          data.data.uncertaintyAssessment?.isNearBoundary
+        ) {
+          setServiceAreaStatus('NEAR_BOUNDARY');
+          setServiceAreaError(null);
+          setIsLocationConfirmed(false);
+          return false;
         } else {
           setServiceAreaStatus('OUTSIDE');
           setServiceAreaError(null);
@@ -142,7 +161,10 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
           return false;
         }
       } else if (res.status === 422 || data?.error?.code === 'OUTSIDE_SERVICE_AREA') {
-        setServiceAreaStatus('OUTSIDE');
+        const isNear =
+          data?.error?.details?.status === 'NEAR_BOUNDARY_OUTSIDE' ||
+          data?.error?.details?.isNearBoundary === true;
+        setServiceAreaStatus(isNear ? 'NEAR_BOUNDARY' : 'OUTSIDE');
         setServiceAreaInfo(null);
         setServiceAreaError(null);
         setIsLocationConfirmed(false);
@@ -173,7 +195,11 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
     const latNum = parseFloat(lat);
     const lngNum = parseFloat(lng);
     if (!isNaN(latNum) && !isNaN(lngNum)) {
-      void checkServiceAreaCoordinates(latNum, lngNum);
+      void checkServiceAreaCoordinates(
+        latNum,
+        lngNum,
+        locationSource === 'GPS' && typeof gpsAccuracy === 'number' ? gpsAccuracy : undefined,
+      );
     }
   };
 
@@ -536,7 +562,11 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
         void triggerReverseGeocode(pos.coords.latitude, pos.coords.longitude);
 
         if (options.enableServiceAreaCheck) {
-          void checkServiceAreaCoordinates(pos.coords.latitude, pos.coords.longitude);
+          void checkServiceAreaCoordinates(
+            pos.coords.latitude,
+            pos.coords.longitude,
+            pos.coords.accuracy,
+          );
         }
       },
       (err) => {
