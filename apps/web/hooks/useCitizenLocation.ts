@@ -2,12 +2,14 @@
 
 import { useState, useRef } from 'react';
 import type { GeocodeCandidate } from '@/app/api/geocode/route';
+import type { ServiceAreaCheckResult } from '@/lib/api/types';
 
 export type GpsStatus =
   'IDLE' | 'ACQUIRING' | 'ACQUIRED' | 'DENIED' | 'UNAVAILABLE' | 'TIMEOUT' | 'UNSUPPORTED';
 export type ReverseGeocodeStatus = 'IDLE' | 'LOOKING_UP' | 'FOUND' | 'UNAVAILABLE' | 'ERROR';
 export type GeocodeStatus = 'IDLE' | 'SEARCHING' | 'FOUND' | 'NO_MATCH' | 'ERROR';
 export type LocationSource = 'NONE' | 'GPS' | 'GEOCODED' | 'MANUAL';
+export type ServiceAreaStatus = 'IDLE' | 'CHECKING' | 'ELIGIBLE' | 'OUTSIDE' | 'UNAVAILABLE';
 
 export interface LocationAttribution {
   text: string;
@@ -26,6 +28,7 @@ export interface UseCitizenLocationOptions {
   onFieldEdited?: () => void;
   onErrorsClear?: (fields: string[]) => void;
   onSetError?: (field: string, message: string) => void;
+  enableServiceAreaCheck?: boolean;
 }
 
 export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
@@ -52,17 +55,126 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
   const [confirmedDetails, setConfirmedDetails] = useState<ConfirmedLocationDetails | null>(null);
   const [locationAttribution, setLocationAttribution] = useState<LocationAttribution | null>(null);
 
+  // Service-Area Verification State
+  const [serviceAreaStatus, setServiceAreaStatus] = useState<ServiceAreaStatus>('IDLE');
+  const [serviceAreaInfo, setServiceAreaInfo] = useState<ServiceAreaCheckResult | null>(null);
+  const [serviceAreaError, setServiceAreaError] = useState<string | null>(null);
+
   // Invalidation & Stale-Response Guards
   const lookupSeqRef = useRef<number>(0);
   const geocodeSeqRef = useRef<number>(0);
+  const serviceAreaSeqRef = useRef<number>(0);
   const userEditedDuringLookupRef = useRef<boolean>(false);
   const userEditedAddressRef = useRef<boolean>(false);
   const geocodeAbortControllerRef = useRef<AbortController | null>(null);
   const lookupAbortControllerRef = useRef<AbortController | null>(null);
+  const serviceAreaAbortControllerRef = useRef<AbortController | null>(null);
+
+  const invalidateServiceArea = () => {
+    serviceAreaSeqRef.current += 1;
+    if (serviceAreaAbortControllerRef.current) {
+      serviceAreaAbortControllerRef.current.abort();
+      serviceAreaAbortControllerRef.current = null;
+    }
+    setServiceAreaStatus('IDLE');
+    setServiceAreaInfo(null);
+    setServiceAreaError(null);
+  };
 
   const invalidateConfirmation = () => {
     setIsLocationConfirmed(false);
     setConfirmedDetails(null);
+    invalidateServiceArea();
+  };
+
+  const checkServiceAreaCoordinates = async (latNum: number, lngNum: number): Promise<boolean> => {
+    if (!options.enableServiceAreaCheck) {
+      return true;
+    }
+
+    if (
+      !Number.isFinite(latNum) ||
+      !Number.isFinite(lngNum) ||
+      latNum < -90 ||
+      latNum > 90 ||
+      lngNum < -180 ||
+      lngNum > 180
+    ) {
+      setServiceAreaStatus('IDLE');
+      setServiceAreaInfo(null);
+      setServiceAreaError('Invalid coordinates');
+      return false;
+    }
+
+    if (serviceAreaAbortControllerRef.current) {
+      serviceAreaAbortControllerRef.current.abort();
+    }
+    const abortController = new AbortController();
+    serviceAreaAbortControllerRef.current = abortController;
+
+    const seq = ++serviceAreaSeqRef.current;
+    setServiceAreaStatus('CHECKING');
+    setServiceAreaError(null);
+
+    try {
+      const res = await fetch('/requests/service-area-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat: latNum, lng: lngNum }),
+        signal: abortController.signal,
+      });
+
+      if (seq !== serviceAreaSeqRef.current) return false;
+
+      const data = await res.json().catch(() => null);
+      if (seq !== serviceAreaSeqRef.current) return false;
+
+      if (res.ok && data?.success && data?.data) {
+        setServiceAreaInfo(data.data);
+        if (data.data.eligible) {
+          setServiceAreaStatus('ELIGIBLE');
+          setServiceAreaError(null);
+          return true;
+        } else {
+          setServiceAreaStatus('OUTSIDE');
+          setServiceAreaError(null);
+          setIsLocationConfirmed(false);
+          return false;
+        }
+      } else if (res.status === 422 || data?.error?.code === 'OUTSIDE_SERVICE_AREA') {
+        setServiceAreaStatus('OUTSIDE');
+        setServiceAreaInfo(null);
+        setServiceAreaError(null);
+        setIsLocationConfirmed(false);
+        return false;
+      } else {
+        setServiceAreaStatus('UNAVAILABLE');
+        setServiceAreaInfo(null);
+        setServiceAreaError(
+          data?.error?.message ||
+            'Unable to verify Delhi NCR service area right now. Please try again shortly or call 112.',
+        );
+        return false;
+      }
+    } catch (err: unknown) {
+      if ((err as Error)?.name === 'AbortError') return false;
+      if (seq !== serviceAreaSeqRef.current) return false;
+
+      setServiceAreaStatus('UNAVAILABLE');
+      setServiceAreaInfo(null);
+      setServiceAreaError(
+        'Unable to contact service-area verification service. Please try again shortly or call 112.',
+      );
+      return false;
+    }
+  };
+
+  const retryServiceAreaCheck = () => {
+    const latNum = parseFloat(lat);
+    const lngNum = parseFloat(lng);
+    if (!isNaN(latNum) && !isNaN(lngNum)) {
+      void checkServiceAreaCoordinates(latNum, lngNum);
+    }
   };
 
   /**
@@ -273,6 +385,10 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
     userEditedAddressRef.current = false;
     onFieldEdited?.();
     onErrorsClear?.(['address', 'lat', 'lng', 'location']);
+
+    if (options.enableServiceAreaCheck) {
+      void checkServiceAreaCoordinates(candidate.lat, candidate.lng);
+    }
   };
 
   /**
@@ -418,6 +534,10 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
 
         // Reverse-geocode to find nearest street address
         void triggerReverseGeocode(pos.coords.latitude, pos.coords.longitude);
+
+        if (options.enableServiceAreaCheck) {
+          void checkServiceAreaCoordinates(pos.coords.latitude, pos.coords.longitude);
+        }
       },
       (err) => {
         // Strict geolocation error handling: NO fake/ Houston fallback coordinates
@@ -476,6 +596,11 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
 
     onErrorsClear?.(['address', 'lat', 'lng', 'location']);
     onFieldEdited?.();
+
+    if (options.enableServiceAreaCheck) {
+      void checkServiceAreaCoordinates(latNum, lngNum);
+    }
+
     return true;
   };
 
@@ -508,6 +633,17 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
     setIsLocationConfirmed,
     confirmedDetails,
     setConfirmedDetails,
+    serviceAreaStatus,
+    setServiceAreaStatus,
+    serviceAreaInfo,
+    setServiceAreaInfo,
+    serviceAreaError,
+    setServiceAreaError,
+    serviceAreaSeqRef,
+    serviceAreaAbortControllerRef,
+    checkServiceAreaCoordinates,
+    retryServiceAreaCheck,
+    invalidateServiceArea,
     lookupSeqRef,
     geocodeSeqRef,
     userEditedDuringLookupRef,

@@ -80,6 +80,11 @@ export default function CitizenRequestPage() {
     locationAttribution,
     isLocationConfirmed,
     confirmedDetails,
+    serviceAreaStatus,
+    serviceAreaInfo,
+    serviceAreaError,
+    retryServiceAreaCheck,
+    checkServiceAreaCoordinates,
     setIsLocationConfirmed,
     handleAddressChange,
     handleCoordinateChange,
@@ -88,6 +93,7 @@ export default function CitizenRequestPage() {
     handleUseLocation,
     handleExplicitConfirm,
   } = useCitizenLocation({
+    enableServiceAreaCheck: true,
     onFieldEdited: markEdited,
     onErrorsClear: (fields) => {
       setErrors((prev) => {
@@ -192,9 +198,30 @@ export default function CitizenRequestPage() {
 
     const { notesString, activeNeeds } = synthesizeNotes();
 
+    const parsedLat = parseFloat(lat);
+    const parsedLng = parseFloat(lng);
+
+    // Guard: Do not allow submission if coordinates are known to be outside service area
+    if (serviceAreaStatus === 'OUTSIDE') {
+      setIsSubmitting(false);
+      setSubmitError(
+        'Location Outside FloodRelay’s Service Area. Submission is blocked for coordinates outside Delhi NCR.',
+      );
+      return;
+    }
+
+    // Verify service area if not yet verified
+    if (serviceAreaStatus === 'IDLE') {
+      const isEligible = await checkServiceAreaCoordinates(parsedLat, parsedLng);
+      if (!isEligible) {
+        setIsSubmitting(false);
+        return;
+      }
+    }
+
     const payload: CreateRequestInput = {
-      lat: parseFloat(lat),
-      lng: parseFloat(lng),
+      lat: parsedLat,
+      lng: parsedLng,
       peopleCount: partyCount,
       urgency,
       medicalNeeds: Boolean(specialNeeds.medicalOxygen),
@@ -210,6 +237,7 @@ export default function CitizenRequestPage() {
       const result = await apiClient.createRequest(payload);
 
       // Persist minimized submission receipt in browser sessionStorage (privacy-preserving)
+      const nowIso = new Date().toISOString();
       const receipt = {
         id: result.id,
         createdAt: result.createdAt,
@@ -219,16 +247,26 @@ export default function CitizenRequestPage() {
         duplicateOfId: result.duplicateOfId ?? null,
         idempotent: Boolean(result.idempotent),
         addressSummary: address.trim().split(',')[0] || 'Reported Location',
-        approxLat: parseFloat(parseFloat(lat).toFixed(2)),
-        approxLng: parseFloat(parseFloat(lng).toFixed(2)),
+        approxLat: parseFloat(parsedLat.toFixed(2)),
+        approxLng: parseFloat(parsedLng.toFixed(2)),
         waterLevel: WATER_LEVEL_LABELS[waterLevel] || waterLevel,
         hasSpecialNeeds: activeNeeds.length > 0,
         hasFieldNotes: Boolean(notes.trim()),
+        savedAt: nowIso,
+        verifiedByBackend: true,
       };
 
       if (typeof window !== 'undefined') {
         try {
           sessionStorage.setItem('floodrelay_citizen_receipt', JSON.stringify(receipt));
+          sessionStorage.setItem(
+            'floodrelay_last_submission_outcome',
+            JSON.stringify({
+              status: 'ACCEPTED',
+              receiptId: result.id,
+              timestamp: nowIso,
+            }),
+          );
         } catch (storageErr) {
           console.warn('Unable to store receipt in sessionStorage:', storageErr);
         }
@@ -240,6 +278,50 @@ export default function CitizenRequestPage() {
       setIsSubmitting(false);
 
       if (err instanceof ApiClientError) {
+        if (err.statusCode === 422 || err.code === 'OUTSIDE_SERVICE_AREA') {
+          if (typeof window !== 'undefined') {
+            try {
+              sessionStorage.setItem(
+                'floodrelay_last_submission_outcome',
+                JSON.stringify({
+                  status: 'REJECTED_OUTSIDE',
+                  message: err.message,
+                  timestamp: new Date().toISOString(),
+                }),
+              );
+            } catch {
+              // ignore storage errors
+            }
+          }
+          setSubmitError(
+            'Location Outside FloodRelay’s Service Area: ' +
+              err.message +
+              ' No rescue request has been submitted.',
+          );
+          return;
+        }
+
+        if (err.statusCode === 503 || err.code === 'SERVICE_AREA_UNAVAILABLE') {
+          if (typeof window !== 'undefined') {
+            try {
+              sessionStorage.setItem(
+                'floodrelay_last_submission_outcome',
+                JSON.stringify({
+                  status: 'UNAVAILABLE',
+                  message: err.message,
+                  timestamp: new Date().toISOString(),
+                }),
+              );
+            } catch {
+              // ignore storage errors
+            }
+          }
+          setSubmitError(
+            'Service-Area Check Temporarily Unavailable: Unable to verify whether your location is inside Delhi NCR right now. Your entered information has been preserved.',
+          );
+          return;
+        }
+
         if (err.statusCode === 409 || err.code === 'IDEMPOTENCY_KEY_REUSED') {
           setIs409Conflict(true);
           setSubmitError(
@@ -709,6 +791,135 @@ export default function CitizenRequestPage() {
                   </button>
                 </div>
               )}
+
+            {/* Service-Area Status Banners (Steps 3A, 3B, 3C) */}
+            {serviceAreaStatus === 'CHECKING' && (
+              <div
+                className="p-3 bg-surface-container border border-outline-variant rounded-lg flex items-center gap-2.5 text-xs text-on-surface-variant"
+                data-testid="service-area-checking-banner"
+              >
+                <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin shrink-0" />
+                <span>
+                  Verifying Delhi NCR service-area coverage for coordinates ({lat}, {lng})...
+                </span>
+              </div>
+            )}
+
+            {serviceAreaStatus === 'ELIGIBLE' && (
+              <div
+                className="p-3.5 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-800 rounded-lg flex items-center justify-between gap-3 text-xs text-emerald-900 dark:text-emerald-200"
+                data-testid="service-area-eligible-banner"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-emerald-700 dark:text-emerald-400 text-base">
+                    verified
+                  </span>
+                  <span className="font-medium">
+                    {messages.serviceArea.eligibleNotice} (
+                    {serviceAreaInfo?.regionName || 'Delhi NCR'})
+                  </span>
+                </div>
+                <span className="text-[10px] font-mono uppercase bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 px-2 py-0.5 rounded">
+                  Service Area Eligible
+                </span>
+              </div>
+            )}
+
+            {serviceAreaStatus === 'OUTSIDE' && (
+              <div
+                className="p-5 rounded-xl border-2 border-red-500 bg-red-50 text-red-950 space-y-4 shadow-sm"
+                data-testid="service-area-outside-banner"
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="material-symbols-outlined text-red-600 text-2xl shrink-0">
+                    location_off
+                  </span>
+                  <h3 className="font-manrope text-base font-bold text-red-950">
+                    Location Outside FloodRelay&apos;s Service Area
+                  </h3>
+                </div>
+
+                <div className="space-y-2 text-xs md:text-sm text-red-900 leading-relaxed">
+                  <p>{messages.serviceArea.outsideP1}</p>
+                  <p>{messages.serviceArea.outsideP2}</p>
+                  <p>{messages.serviceArea.outsideP3}</p>
+                  <p>{messages.serviceArea.outsideP4}</p>
+                </div>
+
+                <div className="pt-2 flex flex-wrap items-center gap-3">
+                  <a
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-red-700 text-white font-bold text-xs hover:bg-red-800 transition-colors shadow-xs"
+                    href="tel:112"
+                  >
+                    <span className="material-symbols-outlined text-sm">phone_in_talk</span>
+                    <span>{messages.serviceArea.call112Cta}</span>
+                  </a>
+                  <button
+                    className="px-4 py-2.5 rounded-lg bg-white border border-red-300 text-red-950 text-xs font-semibold hover:bg-red-50 transition-colors"
+                    onClick={() => {
+                      setIsLocationConfirmed(false);
+                      const el = document.getElementById('addressInput');
+                      if (el) el.focus();
+                    }}
+                    type="button"
+                  >
+                    {messages.serviceArea.changeLocationCta}
+                  </button>
+                  <button
+                    className="px-4 py-2.5 rounded-lg bg-white border border-red-300 text-red-950 text-xs font-semibold hover:bg-red-50 transition-colors flex items-center gap-1"
+                    onClick={() => retryServiceAreaCheck()}
+                    type="button"
+                  >
+                    <span className="material-symbols-outlined text-sm">refresh</span>
+                    <span>{messages.serviceArea.tryAgainCta}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {serviceAreaStatus === 'UNAVAILABLE' && (
+              <div
+                className="p-5 rounded-xl border-2 border-amber-500 bg-amber-50 text-amber-950 space-y-4 shadow-sm"
+                data-testid="service-area-unavailable-banner"
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="material-symbols-outlined text-amber-600 text-2xl shrink-0">
+                    cloud_off
+                  </span>
+                  <h3 className="font-manrope text-base font-bold text-amber-950">
+                    {messages.serviceArea.unavailableHeading}
+                  </h3>
+                </div>
+
+                <div className="space-y-2 text-xs md:text-sm text-amber-900 leading-relaxed">
+                  <p>{messages.serviceArea.unavailableP1}</p>
+                  <p>{messages.serviceArea.unavailableP2}</p>
+                  {serviceAreaError && (
+                    <p className="text-[11px] font-mono text-amber-800 bg-amber-100 p-2 rounded">
+                      {serviceAreaError}
+                    </p>
+                  )}
+                </div>
+
+                <div className="pt-2 flex flex-wrap items-center gap-3">
+                  <a
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-amber-700 text-white font-bold text-xs hover:bg-amber-800 transition-colors shadow-xs"
+                    href="tel:112"
+                  >
+                    <span className="material-symbols-outlined text-sm">phone_in_talk</span>
+                    <span>{messages.serviceArea.call112Cta}</span>
+                  </a>
+                  <button
+                    className="px-4 py-2.5 rounded-lg bg-white border border-amber-300 text-amber-950 text-xs font-semibold hover:bg-amber-50 transition-colors flex items-center gap-1"
+                    onClick={() => retryServiceAreaCheck()}
+                    type="button"
+                  >
+                    <span className="material-symbols-outlined text-sm">refresh</span>
+                    <span>{messages.serviceArea.tryAgainCta}</span>
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* GPS Coordinates Readout & Manual Entry */}
             <div className="pt-2 border-t border-surface-variant space-y-3">
@@ -1283,7 +1494,9 @@ export default function CitizenRequestPage() {
 
             <button
               className="w-full sm:w-auto px-8 py-4 rounded-xl bg-primary-container text-on-primary font-manrope text-base font-bold shadow-md hover:bg-primary transition-all active:scale-[0.99] flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
-              disabled={isSubmitting}
+              disabled={
+                isSubmitting || serviceAreaStatus === 'OUTSIDE' || serviceAreaStatus === 'CHECKING'
+              }
               type="submit"
             >
               {isSubmitting ? (

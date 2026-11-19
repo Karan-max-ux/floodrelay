@@ -1,9 +1,15 @@
+export {
+  ApiClientError,
+  isAbortError,
+  isOutsideServiceArea,
+  isServiceAreaUnavailable,
+} from './errors';
 import { ApiClientError, isAbortError } from './errors';
-export { ApiClientError, isAbortError } from './errors';
 import type {
   ApiResponse,
   CreateRequestInput,
   RescueRequest,
+  ServiceAreaCheckResult,
   ListRequestsFilter,
   NearbyRequestsFilter,
   AssignmentRecord,
@@ -171,6 +177,19 @@ export class FloodRelayApiClient {
   }
 
   // Citizen & Operator Request Endpoints
+  async checkServiceArea(
+    lat: number,
+    lng: number,
+    signal?: AbortSignal,
+  ): Promise<ServiceAreaCheckResult> {
+    const res = await this.request<ServiceAreaCheckResult>('/requests/service-area-check', {
+      method: 'POST',
+      body: JSON.stringify({ lat, lng }),
+      signal,
+    });
+    return res.data;
+  }
+
   async createRequest(
     input: CreateRequestInput,
     signal?: AbortSignal,

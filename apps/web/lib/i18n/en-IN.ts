@@ -61,4 +61,24 @@ export const EN_IN_MESSAGES: CitizenMessages = {
     returnHomeCta: 'Return to Citizen Home',
     submitAnotherCta: 'Submit Another Request',
   },
+  serviceArea: {
+    outsideHeading: "Location Outside FloodRelay's Service Area",
+    outsideP1:
+      'FloodRelay currently accepts rescue assistance requests only for locations within its supported Delhi NCR area.',
+    outsideP2:
+      'Your selected location is outside this area, so no rescue request has been submitted or assigned.',
+    outsideP3:
+      'If you are in immediate danger in India, please call 112 for emergency assistance. You can also contact your local emergency services.',
+    outsideP4:
+      'If your location was detected incorrectly, correct your address or coordinates and try again.',
+    unavailableHeading: 'Service-Area Check Temporarily Unavailable',
+    unavailableP1:
+      'FloodRelay is temporarily unable to verify whether your location is inside its supported Delhi NCR service area. Your entered information has been preserved.',
+    unavailableP2:
+      'If you are in immediate danger, please call 112 directly. Otherwise, please try the location check again in a moment.',
+    eligibleNotice: 'Location verified inside FloodRelay Delhi NCR service area.',
+    call112Cta: 'Call 112',
+    changeLocationCta: 'Change Location',
+    tryAgainCta: 'Try Location Check Again',
+  },
 };

@@ -65,4 +65,18 @@ export interface CitizenMessages {
     returnHomeCta: string;
     submitAnotherCta: string;
   };
+  serviceArea: {
+    outsideHeading: string;
+    outsideP1: string;
+    outsideP2: string;
+    outsideP3: string;
+    outsideP4: string;
+    unavailableHeading: string;
+    unavailableP1: string;
+    unavailableP2: string;
+    eligibleNotice: string;
+    call112Cta: string;
+    changeLocationCta: string;
+    tryAgainCta: string;
+  };
 }

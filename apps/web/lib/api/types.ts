@@ -60,6 +60,14 @@ export type {
   SolverPlan,
 };
 
+export interface ServiceAreaCheckResult {
+  eligible: boolean;
+  regionId: string;
+  regionName: string;
+  boundaryVersion: string;
+  inclusiveBoundaryPolicy: 'ST_COVERS';
+}
+
 export interface CreateRequestInput {
   lat: number;
   lng: number;

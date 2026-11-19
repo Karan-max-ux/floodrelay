@@ -60,5 +60,6 @@ export function getCitizenMessages(requested?: SupportedLocale | string | null):
     request: { ...EN_IN_MESSAGES.request, ...HI_IN_MESSAGES_DRAFT.request },
     validation: { ...EN_IN_MESSAGES.validation, ...HI_IN_MESSAGES_DRAFT.validation },
     confirmation: { ...EN_IN_MESSAGES.confirmation, ...HI_IN_MESSAGES_DRAFT.confirmation },
+    serviceArea: { ...EN_IN_MESSAGES.serviceArea, ...HI_IN_MESSAGES_DRAFT.serviceArea },
   };
 }
