@@ -6,6 +6,7 @@ import { AssignmentService } from '../services/assignmentService.js';
 import { CreateRequestSchema } from '../validation/requestSchema.js';
 import { ProposeAssignmentSchema } from '../validation/assignmentSchema.js';
 import type { RescueRequest, RescueResource, Shelter } from '@floodrelay/shared';
+import { DELHI_NCR_REGION_NAME } from '../geo/delhiNcrBoundary.js';
 
 const requireDb = Boolean(
   process.env.REQUIRE_DB && process.env.REQUIRE_DB !== '0' && process.env.REQUIRE_DB !== 'false',
@@ -3791,7 +3792,7 @@ describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
       `);
 
       expect(res.rows).toHaveLength(1);
-      expect(res.rows[0]?.region_name).toBe('Delhi NCR');
+      expect(res.rows[0]?.region_name).toBe(DELHI_NCR_REGION_NAME);
       expect(res.rows[0]?.is_valid).toBe(true);
       expect(Number(res.rows[0]?.srid)).toBe(4326);
       expect(Number(res.rows[0]?.area_sq_km)).toBeGreaterThan(54000);
