@@ -490,3 +490,38 @@ When recording a new decision, copy this template and fill it in:
   - _Require baselineAssignmentId in every request_: Rejected -- complicates frontend call sites and breaks when the frontend only tracks the event ID.
   - _Omit churn from API response_: Rejected -- prevents the UI from displaying reassignment churn and safety validation metrics to the dispatcher.
 - **Consequence:** Handshakes smoothly with Part 3 Next.js frontend; dispatchers receive complete comparison diffs with authoritative baseline data.
+
+---
+
+### ADR-41: River Discharge Forecast Context Layer (Informational Only)
+
+- **Date:** 2026-11-08 (Updated: 2026-11-09)
+- **Decision:** Integrate an optional river discharge flood context layer sourced from European Centre for Medium-Range Weather Forecasts (ECMWF) Copernicus GloFAS 4.0 gridded river discharge model via Open-Meteo Flood API (CC BY 4.0) for the Delhi Yamuna reach (Lat 28.65, Lng 77.23). The layer is exposed via `GET /forecast/context` with `VIEW_FORECAST` permission and surfaced as an optional toggleable map overlay on the Tactical Leaflet Map. Crucially, the forecast data is informational only: it MUST NOT alter rescue request urgencies, mutate road blockages, reassign resources, or trigger autonomous dispatch. Discharge thresholds (50, 200, 800 m³/s) are heuristic model indicators, not official Central Water Commission (CWC) public flood warnings (which measure physical gauge height in meters above MSL: Warning 204.5 m, Danger 205.33 m). Confidence score is uncalibrated against gauge ground-truth and omitted from production responses. When upstream APIs fail, the service returns cached data with `freshness: 'STALE'` or explicit `freshness: 'UNAVAILABLE'` without fabricating low-risk values. Deterministic offline synthetic fixtures are permitted ONLY when explicitly authorized via `FORECAST_ENABLE_OFFLINE_FIXTURE=1` and are prominently labeled `SIMULATED FORECAST — DEMO ONLY`.
+- **Context:** Emergency operations centers benefit from catchment-scale river discharge trend awareness when deploying watercraft along floodplain corridors. However, global hydrological models do not measure localized urban flash inundation or physical gauge heights at Old Railway Bridge; treating catchment discharge as ground-truth water levels or using it to mutate operational plans autonomously would introduce critical safety hazards.
+- **Alternatives considered:**
+  - _Autonomous urgency escalation based on river discharge forecasts_: Rejected -- catastrophic risk of false evacuations or delayed critical rescues based on coarse gridded estimates.
+  - _Gauge-level web scraping of Delhi Central Water Commission gauges_: Rejected -- brittle, unauthorized, and lacks public REST API SLAs compared to Copernicus GloFAS open data.
+  - _Silent synthetic fallback on network failure_: Rejected -- misleads dispatchers into believing real-time conditions are normal during internet outages.
+  - _Omit hydrological context entirely_: Rejected -- dispatchers requested upstream trend context to anticipate surge windows.
+- **Consequence:** Dispatchers gain 7-day river discharge trend intelligence without endangering life-safety operational decisions.
+
+---
+
+### ADR-42: Asynchronous Queue Evaluation & Deferral of Redis/BullMQ
+
+- **Date:** 2026-11-08 (Updated: 2026-11-09)
+- **Decision:** Defer the introduction of Redis and BullMQ. Continue utilizing PostgreSQL ACID operational outbox and synchronous solver proposal orchestration for event-driven replanning.
+- **Context:** Phase 6 roadmap tasked the team with evaluating whether Redis/BullMQ background queueing is technically required for FloodRelay. Empirical benchmarks across Small (20 requests), Medium (100 requests), and Large (500 requests) operational disaster scales revealed:
+  1. Pure in-process incremental solver repair p95 latency is between 0.14 ms and 1.04 ms (max 2.68 ms). (Note: this measures algorithmic repair execution; external OSRM road graph calls and database network round-trips are separate operational dimensions).
+  2. Node.js event-loop lag during active repair execution maintains a p90 of 16.1 ms and p99 of 20.9 ms, well below the 50 ms human-perceptible threshold.
+  3. Under Grafana k6 HTTP load testing (30 concurrent VUs, 69.56 req/sec), zero requests failed (0.00% failure rate) and p50 latency was 11.28 ms.
+  4. Operational decision-support requires human-in-the-loop review: dispatchers interactively request a repair and inspect the proposed diff. Introducing an asynchronous background worker pool would force polling or WebSocket synchronization without saving computational time, while introducing distributed dual-write inconsistency risks between PostgreSQL transactions and Redis queues during life-critical disaster operations.
+- **Alternatives considered:**
+  - _Introduce Redis + BullMQ unconditionally_: Rejected -- introduces distributed dual-write failure modes during network partitions, extra daemon maintenance in field deployments, and unnecessary architectural complexity when in-process repair execution is < 3 ms.
+  - _Worker Threads pool for solver execution_: Evaluated -- feasible if scenario sizes grow to > 5,000 requests, but premature for urban flood rescue sectors (typically 50-500 active incidents per basin sector).
+- **Re-evaluation Triggers:**
+  Reconsider Redis/BullMQ or worker thread pools if:
+  1. Sector incident volume exceeds 5,000 concurrent requests.
+  2. Solver execution latency exceeds 500 ms (e.g. multi-depot mixed integer programming).
+  3. Event loop lag exceeds 100 ms under sustained load.
+- **Consequence:** The platform remains lean, robust, and single-database backed with full transactional consistency and zero external queue dependencies. Concrete empirical evidence is recorded in `docs/performance/redis-queue-evaluation.md` and benchmarkable via `npm run test` and `npx tsx tools/benchmarkQueueNeed.ts`.

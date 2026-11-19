@@ -669,6 +669,109 @@
         }
       }
     },
+    "/forecast/context": {
+      "get": {
+        "summary": "Get hydrological flood forecast context",
+        "description": "Retrieves external flood forecast and river discharge simulation context for an operational area. Strictly informational context for operator awareness; does not mutate requests or solver dispatch.",
+        "tags": ["Forecast"],
+        "security": [
+          {
+            "SessionAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "lat",
+            "in": "query",
+            "required": false,
+            "description": "Target latitude in WGS84 coordinates",
+            "schema": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90,
+              "default": 28.65
+            }
+          },
+          {
+            "name": "lng",
+            "in": "query",
+            "required": false,
+            "description": "Target longitude in WGS84 coordinates",
+            "schema": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180,
+              "default": 77.23
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "description": "Forecast horizon days (1-14)",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 14,
+              "default": 7
+            }
+          },
+          {
+            "name": "forceRefresh",
+            "in": "query",
+            "required": false,
+            "description": "Bypass in-memory cache and fetch fresh from upstream provider",
+            "schema": {
+              "type": "string",
+              "enum": ["true", "false"],
+              "default": "false"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Flood forecast context retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FloodForecastResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error on coordinates or query parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized operator access",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (insufficient operator role permission)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "summary": "Service health check",
@@ -3247,6 +3350,171 @@
           },
           "data": {
             "$ref": "#/components/schemas/ServiceAreaCheckResult"
+          }
+        }
+      },
+      "FloodForecastResponse": {
+        "type": "object",
+        "required": ["success", "data", "timestamp"],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/FloodForecastContext"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "FloodForecastContext": {
+        "type": "object",
+        "required": [
+          "provider",
+          "source",
+          "attribution",
+          "license",
+          "region",
+          "issuedAt",
+          "retrievedAt",
+          "validFrom",
+          "validTo",
+          "forecastHorizonDays",
+          "variable",
+          "daily",
+          "currentDischargeM3S",
+          "peakForecastM3S",
+          "riskCategory",
+          "isExperimentalIndicator",
+          "freshness",
+          "disclaimer"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "attribution": {
+            "type": "string"
+          },
+          "license": {
+            "type": "string"
+          },
+          "region": {
+            "type": "object",
+            "required": ["name", "targetLat", "targetLng", "stationLat", "stationLng"],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "targetLat": {
+                "type": "number"
+              },
+              "targetLng": {
+                "type": "number"
+              },
+              "stationLat": {
+                "type": "number"
+              },
+              "stationLng": {
+                "type": "number"
+              },
+              "elevationMeters": {
+                "type": "number"
+              }
+            }
+          },
+          "issuedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "retrievedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "validTo": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "forecastHorizonDays": {
+            "type": "integer"
+          },
+          "variable": {
+            "type": "object",
+            "required": ["name", "unit", "description"],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "unit": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            }
+          },
+          "daily": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "date",
+                "dischargeM3S",
+                "dischargeMeanM3S",
+                "dischargeMaxM3S",
+                "dischargeMinM3S"
+              ],
+              "properties": {
+                "date": {
+                  "type": "string"
+                },
+                "dischargeM3S": {
+                  "type": "number"
+                },
+                "dischargeMeanM3S": {
+                  "type": "number"
+                },
+                "dischargeMaxM3S": {
+                  "type": "number"
+                },
+                "dischargeMinM3S": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "currentDischargeM3S": {
+            "type": "number"
+          },
+          "peakForecastM3S": {
+            "type": "number"
+          },
+          "riskCategory": {
+            "type": "string",
+            "enum": ["NORMAL", "ELEVATED", "HIGH", "EXTREME", "UNKNOWN", "UNAVAILABLE"]
+          },
+          "isExperimentalIndicator": {
+            "type": "boolean"
+          },
+          "confidenceScore": {
+            "type": "number"
+          },
+          "freshness": {
+            "type": "string",
+            "enum": ["FRESH", "CACHED", "STALE", "OFFLINE_FIXTURE", "UNAVAILABLE"]
+          },
+          "disclaimer": {
+            "type": "string"
           }
         }
       }

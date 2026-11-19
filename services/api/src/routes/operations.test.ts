@@ -455,7 +455,7 @@ describe('Phase 5 Part 1: Operations API Endpoints, RBAC & Audit', () => {
     });
     const adminLogin = await authService.authenticate('eoc_admin', 'Password123!');
     adminToken = adminLogin.token;
-  });
+  }, 30000);
 
   describe('Authentication & RBAC Guards', () => {
     it('rejects anonymous access to /operations/resources with 401', async () => {

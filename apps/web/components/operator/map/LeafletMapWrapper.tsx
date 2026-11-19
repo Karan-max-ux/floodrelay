@@ -2,7 +2,7 @@
 
 import React from 'react';
 import dynamic from 'next/dynamic';
-import type { RescueRequest, BlockedZone } from '@floodrelay/shared';
+import type { RescueRequest, BlockedZone, FloodForecastContext } from '@floodrelay/shared';
 import type { AssignmentRecord } from '@/lib/api/types';
 import type { StagedAsset, StagedShelter, SelectedMapEntity, MapLayers } from './LeafletMapCanvas';
 
@@ -28,6 +28,7 @@ interface LeafletMapWrapperProps {
   selectedAssignment: AssignmentRecord | null;
   blockedZones?: BlockedZone[];
   repairRoutePolylines?: Array<{ resourceId: string; latlngs: [number, number][] }>;
+  forecastContext?: FloodForecastContext | null;
   layers: MapLayers;
   urgencyFilter: string;
   selectedEntity: SelectedMapEntity;

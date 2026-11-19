@@ -2064,6 +2064,14 @@ export class PostgisRepository {
     return res.rows[0]!;
   }
 
+  async updateOperatorPassword(id: string, passwordHash: string, salt: string): Promise<boolean> {
+    const res = await this.client.query(
+      'UPDATE operators SET password_hash = $1, salt = $2, updated_at = NOW() WHERE id = $3',
+      [passwordHash, salt, id],
+    );
+    return (res.rowCount ?? 0) > 0;
+  }
+
   async insertSession(
     token: string,
     operatorId: string,

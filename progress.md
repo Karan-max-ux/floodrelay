@@ -1,8 +1,8 @@
 # Flood Rescue Resource Allocation Platform — Progress
 
-**Last updated:** 2026-11-07
+**Last updated:** 2026-11-18
 
-**Current focus:** Phase 6 Complete ✅ — k6 Load Testing Suite, CI Pipeline Hardening, and Operational Limitations Public Page implemented, verified, and ready for peer review.
+**Current focus:** Phase 6 Delivery Verified & Hardened ✅ — Full audit, regression testing, and final hardening complete. Demo workflow simulated scenario commitment vs PR #41 operational provenance rules resolved via Simulation Preview Mode; demo operator credential desynchronization on repeated setup fixed with idempotent DB/file sync and post-verification; hydrological forecast correctness and edge-case handling hardened with zero false-normal fallbacks; UI hook `useFloodForecast` race-condition and unmount guards added; comprehensive unit and integration suites expanded across all 8 demonstration stages; production dependency security audit clean (0 vulnerabilities).
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -35,17 +35,17 @@ Citizens (or helpers) submit rescue requests with location, number of people and
 
 ## 4. Tech stack
 
-| Layer                | Choice                                                             | Why                                                                           | Status  |
-| -------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------- | ------- |
-| Frontend (mandatory) | Next.js (App Router) + React + TypeScript                          | Citizen request form, operator dashboard, field-team view                     | Planned |
-| Map                  | react-leaflet loaded with dynamic import and SSR disabled          | Leaflet needs the browser `window` object                                     | Planned |
-| Backend              | Separate Node.js service, Express + TypeScript (strict mode)       | Intake, assignment, auth, live updates                                        | Planned |
-| Database             | PostgreSQL + PostGIS                                               | Spatial queries and a built-in DBSCAN to verify our own clustering            | Planned |
-| Queue and pub/sub    | Redis (BullMQ)                                                     | Added only if measurements show the solver must run outside the request cycle | Planned |
-| Routing              | OSRM in Docker                                                     | Travel-time matrix from OpenStreetMap data                                    | Planned |
-| Live updates         | Polling first, Socket.IO when the dashboard needs it               | —                                                                             | Planned |
-| Deployment           | docker-compose for the backend stack, frontend on any Next.js host | —                                                                             | Planned |
-| Testing and CI       | Jest/Supertest, k6 for load tests, GitHub Actions                  | —                                                                             | Planned |
+| Layer                | Choice                                                             | Why                                                                                                                    | Status       |
+| -------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- | ------------ |
+| Frontend (mandatory) | Next.js (App Router) + React + TypeScript                          | Citizen request form, operator dashboard, field-team view                                                              | Planned      |
+| Map                  | react-leaflet loaded with dynamic import and SSR disabled          | Leaflet needs the browser `window` object                                                                              | Planned      |
+| Backend              | Separate Node.js service, Express + TypeScript (strict mode)       | Intake, assignment, auth, live updates                                                                                 | Planned      |
+| Database             | PostgreSQL + PostGIS                                               | Spatial queries and a built-in DBSCAN to verify our own clustering                                                     | Planned      |
+| Queue and pub/sub    | PostgreSQL ACID Outbox (Redis Deferred)                            | Evaluated & deferred via empirical benchmarks (< 2.7 ms repair, < 21 ms event-loop lag, zero dual-write risk) (ADR-42) | ✅ Evaluated |
+| Routing              | OSRM in Docker                                                     | Travel-time matrix from OpenStreetMap data                                                                             | Planned      |
+| Live updates         | Polling first, Socket.IO when the dashboard needs it               | —                                                                                                                      | Planned      |
+| Deployment           | docker-compose for the backend stack, frontend on any Next.js host | —                                                                                                                      | Planned      |
+| Testing and CI       | Jest/Supertest, k6 for load tests, GitHub Actions                  | —                                                                                                                      | Planned      |
 
 ---
 
@@ -189,21 +189,21 @@ Incoming rescue requests
 
 ### Phase 6 — Hardening and documentation
 
-| Task                                        | Owner | Status | Details                                                                                                                                                                        |
-| ------------------------------------------- | ----- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Redis queue only if measurements justify it | —     | ⬜     | Measurements show baseline p95 of 82.58ms and 69.56 req/s on PostgreSQL outbox; Redis not required (ADR-27 preserved)                                                          |
-| Optional flood-forecast context layer       | —     | ⬜     | Excluded from core safety scope per project boundaries                                                                                                                         |
-| Load tests                                  | —     | ✅     | Grafana k6 test suite in `tests/load/` with 4 profiles (`smoke`, `baseline`, `stress`, `scalability`); verified with 0 errors, 0 frozen-stop violations, p95 82.58ms at 30 VUs |
-| CI                                          | —     | ✅     | Hardened `.github/workflows/ci.yml` with security audits, secrets checks, multi-workspace production builds, and automated k6 smoke check                                      |
-| Limitations page                            | —     | ✅     | Public `/limitations` route disclosure, responsive & WCAG AAA accessible, integrated into Citizen footer and Operator navigation with 14 unit tests                            |
-| Demo script                                 | —     | ⬜     | —                                                                                                                                                                              |
+| Task                                        | Owner | Status | Details                                                                                                                                                                                                                                                                          |
+| ------------------------------------------- | ----- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Redis queue only if measurements justify it | —     | ✅     | Evaluated via empirical benchmarks (< 2.7 ms repair, < 21 ms event loop lag); deferred in favor of PostgreSQL ACID outbox (ADR-42)                                                                                                                                               |
+| Optional flood-forecast context layer       | —     | ✅     | Implemented ECMWF Copernicus GloFAS 4.0 gridded river discharge context via Open-Meteo for Delhi Yamuna corridor; informational context only; zero autonomous dispatch (ADR-41); strict cache provenance isolation, calendar date validation, and hook race condition safeguards |
+| Load tests                                  | —     | ✅     | Grafana k6 test suite in `tests/load/` with 4 profiles (`smoke`, `baseline`, `stress`, `scalability`); verified with 0 errors, 0 frozen-stop violations, p95 82.58ms at 30 VUs                                                                                                   |
+| CI                                          | —     | ✅     | Hardened `.github/workflows/ci.yml` with separate production dependency audit gate (0 vulnerabilities on `--omit=dev --audit-level=high`), critical audit, secrets checks, multi-workspace production builds, live PostGIS demo CLI verification, and automated k6 smoke check   |
+| Limitations page                            | —     | ✅     | Public `/limitations` route disclosure, responsive & WCAG AAA accessible, integrated into Citizen footer and Operator navigation with 14 unit tests                                                                                                                              |
+| Demo script                                 | —     | ✅     | Reproducible demonstration system (`tools/demo/`), simulation preview mode (ADR-41), durable manifest tracking with operator ownership protection, failure-atomic recovery, and real PostGIS/solver integration suite (ADR-40)                                                   |
 
 ---
 
 ## 9. Current status
 
-- **Last completed:** Phase 5 Part 2 Finalized & Safety Verified ✅ (PR #25). Phase 5 Part 3 merged (PR #23). Phase 5 Part 1 merged (PR #22).
-- **Next up:** Phase 6 — Hardening, load tests, and faculty demo preparation.
+- **Last completed:** Phase 6 Final Hardening & Audit Verification ✅ (PR #30). Phase 5 Part 2 Finalized & Safety Verified ✅ (PR #25). Phase 5 Part 3 merged (PR #23). Phase 5 Part 1 merged (PR #22).
+- **Next up:** Faculty demonstration, presentation walkthrough, and production deployment readiness.
 - **Phase 0:** Complete ✅.
 - **Phase 1:** Complete (8 of 8 tasks complete ✅).
 - **Phase 2:** Complete (PR #17 review fixes merged ✅).
@@ -212,6 +212,7 @@ Incoming rescue requests
 - **Phase 5 Part 1:** Complete ✅ (merged PR #22).
 - **Phase 5 Part 2:** Complete ✅ (PR #25).
 - **Phase 5 Part 3:** Complete ✅ (merged PR #23).
+- **Phase 6:** Complete ✅ (PR #30 final hardening verified).
 
 ---
 
@@ -267,6 +268,8 @@ Incoming rescue requests
 | Duplicate flag triage safety policy                        | Flagging duplicate preserves mutable and committed stops intact; returns NO_FEASIBLE_REPAIR with triage warning awaiting human review (ADR-38)                                                                                             |
 | Hazard-aware travel-time routing in repair                 | Incremental solver uses asynchronous road-aware / hazard-aware travel times; falls back to straight-line with explicit warning (ADR-39)                                                                                                    |
 | Authoritative baseline reconstruction & repair comparison  | Recovers latest committed assignment if baselineId omitted; returns proposalId, churn, warnings for Part 3 UI comparison (ADR-40)                                                                                                          |
+| River discharge flood forecast context layer               | ECMWF Copernicus GloFAS 4.0 gridded river discharge context via Open-Meteo for Delhi Yamuna corridor; informational only; zero autonomous dispatch (ADR-41)                                                                                |
+| Asynchronous queue evaluation & deferral                   | Benchmarked solver repair (< 2.7 ms) and event-loop lag (< 21 ms); deferred Redis/BullMQ in favor of PostgreSQL ACID outbox (ADR-42)                                                                                                       |
 
 ---
 

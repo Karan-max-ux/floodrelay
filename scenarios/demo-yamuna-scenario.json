@@ -1,0 +1,210 @@
+{
+  "id": "scenario-demo-yamuna-2026",
+  "simulated": true,
+  "syntheticDataNote": "This scenario contains purely simulated synthetic data generated for testing and demonstration. It does not represent real-world incidents.",
+  "metadata": {
+    "id": "scenario-demo-yamuna-2026",
+    "name": "Yamuna Flood Relief - North Delhi Basin Demonstration (Simulated)",
+    "description": "Deterministic demonstration scenario featuring 10 citizen rescue requests (with duplicate triage), 4 rescue crafts, and 2 relief shelters along the Yamuna corridor.",
+    "region": "Delhi NCR",
+    "seed": 2026,
+    "simulated": true,
+    "syntheticDataNote": "This scenario contains purely simulated synthetic data generated for testing and demonstration.",
+    "createdAt": "2026-10-15T12:00:00.000Z",
+    "bounds": {
+      "minLat": 28.6,
+      "maxLat": 28.75,
+      "minLng": 77.18,
+      "maxLng": 77.28
+    }
+  },
+  "requests": [
+    {
+      "id": "demo-req-001",
+      "lat": 28.665,
+      "lng": 77.228,
+      "peopleCount": 4,
+      "urgency": "CRITICAL",
+      "medicalNeeds": true,
+      "createdAt": "2026-10-15T12:02:00.000Z",
+      "source": "SIMULATED",
+      "notes": "Elderly couple and 2 children stranded on terrace, insulin required."
+    },
+    {
+      "id": "demo-req-002",
+      "lat": 28.6648,
+      "lng": 77.2282,
+      "peopleCount": 4,
+      "urgency": "CRITICAL",
+      "medicalNeeds": true,
+      "createdAt": "2026-10-15T12:03:00.000Z",
+      "source": "SIMULATED",
+      "notes": "Deliberate duplicate: Neighbor reporting same stranded elderly family."
+    },
+    {
+      "id": "demo-req-003",
+      "lat": 28.671,
+      "lng": 77.234,
+      "peopleCount": 6,
+      "urgency": "HIGH",
+      "medicalNeeds": false,
+      "createdAt": "2026-10-15T12:05:00.000Z",
+      "source": "SIMULATED",
+      "notes": "Ground floor flooded, family of 6 on rooftop."
+    },
+    {
+      "id": "demo-req-004",
+      "lat": 28.682,
+      "lng": 77.24,
+      "peopleCount": 2,
+      "urgency": "HIGH",
+      "medicalNeeds": true,
+      "createdAt": "2026-10-15T12:08:00.000Z",
+      "source": "SIMULATED",
+      "notes": "Asthmatic patient stranded near Majnu ka Tilla."
+    },
+    {
+      "id": "demo-req-005",
+      "lat": 28.69,
+      "lng": 77.225,
+      "peopleCount": 5,
+      "urgency": "MEDIUM",
+      "medicalNeeds": false,
+      "createdAt": "2026-10-15T12:12:00.000Z",
+      "source": "SIMULATED",
+      "notes": "Water entering compound, livestock secured, 5 residents waiting."
+    },
+    {
+      "id": "demo-req-006",
+      "lat": 28.678,
+      "lng": 77.218,
+      "peopleCount": 3,
+      "urgency": "MEDIUM",
+      "medicalNeeds": false,
+      "createdAt": "2026-10-15T12:15:00.000Z",
+      "source": "SIMULATED",
+      "notes": "Drinking water depleted, 3 adults."
+    },
+    {
+      "id": "demo-req-007",
+      "lat": 28.658,
+      "lng": 77.23,
+      "peopleCount": 2,
+      "urgency": "LOW",
+      "medicalNeeds": false,
+      "createdAt": "2026-10-15T12:18:00.000Z",
+      "source": "SIMULATED",
+      "notes": "Water logged street, requesting preventive evacuation."
+    },
+    {
+      "id": "demo-req-008",
+      "lat": 28.695,
+      "lng": 77.238,
+      "peopleCount": 8,
+      "urgency": "CRITICAL",
+      "medicalNeeds": true,
+      "createdAt": "2026-10-15T12:20:00.000Z",
+      "source": "SIMULATED",
+      "notes": "Community hall basement taking on water rapidly, infant onboard."
+    },
+    {
+      "id": "demo-req-009",
+      "lat": 28.66,
+      "lng": 77.245,
+      "peopleCount": 4,
+      "urgency": "HIGH",
+      "medicalNeeds": false,
+      "createdAt": "2026-10-15T12:22:00.000Z",
+      "source": "SIMULATED",
+      "notes": "Bela Road stranded workshop workers."
+    },
+    {
+      "id": "demo-req-010",
+      "lat": 28.685,
+      "lng": 77.215,
+      "peopleCount": 3,
+      "urgency": "LOW",
+      "medicalNeeds": false,
+      "createdAt": "2026-10-15T12:25:00.000Z",
+      "source": "SIMULATED",
+      "notes": "Isolated residential building, power cut."
+    }
+  ],
+  "resources": [
+    {
+      "id": "demo-res-boat-01",
+      "name": "NDRF Inflatable Rescue Boat Alpha",
+      "type": "BOAT",
+      "capacity": 8,
+      "speedKmH": 25,
+      "lat": 28.66,
+      "lng": 77.22,
+      "status": "AVAILABLE",
+      "depotId": "demo-shelter-kashmere-gate"
+    },
+    {
+      "id": "demo-res-boat-02",
+      "name": "NDRF Motorized Boat Bravo",
+      "type": "BOAT",
+      "capacity": 10,
+      "speedKmH": 25,
+      "lat": 28.68,
+      "lng": 77.23,
+      "status": "AVAILABLE",
+      "depotId": "demo-shelter-wazirabad"
+    },
+    {
+      "id": "demo-res-truck-01",
+      "name": "High-Clearance Rescue Truck 1",
+      "type": "HIGH_WATER_VEHICLE",
+      "capacity": 15,
+      "speedKmH": 40,
+      "lat": 28.65,
+      "lng": 77.21,
+      "status": "AVAILABLE",
+      "depotId": "demo-shelter-kashmere-gate"
+    },
+    {
+      "id": "demo-res-truck-02",
+      "name": "High-Clearance Rescue Truck 2",
+      "type": "HIGH_WATER_VEHICLE",
+      "capacity": 12,
+      "speedKmH": 40,
+      "lat": 28.69,
+      "lng": 77.22,
+      "status": "AVAILABLE",
+      "depotId": "demo-shelter-wazirabad"
+    }
+  ],
+  "shelters": [
+    {
+      "id": "demo-shelter-kashmere-gate",
+      "name": "Kashmere Gate Relief Camp",
+      "lat": 28.668,
+      "lng": 77.232,
+      "capacity": 120,
+      "currentOccupancy": 20
+    },
+    {
+      "id": "demo-shelter-wazirabad",
+      "name": "Wazirabad Community Relief Centre",
+      "lat": 28.705,
+      "lng": 77.228,
+      "capacity": 150,
+      "currentOccupancy": 35
+    }
+  ],
+  "blockedZones": [
+    {
+      "id": "demo-zone-submerged-bypass",
+      "name": "Ring Road Submerged Underpass",
+      "severity": "BLOCKED",
+      "polygon": [
+        { "lat": 28.662, "lng": 77.24 },
+        { "lat": 28.665, "lng": 77.245 },
+        { "lat": 28.661, "lng": 77.247 },
+        { "lat": 28.658, "lng": 77.242 }
+      ]
+    }
+  ]
+}

@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { MapContainer, TileLayer, Marker, Polyline, Polygon, Popup, useMap } from 'react-leaflet';
-import type { RescueRequest, BlockedZone } from '@floodrelay/shared';
+import type { RescueRequest, BlockedZone, FloodForecastContext } from '@floodrelay/shared';
 import type { AssignmentRecord } from '@/lib/api/types';
 import {
   TACTICAL_MAP_DEFAULT_CENTRE,
@@ -56,6 +56,7 @@ export interface MapLayers {
   routes: boolean;
   blockages: boolean;
   repairOverlay: boolean;
+  floodForecast: boolean;
 }
 
 interface LeafletMapCanvasProps {
@@ -65,6 +66,7 @@ interface LeafletMapCanvasProps {
   selectedAssignment: AssignmentRecord | null;
   blockedZones?: BlockedZone[];
   repairRoutePolylines?: Array<{ resourceId: string; latlngs: [number, number][] }>;
+  forecastContext?: FloodForecastContext | null;
   layers: MapLayers;
   urgencyFilter: string;
   selectedEntity: SelectedMapEntity;
@@ -158,6 +160,44 @@ function getShelterIcon(name: string, isSelected: boolean): L.DivIcon {
   });
 }
 
+function getRiverStationIcon(risk: string): L.DivIcon {
+  const isExtreme = risk === 'EXTREME';
+  const isHigh = risk === 'HIGH';
+  const isElevated = risk === 'ELEVATED';
+  const isUnavailable = risk === 'UNAVAILABLE' || risk === 'UNKNOWN';
+
+  const badgeColor = isExtreme
+    ? 'bg-purple-600 border-purple-300 text-white'
+    : isHigh
+      ? 'bg-rose-600 border-rose-300 text-white'
+      : isElevated
+        ? 'bg-amber-600 border-amber-300 text-white'
+        : isUnavailable
+          ? 'bg-slate-700 border-slate-500 text-slate-300'
+          : 'bg-cyan-600 border-cyan-300 text-white';
+
+  const pingHtml = isUnavailable
+    ? ''
+    : `<span class="absolute -inset-1 rounded-full bg-cyan-400 animate-ping opacity-40"></span>`;
+
+  const html = `
+    <div class="relative flex items-center justify-center cursor-pointer" data-testid="forecast-marker">
+      ${pingHtml}
+      <div class="relative flex items-center justify-center w-8 h-8 rounded-full border-2 font-mono font-bold text-xs shadow-2xl ${badgeColor}">
+        <span class="material-symbols-outlined text-[16px]">waves</span>
+      </div>
+    </div>
+  `;
+
+  return L.divIcon({
+    html,
+    className: 'custom-forecast-marker',
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+    popupAnchor: [0, -16],
+  });
+}
+
 // Controller component for programmatic map viewport movements
 function MapMovementController({
   allCoordinates,
@@ -243,6 +283,7 @@ export default function LeafletMapCanvas({
   selectedAssignment,
   blockedZones = [],
   repairRoutePolylines = [],
+  forecastContext,
   layers,
   urgencyFilter,
   selectedEntity,
@@ -516,6 +557,55 @@ export default function LeafletMapCanvas({
               }}
             />
           ))}
+
+        {/* 7. FLOOD FORECAST RIVER REACH CONTEXT */}
+        {layers.floodForecast && forecastContext && (
+          <Marker
+            position={[
+              forecastContext.region.stationLat || 28.675,
+              forecastContext.region.stationLng || 77.225,
+            ]}
+            icon={getRiverStationIcon(forecastContext.riskCategory)}
+          >
+            <Popup className="custom-leaflet-popup">
+              <div className="text-xs p-1 space-y-1.5 max-w-xs select-text">
+                <div className="flex items-center justify-between border-b border-slate-700/60 pb-1">
+                  <span className="font-bold text-cyan-400 flex items-center gap-1">
+                    <span className="material-symbols-outlined text-[14px]">waves</span>
+                    {forecastContext.region.name}
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-cyan-900/60 text-cyan-200 border border-cyan-500/40">
+                    {forecastContext.riskCategory}
+                  </span>
+                </div>
+                <div className="text-[11px] space-y-0.5 text-slate-200">
+                  <div>
+                    Current Discharge:{' '}
+                    <span className="font-mono font-bold text-cyan-300">
+                      {forecastContext.currentDischargeM3S} {forecastContext.variable.unit}
+                    </span>
+                  </div>
+                  <div>
+                    7-Day Peak Forecast:{' '}
+                    <span className="font-mono font-bold text-amber-300">
+                      {forecastContext.peakForecastM3S} {forecastContext.variable.unit}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-400">
+                    Station: {forecastContext.region.stationLat.toFixed(3)}°N,{' '}
+                    {forecastContext.region.stationLng.toFixed(3)}°E
+                  </div>
+                </div>
+                <div className="border-t border-slate-700/60 pt-1 text-[9px] text-slate-400 leading-tight">
+                  <div className="font-semibold text-slate-300">{forecastContext.attribution}</div>
+                  <div className="mt-1 text-slate-400 italic text-[8.5px]">
+                    {forecastContext.disclaimer}
+                  </div>
+                </div>
+              </div>
+            </Popup>
+          </Marker>
+        )}
       </MapContainer>
     </div>
   );

@@ -26,14 +26,19 @@ try {
     console.error(
       '[Startup Diagnostic] Database schema is missing required tables. Please run database migrations (`npm run migrate`).',
     );
+  } else if (/\[Security Violation\]/i.test(errMsg)) {
+    console.error('[Startup Security Error] Operator initialization rejected:', errMsg);
   } else {
     console.error('[Startup Warning] Operator account initialization failed:', errMsg);
   }
 
-  // In production with strict database requirements, abort startup if database is unreachable
-  if (process.env.REQUIRE_DB === '1' && process.env.NODE_ENV === 'production') {
+  // In production with strict database requirements or security violations, abort startup
+  if (
+    process.env.NODE_ENV === 'production' &&
+    (/\[Security Violation\]/i.test(errMsg) || process.env.REQUIRE_DB === '1')
+  ) {
     console.error(
-      '[Startup Fatal] REQUIRE_DB is set in production but database is not ready. Exiting.',
+      '[Startup Fatal] Security violation or database requirement failure during production startup. Exiting.',
     );
     process.exit(1);
   }

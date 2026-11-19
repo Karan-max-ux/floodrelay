@@ -28,11 +28,13 @@ import type {
 import type { PostgisRepository } from '../db/repository.js';
 import { dbToRouteStop } from '../db/schema.js';
 import {
+  haversineKm,
   repairIncrementally,
   prepareTravelTimeProvider,
   enrichRoutesWithGeometry,
   osrmConfigFromEnv,
   type OsrmProviderOptions,
+  type TravelTimeProvider,
 } from '@floodrelay/solver';
 import type {
   IncrementalRepairInput,
@@ -54,6 +56,7 @@ function dbAssignmentToSolverPlan(
   stops: Parameters<typeof dbToRouteStop>[0][],
   frozenStops: ReadonlyArray<FrozenStopReference>,
   scenarioSnapshot?: RepairInput['scenarioSnapshot'],
+  travelTimeProvider?: TravelTimeProvider,
 ): SolverPlan {
   // Build a frozen lookup keyed by resourceId:stopNumber (authoritative from Part 1)
   const frozenSet = new Set<string>(frozenStops.map((fs) => `${fs.resourceId}:${fs.stopNumber}`));
@@ -79,20 +82,32 @@ function dbAssignmentToSolverPlan(
       const totalDurationMinutes =
         routeStops.length > 0 ? routeStops[routeStops.length - 1]!.estimatedArrivalMinutes : 0;
 
-      // Approximate travel distance using straight-line segments between stops
+      // Compute physical travel distance starting from resource origin location through all stops
+      const resource = scenarioSnapshot?.resources.find((r) => r.id === resourceId);
+      let prevPoint: { lat: number; lng: number } | null = resource
+        ? { lat: resource.lat, lng: resource.lng }
+        : null;
       let totalTravelDistanceKm = 0;
-      for (let i = 1; i < routeStops.length; i++) {
-        const a = routeStops[i - 1]!;
-        const b = routeStops[i]!;
-        const dLat = ((b.lat - a.lat) * Math.PI) / 180;
-        const dLng = ((b.lng - a.lng) * Math.PI) / 180;
-        const sinDLat = Math.sin(dLat / 2);
-        const sinDLng = Math.sin(dLng / 2);
-        const hav =
-          sinDLat * sinDLat +
-          Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * sinDLng * sinDLng;
-        totalTravelDistanceKm += 2 * 6371 * Math.atan2(Math.sqrt(hav), Math.sqrt(1 - hav));
+
+      for (let i = 0; i < routeStops.length; i++) {
+        const stop = routeStops[i]!;
+        if (prevPoint) {
+          if (travelTimeProvider && resource) {
+            const leg = travelTimeProvider.getTravelEstimate(
+              prevPoint,
+              { lat: stop.lat, lng: stop.lng },
+              resource.speedKmH,
+              undefined,
+              resource.type,
+            );
+            totalTravelDistanceKm += leg.distanceKm;
+          } else {
+            totalTravelDistanceKm += haversineKm(prevPoint, { lat: stop.lat, lng: stop.lng }) * 1.3;
+          }
+        }
+        prevPoint = { lat: stop.lat, lng: stop.lng };
       }
+      totalTravelDistanceKm = Number(totalTravelDistanceKm.toFixed(2));
 
       return {
         resourceId,
@@ -310,7 +325,22 @@ export class IncrementalRepairSolverAdapter implements RepairSolver {
       };
     }
 
-    // --- 2. Load or construct the baseline SolverPlan ---
+    // --- 2. Prepare authoritative Travel-Time Provider ---
+    const osrmOptions =
+      this.options?.osrm === null ? null : (this.options?.osrm ?? osrmConfigFromEnv(process.env));
+
+    const { provider: travelTimeProvider, report: getTravelTimeReport } =
+      await prepareTravelTimeProvider(scenarioSnapshot, { osrm: osrmOptions });
+
+    const routingReport = getTravelTimeReport();
+    const routingWarnings: string[] = [...routingReport.warnings];
+    if (routingReport.effectiveSource === 'STRAIGHT_LINE' && !routingReport.osrmConfigured) {
+      routingWarnings.push(
+        'Authoritative road network routing (OSRM) is not configured; using straight-line estimates with hazard zone avoidance.',
+      );
+    }
+
+    // --- 3. Load or construct the baseline SolverPlan ---
     let baselinePlan: SolverPlan;
 
     if (baselineAssignmentId) {
@@ -329,6 +359,7 @@ export class IncrementalRepairSolverAdapter implements RepairSolver {
         dbAssignment.stops,
         frozenStops,
         scenarioSnapshot,
+        travelTimeProvider,
       );
     } else {
       // Invariant: Never discard existing work because an assignment ID was omitted.
@@ -347,13 +378,14 @@ export class IncrementalRepairSolverAdapter implements RepairSolver {
           latestCommitted.stops,
           frozenStops,
           scenarioSnapshot,
+          travelTimeProvider,
         );
       } else {
         baselinePlan = emptyBaselinePlan(`operational-snapshot-${eventId}`, scenarioSnapshot);
       }
     }
 
-    // --- 3. Map the DB event to the solver's discriminated event union ---
+    // --- 4. Map the DB event to the solver's discriminated event union ---
     const solverEvent = mapDbEventToSolverEvent(eventRow, scenarioSnapshot);
 
     if (!solverEvent) {
@@ -387,27 +419,12 @@ export class IncrementalRepairSolverAdapter implements RepairSolver {
       };
     }
 
-    // --- 4. Build frozen stop key set ---
+    // --- 5. Build frozen stop key set ---
     // Use the most specific key form (resourceId:targetId:stopNumber) so the solver
     // can identify individual stops precisely.
     const frozenStopIds: string[] = frozenStops.map(
       (fs) => `${fs.resourceId}:${fs.targetId}:${fs.stopNumber}`,
     );
-
-    // --- 5. Prepare authoritative Travel-Time Provider ---
-    const osrmOptions =
-      this.options?.osrm === null ? null : (this.options?.osrm ?? osrmConfigFromEnv(process.env));
-
-    const { provider: travelTimeProvider, report: getTravelTimeReport } =
-      await prepareTravelTimeProvider(scenarioSnapshot, { osrm: osrmOptions });
-
-    const routingReport = getTravelTimeReport();
-    const routingWarnings: string[] = [...routingReport.warnings];
-    if (routingReport.effectiveSource === 'STRAIGHT_LINE' && !routingReport.osrmConfigured) {
-      routingWarnings.push(
-        'Authoritative road network routing (OSRM) is not configured; using straight-line estimates with hazard zone avoidance.',
-      );
-    }
 
     // --- 6. Build IncrementalRepairInput ---
     const repairInput: IncrementalRepairInput = {

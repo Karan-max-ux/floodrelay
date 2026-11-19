@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import request from 'supertest';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createApp } from '../app.js';
@@ -505,6 +506,268 @@ describe('Operator Authentication & API Protection Suite', () => {
       // Operator can authenticate with custom credentials
       const session = await freshAuth.authenticate('secure_admin', 'CustomProdPassword2026!#');
       expect(session.operator.username).toBe('secure_admin');
+    });
+
+    it('verifies existing operator with matching configured credentials without modifying password hash or salt', async () => {
+      delete process.env.NODE_ENV;
+      const initialUser = 'matched_admin';
+      const initialPass = 'MatchedSecurePass2026!';
+      process.env.INITIAL_OPERATOR_USERNAME = initialUser;
+      process.env.INITIAL_OPERATOR_PASSWORD = initialPass;
+
+      const freshRepo = new InMemoryAuthRepository();
+      const freshAuth = new AuthService(freshRepo);
+
+      // Pre-seed operator
+      await freshAuth.createOperator({
+        username: initialUser,
+        password: initialPass,
+        name: 'Pre-existing Admin',
+        role: 'ADMIN',
+      });
+
+      const beforeOp = await freshRepo.getOperatorByUsername(initialUser);
+      expect(beforeOp).toBeDefined();
+      const originalHash = beforeOp!.password_hash;
+      const originalSalt = beforeOp!.salt;
+      const originalUpdatedAt = beforeOp!.updated_at;
+
+      // Run ensureInitialOperator with matching credentials
+      await freshAuth.ensureInitialOperator();
+
+      const afterOp = await freshRepo.getOperatorByUsername(initialUser);
+      expect(afterOp!.password_hash).toBe(originalHash);
+      expect(afterOp!.salt).toBe(originalSalt);
+      expect(afterOp!.updated_at.getTime()).toBe(originalUpdatedAt.getTime());
+
+      // Operator authenticates normally
+      const session = await freshAuth.authenticate(initialUser, initialPass);
+      expect(session.operator.username).toBe(initialUser);
+    });
+
+    it('rejects startup and preserves original credentials when existing operator has mismatched configured credentials', async () => {
+      delete process.env.NODE_ENV;
+      const initialUser = 'protected_admin';
+      const originalPass = 'OriginalCorrectPass2026!';
+      const mismatchedPass = 'UnintendedMismatchedPass2026!';
+
+      const freshRepo = new InMemoryAuthRepository();
+      const freshAuth = new AuthService(freshRepo);
+
+      // Pre-seed operator with original credentials
+      await freshAuth.createOperator({
+        username: initialUser,
+        password: originalPass,
+        name: 'Protected Lead Officer',
+        role: 'DISPATCHER',
+      });
+
+      const beforeOp = await freshRepo.getOperatorByUsername(initialUser);
+      expect(beforeOp).toBeDefined();
+      const originalHash = beforeOp!.password_hash;
+      const originalSalt = beforeOp!.salt;
+      const originalRole = beforeOp!.role;
+      const originalName = beforeOp!.name;
+
+      // Configure mismatched password
+      process.env.INITIAL_OPERATOR_USERNAME = initialUser;
+      process.env.INITIAL_OPERATOR_PASSWORD = mismatchedPass;
+
+      // Must throw controlled security violation error
+      await expect(freshAuth.ensureInitialOperator()).rejects.toThrow(
+        /Configured initial operator "protected_admin" already exists but configured password does not match stored credentials/,
+      );
+
+      // State after failed startup: MUST remain completely untouched
+      const afterOp = await freshRepo.getOperatorByUsername(initialUser);
+      expect(afterOp!.password_hash).toBe(originalHash);
+      expect(afterOp!.salt).toBe(originalSalt);
+      expect(afterOp!.role).toBe(originalRole);
+      expect(afterOp!.name).toBe(originalName);
+
+      // Original password still authenticates
+      const session = await freshAuth.authenticate(initialUser, originalPass);
+      expect(session.operator.username).toBe(initialUser);
+
+      // Mismatched password MUST fail authentication
+      await expect(freshAuth.authenticate(initialUser, mismatchedPass)).rejects.toMatchObject({
+        code: 'INVALID_CREDENTIALS',
+        statusCode: 401,
+      });
+    });
+
+    it('preserves existing unrelated operators and their credentials when bootstrapping new operator', async () => {
+      delete process.env.NODE_ENV;
+      const freshRepo = new InMemoryAuthRepository();
+      const freshAuth = new AuthService(freshRepo);
+
+      // Pre-seed unrelated operators
+      await freshAuth.createOperator({
+        username: 'unrelated_dispatcher',
+        password: 'DispatcherPass2026!',
+        name: 'Field Dispatcher',
+        role: 'DISPATCHER',
+      });
+      await freshAuth.createOperator({
+        username: 'unrelated_analyst',
+        password: 'AnalystPass2026!',
+        name: 'GIS Analyst',
+        role: 'OPERATOR',
+      });
+
+      const op1Before = await freshRepo.getOperatorByUsername('unrelated_dispatcher');
+      const op2Before = await freshRepo.getOperatorByUsername('unrelated_analyst');
+
+      // Configure new bootstrap operator
+      process.env.INITIAL_OPERATOR_USERNAME = 'new_bootstrap_admin';
+      process.env.INITIAL_OPERATOR_PASSWORD = 'NewBootstrapPass2026!';
+      process.env.INITIAL_OPERATOR_NAME = 'Bootstrap Admin';
+
+      await freshAuth.ensureInitialOperator();
+
+      expect(await freshRepo.countOperators()).toBe(3);
+
+      // Unrelated operators are completely unmodified
+      const op1After = await freshRepo.getOperatorByUsername('unrelated_dispatcher');
+      const op2After = await freshRepo.getOperatorByUsername('unrelated_analyst');
+      expect(op1After!.password_hash).toBe(op1Before!.password_hash);
+      expect(op1After!.salt).toBe(op1Before!.salt);
+      expect(op1After!.role).toBe('DISPATCHER');
+      expect(op2After!.password_hash).toBe(op2Before!.password_hash);
+      expect(op2After!.salt).toBe(op2Before!.salt);
+      expect(op2After!.role).toBe('OPERATOR');
+
+      // Both unrelated operators authenticate with original passwords
+      const s1 = await freshAuth.authenticate('unrelated_dispatcher', 'DispatcherPass2026!');
+      expect(s1.operator.username).toBe('unrelated_dispatcher');
+      const s2 = await freshAuth.authenticate('unrelated_analyst', 'AnalystPass2026!');
+      expect(s2.operator.username).toBe('unrelated_analyst');
+
+      // New operator also authenticates
+      const s3 = await freshAuth.authenticate('new_bootstrap_admin', 'NewBootstrapPass2026!');
+      expect(s3.operator.username).toBe('new_bootstrap_admin');
+    });
+
+    it('provisions and authenticates CI operator in disposable environment', async () => {
+      delete process.env.NODE_ENV;
+      const freshRepo = new InMemoryAuthRepository();
+      const freshAuth = new AuthService(freshRepo);
+
+      const ciUser = 'ci_operator';
+      const ciPass = `CiSecret_${crypto.randomBytes(16).toString('hex')}!`;
+      process.env.INITIAL_OPERATOR_USERNAME = ciUser;
+      process.env.INITIAL_OPERATOR_PASSWORD = ciPass;
+
+      await freshAuth.ensureInitialOperator();
+
+      const ciSession = await freshAuth.authenticate(ciUser, ciPass);
+      expect(ciSession.token).toBeDefined();
+      expect(ciSession.operator.username).toBe(ciUser);
+      expect(ciSession.operator.role).toBe('ADMIN');
+    });
+
+    it('guarantees repeated API startups do not modify password hashes or salts', async () => {
+      delete process.env.NODE_ENV;
+      const freshRepo = new InMemoryAuthRepository();
+      const freshAuth = new AuthService(freshRepo);
+
+      const user = 'idempotent_admin';
+      const pass = 'IdempotentPass2026!';
+      process.env.INITIAL_OPERATOR_USERNAME = user;
+      process.env.INITIAL_OPERATOR_PASSWORD = pass;
+
+      // Startup 1
+      await freshAuth.ensureInitialOperator();
+      const op1 = await freshRepo.getOperatorByUsername(user);
+      const hash1 = op1!.password_hash;
+      const salt1 = op1!.salt;
+
+      // Startup 2
+      await freshAuth.ensureInitialOperator();
+      const op2 = await freshRepo.getOperatorByUsername(user);
+      expect(op2!.password_hash).toBe(hash1);
+      expect(op2!.salt).toBe(salt1);
+
+      // Startup 3
+      await freshAuth.ensureInitialOperator();
+      const op3 = await freshRepo.getOperatorByUsername(user);
+      expect(op3!.password_hash).toBe(hash1);
+      expect(op3!.salt).toBe(salt1);
+    });
+
+    it('never prints plaintext passwords, password hashes, or salts in log outputs', async () => {
+      delete process.env.NODE_ENV;
+      const secretPlaintext = 'SuperSecretPlaintextNeverLeak123!';
+      process.env.INITIAL_OPERATOR_USERNAME = 'audited_admin';
+      process.env.INITIAL_OPERATOR_PASSWORD = secretPlaintext;
+
+      const freshRepo = new InMemoryAuthRepository();
+      const freshAuth = new AuthService(freshRepo);
+
+      const logs: string[] = [];
+      const logSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
+        logs.push(args.map(String).join(' '));
+      });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation((...args) => {
+        logs.push(args.map(String).join(' '));
+      });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation((...args) => {
+        logs.push(args.map(String).join(' '));
+      });
+
+      try {
+        // Run successful provisioning
+        await freshAuth.ensureInitialOperator();
+
+        // Run matching verification
+        await freshAuth.ensureInitialOperator();
+
+        // Run mismatched attempt
+        process.env.INITIAL_OPERATOR_PASSWORD = 'DifferentSecretNeverLeak456!';
+        await expect(freshAuth.ensureInitialOperator()).rejects.toThrow();
+
+        const op = await freshRepo.getOperatorByUsername('audited_admin');
+        const hash = op!.password_hash;
+        const salt = op!.salt;
+
+        for (const logLine of logs) {
+          expect(logLine).not.toContain(secretPlaintext);
+          expect(logLine).not.toContain('DifferentSecretNeverLeak456!');
+          expect(logLine).not.toContain(hash);
+          expect(logLine).not.toContain(salt);
+        }
+      } finally {
+        logSpy.mockRestore();
+        warnSpy.mockRestore();
+        errorSpy.mockRestore();
+      }
+    });
+
+    it('safely handles concurrent startup attempts without duplicate account creation or errors', async () => {
+      delete process.env.NODE_ENV;
+      const freshRepo = new InMemoryAuthRepository();
+      const freshAuth = new AuthService(freshRepo);
+
+      const user = 'concurrent_operator';
+      const pass = 'ConcurrentPass2026!';
+      process.env.INITIAL_OPERATOR_USERNAME = user;
+      process.env.INITIAL_OPERATOR_PASSWORD = pass;
+
+      // Run multiple concurrent startups
+      await Promise.all([
+        freshAuth.ensureInitialOperator(),
+        freshAuth.ensureInitialOperator(),
+        freshAuth.ensureInitialOperator(),
+      ]);
+
+      expect(await freshRepo.countOperators()).toBe(1);
+      const op = await freshRepo.getOperatorByUsername(user);
+      expect(op).toBeDefined();
+      expect(op?.username).toBe(user);
+
+      // Authenticates cleanly
+      const session = await freshAuth.authenticate(user, pass);
+      expect(session.operator.username).toBe(user);
     });
   });
 

@@ -13,6 +13,7 @@ describe('Phase 5 Part 3 — Live Tactical Map Layer Invariants & Vector Overlay
         routes: true,
         blockages: true,
         repairOverlay: false, // Default off until operator toggles comparison
+        floodForecast: false,
       };
 
       expect(defaultLayers.incidents).toBe(true);

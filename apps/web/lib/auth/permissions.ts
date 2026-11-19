@@ -3,6 +3,7 @@ import type { OperatorProfile } from '../api/types';
 export type OperationalAction =
   | 'VIEW_EVENTS'
   | 'VIEW_AUDIT'
+  | 'VIEW_FORECAST'
   | 'MANAGE_RESOURCE_STATUS'
   | 'MANAGE_BLOCKED_ZONES'
   | 'REQUEST_REPAIR'
@@ -14,10 +15,11 @@ export const ROLE_PERMISSIONS: Record<
   'OPERATOR' | 'ADMIN' | 'DISPATCHER',
   ReadonlySet<OperationalAction>
 > = {
-  OPERATOR: new Set(['VIEW_EVENTS', 'VIEW_AUDIT']),
+  OPERATOR: new Set(['VIEW_EVENTS', 'VIEW_AUDIT', 'VIEW_FORECAST']),
   DISPATCHER: new Set([
     'VIEW_EVENTS',
     'VIEW_AUDIT',
+    'VIEW_FORECAST',
     'MANAGE_RESOURCE_STATUS',
     'MANAGE_BLOCKED_ZONES',
     'REQUEST_REPAIR',
@@ -27,6 +29,7 @@ export const ROLE_PERMISSIONS: Record<
   ADMIN: new Set([
     'VIEW_EVENTS',
     'VIEW_AUDIT',
+    'VIEW_FORECAST',
     'MANAGE_RESOURCE_STATUS',
     'MANAGE_BLOCKED_ZONES',
     'REQUEST_REPAIR',

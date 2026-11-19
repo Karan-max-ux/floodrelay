@@ -552,3 +552,52 @@ export interface RepairResult {
   baselineVersion?: number;
   churn?: unknown;
 }
+
+// ==========================================
+// Flood Forecast Context Types (Phase 6)
+// ==========================================
+
+export type ForecastRiskLevel =
+  'NORMAL' | 'ELEVATED' | 'HIGH' | 'EXTREME' | 'UNKNOWN' | 'UNAVAILABLE';
+export type ForecastFreshness = 'FRESH' | 'CACHED' | 'STALE' | 'OFFLINE_FIXTURE' | 'UNAVAILABLE';
+
+export interface DailyDischargeForecast {
+  date: string;
+  dischargeM3S: number;
+  dischargeMeanM3S: number;
+  dischargeMaxM3S: number;
+  dischargeMinM3S: number;
+}
+
+export interface FloodForecastContext {
+  provider: string;
+  source: string;
+  attribution: string;
+  license: string;
+  region: {
+    name: string;
+    targetLat: number;
+    targetLng: number;
+    stationLat: number;
+    stationLng: number;
+    elevationMeters?: number;
+  };
+  issuedAt: string;
+  retrievedAt: string;
+  validFrom: string;
+  validTo: string;
+  forecastHorizonDays: number;
+  variable: {
+    name: string;
+    unit: string;
+    description: string;
+  };
+  daily: DailyDischargeForecast[];
+  currentDischargeM3S: number;
+  peakForecastM3S: number;
+  riskCategory: ForecastRiskLevel;
+  isExperimentalIndicator: boolean;
+  confidenceScore?: number;
+  freshness: ForecastFreshness;
+  disclaimer: string;
+}

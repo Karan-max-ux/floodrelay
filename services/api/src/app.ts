@@ -16,6 +16,8 @@ import { createAssignmentsRouter } from './routes/assignments.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createOperationsRouter } from './routes/operations.js';
 import { createAuditRouter } from './routes/audit.js';
+import { ForecastService } from './services/floodForecast/forecastService.js';
+import { createForecastRouter } from './routes/forecast.js';
 import { requireOperatorAuth } from './middleware/authMiddleware.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -30,6 +32,7 @@ export interface AppDependencies {
   operationalEventService?: OperationalEventService;
   affectedScopeService?: AffectedScopeService;
   repairOrchestrationService?: RepairOrchestrationService;
+  forecastService?: ForecastService;
 }
 
 export function createApp(deps?: AppDependencies): Express {
@@ -107,6 +110,7 @@ export function createApp(deps?: AppDependencies): Express {
   const repairSolver = new IncrementalRepairSolverAdapter(repo);
   const repairService =
     deps?.repairOrchestrationService ?? new RepairOrchestrationService(repo, repairSolver);
+  const forecastService = deps?.forecastService ?? new ForecastService();
 
   // Health check endpoint
   app.get('/health', (_req: Request, res: Response) => {
@@ -132,6 +136,7 @@ export function createApp(deps?: AppDependencies): Express {
     createOperationsRouter(repo, eventService, repairService),
   );
   app.use('/audit', requireOperatorAuth(authService), createAuditRouter(repo));
+  app.use('/forecast', requireOperatorAuth(authService), createForecastRouter(forecastService));
 
   // 404 handler for undefined routes
   app.use((_req: Request, res: Response) => {

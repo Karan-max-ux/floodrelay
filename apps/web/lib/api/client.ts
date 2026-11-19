@@ -33,6 +33,7 @@ import type {
   CreateRoadZoneInput,
   RoadZoneOperationResult,
   RequestRepairInput,
+  FloodForecastContext,
 } from './types';
 
 export interface ApiClientConfig {
@@ -502,6 +503,28 @@ export class FloodRelayApiClient {
       signal,
     });
     return res.data || [];
+  }
+
+  // ==========================================
+  // Flood Forecast Context Endpoints (Phase 6)
+  // ==========================================
+
+  async getFloodForecast(
+    options?: { lat?: number; lng?: number; days?: number; forceRefresh?: boolean },
+    signal?: AbortSignal,
+  ): Promise<FloodForecastContext> {
+    const params = new URLSearchParams();
+    if (options?.lat !== undefined) params.set('lat', String(options.lat));
+    if (options?.lng !== undefined) params.set('lng', String(options.lng));
+    if (options?.days !== undefined) params.set('days', String(options.days));
+    if (options?.forceRefresh) params.set('forceRefresh', 'true');
+
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const res = await this.request<FloodForecastContext>(`/forecast/context${qs}`, {
+      method: 'GET',
+      signal,
+    });
+    return res.data;
   }
 }
 
