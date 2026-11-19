@@ -247,7 +247,7 @@ export async function runDemoSetup(options?: { closePool?: boolean }): Promise<{
         algorithm: 'savings',
       });
       manifest.assignmentIds.push(baseline.id);
-      const baselineWithStops = await repo.getAssignment(baseline.id);
+      const baselineWithStops = await repo.getAssignmentWithStops(baseline.id);
       if (baselineWithStops) {
         for (const stop of baselineWithStops.stops) {
           manifest.assignmentStopIds.push(stop.id);
@@ -277,7 +277,7 @@ export async function runDemoSetup(options?: { closePool?: boolean }): Promise<{
           throw new Error(`Failed to commit baseline assignment "${baseline.id}"`);
         }
 
-        const committedAssignment = await repo.getAssignment(baseline.id);
+        const committedAssignment = await repo.getAssignmentWithStops(baseline.id);
         const frozenStops = committedAssignment?.stops.filter((s) => s.is_frozen) ?? [];
         frozenStopsCount = frozenStops.length;
         console.log(
@@ -359,7 +359,7 @@ export async function runDemoSetup(options?: { closePool?: boolean }): Promise<{
 
       if (repairResult.proposalId) {
         manifest.assignmentIds.push(repairResult.proposalId);
-        const repairedPlan = await repo.getAssignment(repairResult.proposalId);
+        const repairedPlan = await repo.getAssignmentWithStops(repairResult.proposalId);
         if (repairedPlan) {
           for (const stop of repairedPlan.stops) {
             manifest.assignmentStopIds.push(stop.id);
