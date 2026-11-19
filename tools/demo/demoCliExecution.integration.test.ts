@@ -63,6 +63,15 @@ describe.runIf(shouldRun)('Real Demo CLI Execution & PostGIS Lifecycle Suite', (
 
     // 4. Ensure migrations are applied
     await runMigrationsUp(pool);
+
+    // 5. Ensure credentials file is clean before test execution
+    if (fs.existsSync(credPath)) {
+      try {
+        fs.unlinkSync(credPath);
+      } catch {
+        // ignore
+      }
+    }
   });
 
   afterAll(async () => {
@@ -71,6 +80,14 @@ describe.runIf(shouldRun)('Real Demo CLI Execution & PostGIS Lifecycle Suite', (
       process.env.ALLOW_DISPOSABLE_DEMO_DB = originalDemoAuth;
     } else {
       delete process.env.ALLOW_DISPOSABLE_DEMO_DB;
+    }
+
+    if (fs.existsSync(credPath)) {
+      try {
+        fs.unlinkSync(credPath);
+      } catch {
+        // ignore
+      }
     }
 
     const pool = getPool();
@@ -148,7 +165,7 @@ describe.runIf(shouldRun)('Real Demo CLI Execution & PostGIS Lifecycle Suite', (
     expect(sentinelOpCheck?.username).toBe(sentinelUsername);
     expect(sentinelOpCheck?.role).toBe('ADMIN');
 
-    const sentinelReqCheck = await repo.getRequest(sentinelRequestId);
+    const sentinelReqCheck = await repo.getRequestById(sentinelRequestId);
     expect(sentinelReqCheck).not.toBeNull();
     expect(sentinelReqCheck?.id).toBe(sentinelRequestId);
     expect(sentinelReqCheck?.source).toBe('REPORTED');
@@ -205,7 +222,7 @@ describe.runIf(shouldRun)('Real Demo CLI Execution & PostGIS Lifecycle Suite', (
     expect(sentinelOp).not.toBeNull();
     expect(sentinelOp?.username).toBe(sentinelUsername);
 
-    const sentinelReq = await repo.getRequest(sentinelRequestId);
+    const sentinelReq = await repo.getRequestById(sentinelRequestId);
     expect(sentinelReq).not.toBeNull();
     expect(sentinelReq?.id).toBe(sentinelRequestId);
   });

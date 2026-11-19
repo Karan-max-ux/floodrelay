@@ -13,7 +13,7 @@
   "scripts": {
     "lint": "eslint .",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present && vitest run tests/load tools/demo",
+    "test": "npm run test --workspaces --if-present && vitest run tests/load tools/demo --fileParallelism=false",
     "test:repair-integration": "npm --workspace=@floodrelay/api run test:repair-integration",
     "test:demo-integration": "npm --workspace=@floodrelay/api run test:demo-integration",
     "provision:test-db": "npm --workspace=@floodrelay/api run provision:test-db",
