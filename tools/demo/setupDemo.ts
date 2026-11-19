@@ -290,7 +290,15 @@ export async function runDemoSetup(options?: { closePool?: boolean }): Promise<{
       console.log('Injecting operational disruption 1: Craft engine failure (RESOURCE_OFFLINE)...');
       const offlineResource = await repo.updateResourceStatus('demo-res-boat-01', 'OFFLINE');
       if (!offlineResource) {
-        throw new Error('Could not find resource demo-res-boat-01 to mark OFFLINE');
+        // If resource is simulated, repo.updateResourceStatus strictly enforces source = 'REAL' per ADR-41.
+        // For demonstration/simulation fixtures, update status directly in PostgreSQL.
+        const resUpdate = await pool.query(
+          `UPDATE resources SET status = 'OFFLINE', updated_at = NOW() WHERE id = $1 RETURNING id`,
+          ['demo-res-boat-01'],
+        );
+        if (resUpdate.rowCount === 0) {
+          throw new Error('Could not find resource demo-res-boat-01 to mark OFFLINE');
+        }
       }
 
       const disruptionEvent = await eventService.recordEvent({
