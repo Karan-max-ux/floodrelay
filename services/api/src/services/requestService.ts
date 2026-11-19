@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import type { RescueRequest } from '@floodrelay/shared';
 import { PostgisRepository } from '../db/repository.js';
 import type { CreateRequestInput, ListRequestsFilter } from '../validation/requestSchema.js';
+import { ServiceAreaService, type ServiceAreaCheckResult } from './serviceAreaService.js';
 
 export const ASSUMED_DUPLICATE_RADIUS_METERS = 100;
 export const ASSUMED_DUPLICATE_TIME_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
@@ -29,30 +30,62 @@ export function computeCanonicalRequestHash(input: CreateRequestInput): string {
 }
 
 export class RequestService {
-  constructor(private readonly repo: PostgisRepository) {}
+  private readonly serviceAreaService: ServiceAreaService;
+
+  constructor(
+    private readonly repo: PostgisRepository,
+    serviceAreaService?: ServiceAreaService,
+  ) {
+    this.serviceAreaService = serviceAreaService ?? new ServiceAreaService(repo);
+  }
+
+  async checkServiceArea(lat: number, lng: number): Promise<ServiceAreaCheckResult> {
+    return this.serviceAreaService.checkCoordinates(lat, lng);
+  }
 
   async submitRequest(input: CreateRequestInput): Promise<CreateRequestResult> {
     const requestHash = input.idempotencyKey ? computeCanonicalRequestHash(input) : null;
 
-    // 1. Idempotency check
+    // 1. Check for idempotency conflict (409) BEFORE service-area check so a reused key
+    //    with a mutated payload preserves existing 409 IDEMPOTENCY_KEY_REUSED semantics.
+    let existingIdempotent: (RescueRequest & { idempotencyRequestHash?: string | null }) | null =
+      null;
     if (input.idempotencyKey && requestHash) {
-      const existing = await this.repo.getRequestByIdempotencyKey(input.idempotencyKey);
-      if (existing) {
-        if (existing.idempotencyRequestHash && existing.idempotencyRequestHash !== requestHash) {
-          const err = new Error(
-            `Idempotency key "${input.idempotencyKey}" has already been used for a different request payload`,
-          );
-          (err as unknown as { code: string; statusCode: number }).code = 'IDEMPOTENCY_KEY_REUSED';
-          (err as unknown as { code: string; statusCode: number }).statusCode = 409;
-          throw err;
-        }
-        return {
-          idempotent: true,
-          isFlaggedDuplicate: false,
-          duplicateOfId: null,
-          request: existing,
-        };
+      try {
+        existingIdempotent = await this.repo.getRequestByIdempotencyKey(input.idempotencyKey);
+      } catch (lookupErr) {
+        // If database lookup fails, run service-area check (or fail safely with 503)
+        console.error('[RequestService] Idempotency lookup failed:', lookupErr);
+        await this.serviceAreaService.assertWithinServiceArea(input.lat, input.lng);
+        throw lookupErr;
       }
+
+      if (
+        existingIdempotent &&
+        existingIdempotent.idempotencyRequestHash &&
+        existingIdempotent.idempotencyRequestHash !== requestHash
+      ) {
+        const err = new Error(
+          `Idempotency key "${input.idempotencyKey}" has already been used for a different request payload`,
+        );
+        (err as unknown as { code: string; statusCode: number }).code = 'IDEMPOTENCY_KEY_REUSED';
+        (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+        throw err;
+      }
+    }
+
+    // 2. Authoritative service-area enforcement (PostGIS ST_Covers, fail-closed):
+    //    Runs BEFORE returning an idempotent acknowledgement OR writing any request/event/audit row.
+    //    Prevents silently returning an old successful receipt for a currently ineligible location.
+    await this.serviceAreaService.assertWithinServiceArea(input.lat, input.lng);
+
+    if (existingIdempotent) {
+      return {
+        idempotent: true,
+        isFlaggedDuplicate: false,
+        duplicateOfId: null,
+        request: existingIdempotent,
+      };
     }
 
     // 2. Duplicate detection (nearby, recent, similar passenger count)

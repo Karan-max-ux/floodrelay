@@ -14,10 +14,12 @@ export const VerificationStatusSchema = z.enum(['UNVERIFIED', 'VERIFIED', 'REJEC
 export const CreateRequestSchema = z.object({
   lat: z
     .number({ message: 'Latitude is required' })
+    .finite('Latitude must be a finite number')
     .min(-90, 'Latitude must be between -90 and 90')
     .max(90, 'Latitude must be between -90 and 90'),
   lng: z
     .number({ message: 'Longitude is required' })
+    .finite('Longitude must be a finite number')
     .min(-180, 'Longitude must be between -180 and 180')
     .max(180, 'Longitude must be between -180 and 180'),
   peopleCount: z
@@ -38,6 +40,21 @@ export const CreateRequestSchema = z.object({
 });
 
 export type CreateRequestInput = z.infer<typeof CreateRequestSchema>;
+
+export const ServiceAreaCheckSchema = z.object({
+  lat: z
+    .number({ message: 'Latitude is required' })
+    .finite('Latitude must be a finite number')
+    .min(-90, 'Latitude must be between -90 and 90')
+    .max(90, 'Latitude must be between -90 and 90'),
+  lng: z
+    .number({ message: 'Longitude is required' })
+    .finite('Longitude must be a finite number')
+    .min(-180, 'Longitude must be between -180 and 180')
+    .max(180, 'Longitude must be between -180 and 180'),
+});
+
+export type ServiceAreaCheckInput = z.infer<typeof ServiceAreaCheckSchema>;
 
 export const ListRequestsFilterSchema = z.object({
   status: RequestStatusSchema.optional(),

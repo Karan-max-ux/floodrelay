@@ -6,6 +6,7 @@ import { PostgisRepository, type Queryable } from '../db/repository.js';
 import { RequestService } from '../services/requestService.js';
 import { AuthService, InMemoryAuthRepository } from '../services/authService.js';
 import type { DbRequest, VerificationStatus } from '../db/schema.js';
+import { handleMockServiceAreaQuery } from '../geo/mockServiceAreaQuery.js';
 
 // In-memory queryable mock simulating database storage with spatial distance calculations
 class InMemoryDbMock implements Queryable {
@@ -33,6 +34,11 @@ class InMemoryDbMock implements Queryable {
   ): Promise<{ rows: R[]; command: string; rowCount: number; oid: number; fields: [] }> {
     const sql = typeof sqlOrConfig === 'string' ? sqlOrConfig : sqlOrConfig.text;
     const vals = values ?? (sqlOrConfig as { values?: unknown[] }).values ?? [];
+
+    const serviceAreaRes = handleMockServiceAreaQuery<R>(sql, vals);
+    if (serviceAreaRes) {
+      return serviceAreaRes;
+    }
 
     if (sql.includes('INSERT INTO requests')) {
       const id = vals[0] as string;

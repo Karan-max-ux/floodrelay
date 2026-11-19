@@ -27,6 +27,7 @@ import {
   type TravelTimeReport,
 } from '@floodrelay/solver';
 import { PostgisRepository } from '../db/repository.js';
+import { ServiceAreaService } from './serviceAreaService.js';
 import {
   dbToBlockedZone,
   dbToRouteStop,
@@ -353,10 +354,102 @@ function canonicalizeJson(obj: unknown): string {
 }
 
 export class AssignmentService {
+  private readonly serviceAreaService: ServiceAreaService;
+
   constructor(
     private readonly repository: PostgisRepository,
     private readonly options?: AssignmentServiceOptions,
-  ) {}
+  ) {
+    this.serviceAreaService = new ServiceAreaService(repository);
+  }
+
+  /**
+   * Filters operational (non-SIMULATED) entities against the active Delhi NCR service-area boundary.
+   * Historical out-of-region records remain untouched in PostgreSQL and are excluded with explicit
+   * audit/unserved explanations. Controlled SIMULATED scenarios remain preserved for evaluation.
+   */
+  private async filterOperationalEntitiesByServiceArea(
+    requests: RescueRequest[],
+    resources: RescueResource[],
+    shelters: Shelter[],
+  ): Promise<{
+    eligibleRequests: RescueRequest[];
+    eligibleResources: RescueResource[];
+    eligibleShelters: Shelter[];
+    excludedRequestIds: string[];
+    excludedResourceIds: string[];
+    excludedShelterIds: string[];
+  }> {
+    const hasOperationalEntities =
+      requests.some((r) => r.source !== 'SIMULATED') ||
+      resources.some((r) => r.source !== 'SIMULATED') ||
+      shelters.some((s) => s.source !== 'SIMULATED');
+
+    if (!hasOperationalEntities) {
+      return {
+        eligibleRequests: requests,
+        eligibleResources: resources,
+        eligibleShelters: shelters,
+        excludedRequestIds: [],
+        excludedResourceIds: [],
+        excludedShelterIds: [],
+      };
+    }
+
+    const eligibleRequests: RescueRequest[] = [];
+    const excludedRequestIds: string[] = [];
+    for (const req of requests) {
+      if (req.source === 'SIMULATED') {
+        eligibleRequests.push(req);
+        continue;
+      }
+      const check = await this.serviceAreaService.checkCoordinates(req.lat, req.lng);
+      if (check.eligible) {
+        eligibleRequests.push(req);
+      } else {
+        excludedRequestIds.push(req.id);
+      }
+    }
+
+    const eligibleResources: RescueResource[] = [];
+    const excludedResourceIds: string[] = [];
+    for (const res of resources) {
+      if (res.source === 'SIMULATED') {
+        eligibleResources.push(res);
+        continue;
+      }
+      const check = await this.serviceAreaService.checkCoordinates(res.lat, res.lng);
+      if (check.eligible) {
+        eligibleResources.push(res);
+      } else {
+        excludedResourceIds.push(res.id);
+      }
+    }
+
+    const eligibleShelters: Shelter[] = [];
+    const excludedShelterIds: string[] = [];
+    for (const sh of shelters) {
+      if (sh.source === 'SIMULATED') {
+        eligibleShelters.push(sh);
+        continue;
+      }
+      const check = await this.serviceAreaService.checkCoordinates(sh.lat, sh.lng);
+      if (check.eligible) {
+        eligibleShelters.push(sh);
+      } else {
+        excludedShelterIds.push(sh.id);
+      }
+    }
+
+    return {
+      eligibleRequests,
+      eligibleResources,
+      eligibleShelters,
+      excludedRequestIds,
+      excludedResourceIds,
+      excludedShelterIds,
+    };
+  }
 
   /**
    * Runs the solver on stored database data and proposes an assignment plan.
@@ -376,7 +469,23 @@ export class AssignmentService {
     );
 
     // 3. Fetch safe shelters
-    const shelters = await this.repository.listShelters({ activeOnly: true });
+    const allShelters = await this.repository.listShelters({ activeOnly: true });
+
+    // 3.5. Enforce active Delhi NCR service-area policy on operational (non-SIMULATED) entities
+    const {
+      eligibleRequests,
+      eligibleResources,
+      eligibleShelters,
+      excludedRequestIds,
+      excludedResourceIds,
+      excludedShelterIds,
+    } = await this.filterOperationalEntitiesByServiceArea(
+      requests,
+      availableResources,
+      allShelters,
+    );
+
+    const shelters = eligibleShelters;
 
     // 4. Retrieve existing frozen routes if requested, and validate algorithm capability
     let existingFrozenRoutes: ResourceRoute[] | undefined;
@@ -408,8 +517,8 @@ export class AssignmentService {
     // 5. Construct scenario for the solver with validated geographic metadata and provenance
     const scenario = this.constructOperationalScenario(
       input.scenarioId,
-      requests,
-      availableResources,
+      eligibleRequests,
+      eligibleResources,
       shelters,
       input.blockedZones,
     );
@@ -449,6 +558,29 @@ export class AssignmentService {
     }
 
     const travelTimeReport = getTravelTimeReport();
+    if (
+      excludedRequestIds.length > 0 ||
+      excludedResourceIds.length > 0 ||
+      excludedShelterIds.length > 0
+    ) {
+      for (const excludedReqId of excludedRequestIds) {
+        plan.unserved.push({
+          requestId: excludedReqId,
+          reason: 'ISOLATED_ZONE',
+          details:
+            'Excluded from operational planning: location is outside the active Delhi NCR service area (historical record preserved untouched).',
+        });
+      }
+      const totalConsidered = plan.metrics.servedRequestsCount + plan.unserved.length;
+      plan.metrics.unservedRequestsCount = plan.unserved.length;
+      plan.metrics.coveragePercent =
+        totalConsidered > 0
+          ? Number(((plan.metrics.servedRequestsCount / totalConsidered) * 100).toFixed(1))
+          : 0;
+      travelTimeReport.warnings.push(
+        `Service-area policy excluded out-of-NCR operational records (requests: ${excludedRequestIds.length}, resources: ${excludedResourceIds.length}, shelters: ${excludedShelterIds.length}); historical records remain preserved in database.`,
+      );
+    }
     for (const warning of travelTimeReport.warnings) {
       console.warn(`[AssignmentService] ${warning}`);
     }
@@ -471,7 +603,7 @@ export class AssignmentService {
 
     // 6.5. Enrich routes with OSRM / straight-line route geometries
     const geometryResult = await enrichRoutesWithGeometry(plan.routes, {
-      resources: availableResources,
+      resources: eligibleResources,
       osrm: osrmOptions,
       blockedZones: input.blockedZones,
       travelTimeProvider,
@@ -530,6 +662,16 @@ export class AssignmentService {
         hazardZones,
         hazardZonesHash,
         blockedZones: hazardZones,
+        excludedOutOfServiceArea:
+          excludedRequestIds.length > 0 ||
+          excludedResourceIds.length > 0 ||
+          excludedShelterIds.length > 0
+            ? {
+                requestIds: excludedRequestIds,
+                resourceIds: excludedResourceIds,
+                shelterIds: excludedShelterIds,
+              }
+            : undefined,
       },
     });
 
