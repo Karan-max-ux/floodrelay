@@ -247,8 +247,11 @@ export async function runDemoSetup(options?: { closePool?: boolean }): Promise<{
         algorithm: 'savings',
       });
       manifest.assignmentIds.push(baseline.id);
-      for (const stop of baseline.stops) {
-        manifest.assignmentStopIds.push(stop.id);
+      const baselineWithStops = await repo.getAssignment(baseline.id);
+      if (baselineWithStops) {
+        for (const stop of baselineWithStops.stops) {
+          manifest.assignmentStopIds.push(stop.id);
+        }
       }
       await recordDemoRunManifest(pool, manifest);
       console.log(`✔ Baseline proposal created: ID = ${baseline.id}`);
