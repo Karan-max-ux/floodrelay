@@ -511,12 +511,54 @@ describe('OpenAPI Specification Integrity & Anti-Drift Tests', () => {
     };
 
     const mockRequestService = {
-      submitRequest: async (input: { idempotencyKey?: string | null }) => {
+      checkServiceArea: async (lat: number, lng: number) => {
+        if (lat === 0 && lng === 0) {
+          throw createDomainError(
+            'Unable to verify Delhi NCR service-area eligibility right now. Please try again shortly, or call 112 if you are in immediate danger.',
+            'SERVICE_AREA_UNAVAILABLE',
+            503,
+          );
+        }
+        const eligible = lat >= 26.5 && lat <= 30.1 && lng >= 75.9 && lng <= 78.2;
+        return {
+          eligible,
+          status: eligible ? ('INSIDE' as const) : ('OUTSIDE' as const),
+          distanceToBoundaryMeters: eligible ? 0 : 5000,
+          regionId: 'IN-NCR',
+          regionName: 'Delhi NCR',
+          boundaryVersion: 'ncrpb-2026-gb-ind-adm2-v1',
+          inclusiveBoundaryPolicy: 'ST_COVERS' as const,
+          uncertaintyAssessment: {
+            isNearBoundary: false,
+            boundaryDistanceMeters: eligible ? 0 : 5000,
+            thresholdMeters: 1000,
+            justification: eligible
+              ? 'Point is covered by authoritative Delhi NCR boundary geometry via PostGIS ST_Covers.'
+              : 'Point is conclusively outside the supported Delhi NCR service area.',
+            hasPoorAccuracy: false,
+          },
+        };
+      },
+      submitRequest: async (input: { idempotencyKey?: string | null; lat?: number }) => {
         if (input.idempotencyKey === 'reused_key') {
           throw createDomainError(
             'Idempotency key reused with different payload',
             'IDEMPOTENCY_KEY_REUSED',
             409,
+          );
+        }
+        if (input.idempotencyKey === 'outside_key' || input.lat === 19.076) {
+          throw createDomainError(
+            'FloodRelay currently accepts rescue requests only within its supported Delhi NCR service area.',
+            'OUTSIDE_SERVICE_AREA',
+            422,
+          );
+        }
+        if (input.idempotencyKey === 'unavailable_key') {
+          throw createDomainError(
+            'Unable to verify Delhi NCR service-area eligibility right now. Please try again shortly, or call 112 if you are in immediate danger.',
+            'SERVICE_AREA_UNAVAILABLE',
+            503,
           );
         }
         if (input.idempotencyKey === 'idempotent_key') {
@@ -665,6 +707,57 @@ describe('OpenAPI Specification Integrity & Anti-Drift Tests', () => {
       });
       expect(res.status).toBe(409);
       validateResponseAgainstSpec('POST', '/requests', 409, res.body);
+    });
+
+    it('validates POST /requests (422 Outside Service Area)', async () => {
+      const res = await request(app).post('/requests').send({
+        lat: 19.076,
+        lng: 72.8777,
+        peopleCount: 4,
+        urgency: 'HIGH',
+        idempotencyKey: 'outside_key',
+      });
+      expect(res.status).toBe(422);
+      validateResponseAgainstSpec('POST', '/requests', 422, res.body);
+    });
+
+    it('validates POST /requests (503 Service Area Unavailable)', async () => {
+      const res = await request(app).post('/requests').send({
+        lat: 28.695,
+        lng: 77.23,
+        peopleCount: 4,
+        urgency: 'HIGH',
+        idempotencyKey: 'unavailable_key',
+      });
+      expect(res.status).toBe(503);
+      validateResponseAgainstSpec('POST', '/requests', 503, res.body);
+    });
+
+    it('validates POST /requests/service-area-check (200 OK)', async () => {
+      const res = await request(app).post('/requests/service-area-check').send({
+        lat: 28.6139,
+        lng: 77.209,
+      });
+      expect(res.status).toBe(200);
+      validateResponseAgainstSpec('POST', '/requests/service-area-check', 200, res.body);
+    });
+
+    it('validates POST /requests/service-area-check (400 Bad Request)', async () => {
+      const res = await request(app).post('/requests/service-area-check').send({
+        lat: 999,
+        lng: 77.209,
+      });
+      expect(res.status).toBe(400);
+      validateResponseAgainstSpec('POST', '/requests/service-area-check', 400, res.body);
+    });
+
+    it('validates POST /requests/service-area-check (503 Service Area Unavailable)', async () => {
+      const res = await request(app).post('/requests/service-area-check').send({
+        lat: 0,
+        lng: 0,
+      });
+      expect(res.status).toBe(503);
+      validateResponseAgainstSpec('POST', '/requests/service-area-check', 503, res.body);
     });
 
     it('validates GET /requests (200 OK)', async () => {

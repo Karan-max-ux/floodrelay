@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { formatRegionTime } from '@/lib/region';
 import type { OperationalEvent, AffectedScopeResult, RepairResult } from '@/lib/api/types';
 import { apiClient } from '@/lib/api/client';
 import { ApiClientError } from '@/lib/api/errors';
@@ -167,7 +168,7 @@ export function OperationalEventFeed({
                   Recorded At
                 </span>
                 <span className="font-bold text-on-surface truncate block">
-                  {new Date(selectedEvent.recordedAt).toLocaleTimeString()}
+                  {formatRegionTime(selectedEvent.recordedAt, true)}
                 </span>
               </div>
               <div>

@@ -95,6 +95,32 @@ export interface BlockedZoneCreateInput {
   createdBy: string;
 }
 
+export interface ServiceAreaCoverageRow {
+  region_id: string;
+  region_name: string;
+  boundary_version: string;
+  dataset_sha256: string;
+  is_valid: boolean;
+  srid: number;
+  geometry_wkb_hash: string;
+  is_covered: boolean;
+  distance_meters?: number;
+}
+
+export interface ServiceAreaAttestationRow {
+  region_id: string;
+  region_name: string;
+  boundary_version: string;
+  dataset_sha256: string;
+  is_valid: boolean;
+  srid: number;
+  point_count: number;
+  area_sq_km: number;
+  geometry_wkb_hash: string;
+  is_topologically_equal: boolean;
+  is_mutually_covered: boolean;
+}
+
 export class PostgisRepository {
   constructor(private readonly client: Queryable) {}
 
@@ -971,9 +997,22 @@ export class PostgisRepository {
 
       const pickupTargetIds = Array.from(seenPickupTargets).sort();
 
+      const serviceAreaEntitiesToCheck: Array<{
+        entityType: 'request' | 'resource' | 'shelter';
+        id: string;
+        lat: number;
+        lng: number;
+      }> = [];
+
       if (pickupTargetIds.length > 0) {
-        const reqResult = await client.query<{ id: string; status: string; source: string }>(
-          'SELECT id, status, source FROM requests WHERE id = ANY($1::text[]) ORDER BY id COLLATE "C" ASC FOR UPDATE;',
+        const reqResult = await client.query<{
+          id: string;
+          status: string;
+          source: string;
+          lat: number | null;
+          lng: number | null;
+        }>(
+          'SELECT id, status, source, ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng FROM requests WHERE id = ANY($1::text[]) ORDER BY id COLLATE "C" ASC FOR UPDATE;',
           [pickupTargetIds],
         );
         const lockedRequests = new Map(reqResult.rows.map((r) => [r.id, r]));
@@ -1020,6 +1059,15 @@ export class PostgisRepository {
                 throw err;
               }
             }
+
+            if (reqRow.lat !== null && reqRow.lng !== null) {
+              serviceAreaEntitiesToCheck.push({
+                entityType: 'request',
+                id: reqId,
+                lat: Number(reqRow.lat),
+                lng: Number(reqRow.lng),
+              });
+            }
           }
         }
       }
@@ -1027,8 +1075,14 @@ export class PostgisRepository {
       // 4. Lock all referenced resource rows using PostgreSQL SELECT ... FOR UPDATE in deterministic order
       const resourceIds = Array.from(new Set(planStops.map((s) => s.resource_id))).sort();
       if (resourceIds.length > 0) {
-        const resResult = await client.query<{ id: string; status: string; source: string }>(
-          'SELECT id, status, source FROM resources WHERE id = ANY($1::text[]) ORDER BY id COLLATE "C" ASC FOR UPDATE;',
+        const resResult = await client.query<{
+          id: string;
+          status: string;
+          source: string;
+          lat: number | null;
+          lng: number | null;
+        }>(
+          'SELECT id, status, source, ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng FROM resources WHERE id = ANY($1::text[]) ORDER BY id COLLATE "C" ASC FOR UPDATE;',
           [resourceIds],
         );
         const lockedResources = new Map(resResult.rows.map((r) => [r.id, r]));
@@ -1059,6 +1113,15 @@ export class PostgisRepository {
             (err as unknown as { code: string; statusCode: number }).code = 'RESOURCE_UNAVAILABLE';
             (err as unknown as { code: string; statusCode: number }).statusCode = 409;
             throw err;
+          }
+
+          if (resRow.lat !== null && resRow.lng !== null) {
+            serviceAreaEntitiesToCheck.push({
+              entityType: 'resource',
+              id: resId,
+              lat: Number(resRow.lat),
+              lng: Number(resRow.lng),
+            });
           }
         }
 
@@ -1165,8 +1228,10 @@ export class PostgisRepository {
           current_occupancy: number;
           is_active: boolean;
           source: string;
+          lat: number | null;
+          lng: number | null;
         }>(
-          'SELECT id, name, capacity, current_occupancy, is_active, source FROM shelters WHERE id = ANY($1::text[]) ORDER BY id COLLATE "C" ASC FOR UPDATE;',
+          'SELECT id, name, capacity, current_occupancy, is_active, source, ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng FROM shelters WHERE id = ANY($1::text[]) ORDER BY id COLLATE "C" ASC FOR UPDATE;',
           [shelterIds],
         );
         const lockedShelters = new Map(shelterResult.rows.map((s) => [s.id, s]));
@@ -1211,6 +1276,63 @@ export class PostgisRepository {
             (err as unknown as { code: string; statusCode: number }).statusCode = 409;
             throw err;
           }
+
+          if (shRow.lat !== null && shRow.lng !== null) {
+            serviceAreaEntitiesToCheck.push({
+              entityType: 'shelter',
+              id: shId,
+              lat: Number(shRow.lat),
+              lng: Number(shRow.lng),
+            });
+          }
+        }
+      }
+
+      // 5b. Defense-in-depth read-only service-area check (does NOT lock service_areas)
+      for (const entity of serviceAreaEntitiesToCheck) {
+        if (!Number.isFinite(entity.lat) || !Number.isFinite(entity.lng)) {
+          continue;
+        }
+        const coverageRes = await client.query<{
+          region_id?: string;
+          regionId?: string;
+          is_valid?: boolean;
+          isValid?: boolean;
+          srid?: number | string;
+          is_covered?: boolean;
+          isCovered?: boolean;
+        }>(
+          `SELECT
+             region_id,
+             ST_IsValid(geometry) as is_valid,
+             ST_SRID(geometry) as srid,
+             ST_Covers(geometry, ST_SetSRID(ST_MakePoint($1, $2), 4326)) as is_covered
+           FROM service_areas
+           WHERE is_active = TRUE
+           ORDER BY region_id ASC
+           LIMIT 1;`,
+          [entity.lng, entity.lat],
+        );
+        const saRow = coverageRes.rows[0];
+        const isValid = Boolean(saRow?.is_valid ?? saRow?.isValid);
+        const isCovered = Boolean(saRow?.is_covered ?? saRow?.isCovered);
+        const srid = Number(saRow?.srid);
+        if (!saRow || !isValid || srid !== 4326) {
+          const err = new Error(
+            'Unable to verify Delhi NCR service-area eligibility for assignment commitment right now. Please try again shortly.',
+          );
+          (err as unknown as { code: string; statusCode: number }).code =
+            'SERVICE_AREA_UNAVAILABLE';
+          (err as unknown as { code: string; statusCode: number }).statusCode = 503;
+          throw err;
+        }
+        if (!isCovered) {
+          const err = new Error(
+            `Cannot commit operational assignment referencing ${entity.entityType} "${entity.id}" outside the supported Delhi NCR service area.`,
+          );
+          (err as unknown as { code: string; statusCode: number }).code = 'OUTSIDE_SERVICE_AREA';
+          (err as unknown as { code: string; statusCode: number }).statusCode = 422;
+          throw err;
         }
       }
 
@@ -2017,5 +2139,68 @@ export class PostgisRepository {
       'SELECT COUNT(*)::text as count FROM operators',
     );
     return parseInt(res.rows[0]?.count ?? '0', 10);
+  }
+
+  /**
+   * Evaluates whether a WGS84 point (lng, lat) is covered by any active service-area boundary
+   * using PostGIS ST_Covers (boundary-inclusive containment) and validates geometry integrity.
+   */
+  async checkServiceAreaCoverage(lat: number, lng: number): Promise<ServiceAreaCoverageRow[]> {
+    const sql = `
+      SELECT
+        region_id,
+        region_name,
+        boundary_version,
+        dataset_sha256,
+        ST_IsValid(geometry) AS is_valid,
+        ST_SRID(geometry) AS srid,
+        MD5(ST_AsBinary(geometry)) AS geometry_wkb_hash,
+        ST_Covers(geometry, ST_SetSRID(ST_MakePoint($1, $2), 4326)) AS is_covered,
+        ST_Distance(geometry::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS distance_meters
+      FROM service_areas
+      WHERE is_active = TRUE;
+    `;
+    const res = await this.client.query<ServiceAreaCoverageRow>(sql, [lng, lat]);
+    return res.rows;
+  }
+
+  /**
+   * Performs topological attestation of active database service area boundary geometry
+   * against the canonical GeoJSON geometry (dissolved constituent polygons) using PostGIS ST_Equals.
+   */
+  async attestServiceAreaBoundary(
+    canonicalGeometriesJson: string,
+  ): Promise<ServiceAreaAttestationRow[]> {
+    const sql = `
+      WITH canonical AS (
+        SELECT ST_Multi(
+          ST_MakeValid(
+            ST_UnaryUnion(
+              ST_Collect(
+                ST_SetSRID(ST_GeomFromGeoJSON(elem::text), 4326)
+              )
+            )
+          )
+        ) AS canonical_geom
+        FROM jsonb_array_elements($1::jsonb) AS elem
+      )
+      SELECT
+        sa.region_id,
+        sa.region_name,
+        sa.boundary_version,
+        sa.dataset_sha256,
+        ST_IsValid(sa.geometry) AS is_valid,
+        ST_SRID(sa.geometry) AS srid,
+        ST_NPoints(sa.geometry) AS point_count,
+        (ST_Area(sa.geometry::geography) / 1000000.0) AS area_sq_km,
+        MD5(ST_AsBinary(sa.geometry)) AS geometry_wkb_hash,
+        ST_Equals(sa.geometry, c.canonical_geom) AS is_topologically_equal,
+        (ST_Covers(sa.geometry, c.canonical_geom) AND ST_Covers(c.canonical_geom, sa.geometry)) AS is_mutually_covered
+      FROM service_areas sa
+      CROSS JOIN canonical c
+      WHERE sa.is_active = TRUE;
+    `;
+    const res = await this.client.query<ServiceAreaAttestationRow>(sql, [canonicalGeometriesJson]);
+    return res.rows;
   }
 }

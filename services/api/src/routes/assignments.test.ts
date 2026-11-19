@@ -13,6 +13,7 @@ import type {
   DbResource,
   DbShelter,
 } from '../db/schema.js';
+import { handleMockServiceAreaQuery } from '../geo/mockServiceAreaQuery.js';
 
 class InMemoryAssignmentDbMock implements Queryable {
   public requests: Map<string, DbRequest> = new Map();
@@ -41,6 +42,11 @@ class InMemoryAssignmentDbMock implements Queryable {
 
     if (this.failOnStatement && sql.includes(this.failOnStatement)) {
       throw new Error(`Injected failure on statement: ${this.failOnStatement}`);
+    }
+
+    const serviceAreaRes = handleMockServiceAreaQuery<R>(sql, vals);
+    if (serviceAreaRes) {
+      return serviceAreaRes;
     }
 
     if (sql.trim() === 'BEGIN') {
@@ -95,7 +101,16 @@ class InMemoryAssignmentDbMock implements Queryable {
       const rows = ids
         .map((id) => this.requests.get(id))
         .filter((r): r is DbRequest => Boolean(r))
-        .map((r) => ({ id: r.id, status: r.status, source: r.source }));
+        .map((r) => {
+          const match = /POINT\(([-\d.]+)\s+([-\d.]+)\)/.exec(r.location);
+          return {
+            id: r.id,
+            status: r.status,
+            source: r.source,
+            lat: match ? parseFloat(match[2]!) : null,
+            lng: match ? parseFloat(match[1]!) : null,
+          };
+        });
       return {
         rows: rows as unknown as R[],
         command: 'SELECT',
@@ -177,7 +192,16 @@ class InMemoryAssignmentDbMock implements Queryable {
       const rows = ids
         .map((id) => this.resources.get(id))
         .filter((r): r is DbResource => Boolean(r))
-        .map((r) => ({ id: r.id, status: r.status, source: r.source }));
+        .map((r) => {
+          const match = /POINT\(([-\d.]+)\s+([-\d.]+)\)/.exec(r.location);
+          return {
+            id: r.id,
+            status: r.status,
+            source: r.source,
+            lat: match ? parseFloat(match[2]!) : null,
+            lng: match ? parseFloat(match[1]!) : null,
+          };
+        });
       return {
         rows: rows as unknown as R[],
         command: 'SELECT',
@@ -220,14 +244,19 @@ class InMemoryAssignmentDbMock implements Queryable {
       const rows = ids
         .map((id) => this.shelters.get(id))
         .filter((s): s is DbShelter => Boolean(s))
-        .map((s) => ({
-          id: s.id,
-          name: s.name,
-          capacity: s.capacity,
-          current_occupancy: s.current_occupancy,
-          is_active: s.is_active,
-          source: s.source,
-        }));
+        .map((s) => {
+          const match = /POINT\(([-\d.]+)\s+([-\d.]+)\)/.exec(s.location);
+          return {
+            id: s.id,
+            name: s.name,
+            capacity: s.capacity,
+            current_occupancy: s.current_occupancy,
+            is_active: s.is_active,
+            source: s.source,
+            lat: match ? parseFloat(match[2]!) : null,
+            lng: match ? parseFloat(match[1]!) : null,
+          };
+        });
       return {
         rows: rows as unknown as R[],
         command: 'SELECT',

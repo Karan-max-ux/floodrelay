@@ -1,81 +1,94 @@
 import type { BlockedZone } from '@floodrelay/shared';
 import type { StagedAsset, StagedShelter } from '@/components/operator/map/LeafletMapCanvas';
+import { REGION_CONFIG } from '@/lib/region';
 
 /**
- * Scenario metadata and tactical map coordinates derived from scenarios/sample-scenario.json.
+ * Native Delhi–Yamuna Floodplain tactical map reference metadata derived directly
+ * from scenarios/sample-scenario.json. All assets, shelters, and hazard zones in
+ * this module are explicitly SIMULATED demonstration references and do NOT represent
+ * live emergency assets, official NDRF units, or verified active relief shelters.
  */
 export const MAP_SCENARIO_NAME = 'Yamuna Flood Relief - North Delhi Basin (Simulated)';
 export const MAP_SCENARIO_COORDINATES = '28.67° N, 77.23° E';
 
-export const HOUSTON_ANCHOR: [number, number] = [29.7604, -95.3698];
-export const DELHI_ANCHOR: [number, number] = [28.671, 77.234];
+/**
+ * Centralised default tactical map centre for the North Delhi / Yamuna Floodplain demo.
+ * Derived from REGION_CONFIG; never restricts rendering of real database coordinates.
+ */
+export const TACTICAL_MAP_DEFAULT_CENTRE: [number, number] = [
+  REGION_CONFIG.tacticalDemoCentre.lat,
+  REGION_CONFIG.tacticalDemoCentre.lng,
+];
+
+export const TACTICAL_MAP_DEFAULT_ZOOM = REGION_CONFIG.tacticalDemoZoom;
 
 /**
- * Staged fleet roster for reference display on the Operations GIS Tactical Map.
+ * Staged reference fleet roster for demonstration display on the Operations GIS Tactical Map.
  * Mirrored directly from scenarios/sample-scenario.json resources.
  */
 export const STAGED_SECTOR_FLEET: StagedAsset[] = [
   {
     id: 'res-boat-01',
-    name: 'NDRF Boat Alpha (Reference)',
+    name: 'Simulated Rescue Boat Alpha (Demo — Not Official NDRF)',
     type: 'BOAT',
     capacity: 8,
     speedKmH: 25,
     lat: 28.66,
     lng: 77.22,
     status: 'AVAILABLE',
-    depotName: 'Kashmere Gate Relief Camp (Reference)',
+    depotName: 'Kashmere Gate Relief Camp (Simulated Reference)',
     source: 'SIMULATED',
   },
   {
     id: 'res-boat-02',
-    name: 'NDRF Boat Bravo (Reference)',
+    name: 'Simulated Rescue Boat Bravo (Demo — Not Official NDRF)',
     type: 'BOAT',
     capacity: 10,
     speedKmH: 25,
     lat: 28.68,
     lng: 77.23,
     status: 'AVAILABLE',
-    depotName: 'Wazirabad Community Relief Centre (Reference)',
+    depotName: 'Wazirabad Community Relief Centre (Simulated Reference)',
     source: 'SIMULATED',
   },
   {
     id: 'res-truck-01',
-    name: 'High-Clearance Rescue Truck 1 (Reference)',
+    name: 'Simulated High-Clearance Truck 1 (Demo)',
     type: 'HIGH_WATER_VEHICLE',
     capacity: 15,
     speedKmH: 40,
     lat: 28.65,
     lng: 77.21,
     status: 'AVAILABLE',
-    depotName: 'Yamuna Floodplain Relief Depot (Reference)',
+    depotName: 'Yamuna Floodplain Relief Depot (Simulated Reference)',
     source: 'SIMULATED',
   },
 ];
 
 /**
- * Designated sector relief shelters for reference display on the Operations GIS Tactical Map.
+ * Simulated reference relief shelters for demonstration display on the Operations GIS Tactical Map.
  * Mirrored directly from scenarios/sample-scenario.json shelters.
+ * Status explicitly discloses that capacity and operating state are simulated and unverified.
  */
 export const STAGED_SECTOR_SHELTERS: StagedShelter[] = [
   {
     id: 'shelter-kashmere-gate',
-    name: 'Kashmere Gate Relief Camp (Reference)',
+    name: 'Kashmere Gate Relief Camp (Simulated Reference)',
     lat: 28.668,
     lng: 77.232,
     capacity: 120,
     availableBeds: 100,
-    status: 'Open — Primary Relief Camp (Reference)',
+    status: 'Simulated Reference — Unverified Capacity (Demo Only)',
     source: 'SIMULATED',
   },
   {
     id: 'shelter-wazirabad',
-    name: 'Wazirabad Community Relief Centre (Reference)',
+    name: 'Wazirabad Community Relief Centre (Simulated Reference)',
     lat: 28.705,
     lng: 77.228,
     capacity: 150,
     availableBeds: 115,
-    status: 'Open — Community Relief Centre (Reference)',
+    status: 'Simulated Reference — Unverified Capacity (Demo Only)',
     source: 'SIMULATED',
   },
 ];
@@ -83,13 +96,13 @@ export const STAGED_SECTOR_SHELTERS: StagedShelter[] = [
 export type ReferenceBlockedZone = BlockedZone & { source: 'SIMULATED' };
 
 /**
- * Designated sector hazard zones for reference display on the Operations GIS Tactical Map.
+ * Simulated reference hazard zones for demonstration display on the Operations GIS Tactical Map.
  * Mirrored directly from scenarios/sample-scenario.json blockedZones.
  */
 export const STAGED_SECTOR_BLOCKED_ZONES: ReferenceBlockedZone[] = [
   {
     id: 'zone-old-railway-bridge',
-    name: 'Old Railway Bridge - Submerged (Reference)',
+    name: 'Old Railway Bridge — Submerged (Simulated Reference)',
     severity: 'BLOCKED',
     polygon: [
       { lat: 28.662, lng: 77.24 },
@@ -100,36 +113,3 @@ export const STAGED_SECTOR_BLOCKED_ZONES: ReferenceBlockedZone[] = [
     source: 'SIMULATED',
   },
 ];
-
-/**
- * Pure helper to translate a coordinate pair or point from a source anchor to a target anchor,
- * preserving all exact relative spatial offsets.
- */
-export function rebaseLatLng<T extends { lat: number; lng: number }>(
-  point: T,
-  fromAnchor?: [number, number],
-  toAnchor?: [number, number],
-): T;
-export function rebaseLatLng(
-  point: [number, number],
-  fromAnchor?: [number, number],
-  toAnchor?: [number, number],
-): [number, number];
-export function rebaseLatLng(
-  point: { lat: number; lng: number } | [number, number],
-  fromAnchor: [number, number] = HOUSTON_ANCHOR,
-  toAnchor: [number, number] = DELHI_ANCHOR,
-): { lat: number; lng: number } | [number, number] {
-  if (Array.isArray(point)) {
-    const dLat = point[0] - fromAnchor[0];
-    const dLng = point[1] - fromAnchor[1];
-    return [toAnchor[0] + dLat, toAnchor[1] + dLng];
-  }
-  const dLat = point.lat - fromAnchor[0];
-  const dLng = point.lng - fromAnchor[1];
-  return {
-    ...point,
-    lat: toAnchor[0] + dLat,
-    lng: toAnchor[1] + dLng,
-  };
-}

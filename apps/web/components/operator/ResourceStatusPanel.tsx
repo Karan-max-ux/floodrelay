@@ -289,7 +289,7 @@ export function ResourceStatusPanel({
                 className="w-full h-9 px-2.5 rounded-lg bg-surface border border-outline-variant text-xs text-on-surface focus:ring-1 focus:ring-primary placeholder:text-outline"
                 id="directReasonInput"
                 onChange={(e) => setDirectReason(e.target.value)}
-                placeholder="e.g. Returning from bayou mission"
+                placeholder="e.g. Returning from Yamuna floodplain sector"
                 type="text"
                 value={directReason}
               />

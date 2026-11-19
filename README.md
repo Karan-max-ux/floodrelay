@@ -124,7 +124,7 @@ npm run format
 
 The repository contains seeded synthetic scenarios for testing and benchmark evaluation:
 
-- `scenarios/sample-scenario.json`: A simulated baseline scenario (North Delhi / Yamuna basin) containing 10 simulated rescue requests, 3 resources, and 2 shelters. All data in this file is strictly simulated (`"simulated": true`) and does not represent real-world emergency incidents.
+- `scenarios/sample-scenario.json`: A simulated baseline scenario (North Delhi / Yamuna basin) containing 5 simulated rescue requests, 3 simulated resources, and 2 simulated relief camps. All data in this file is strictly simulated (`"simulated": true`) and does not represent real-world emergency incidents or official agency assets.
 - Standard benchmark sizes:
   - Small: 20 requests / 4 resources / 2 shelters
   - Medium: 100 requests / 12 resources / 3 shelters

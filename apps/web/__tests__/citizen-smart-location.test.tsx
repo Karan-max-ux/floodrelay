@@ -4,6 +4,7 @@ import ReactDOM from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 import { POST as geocodePOST } from '../app/api/geocode/route';
 import { resetRateLimiter, getClientIp } from '@/lib/rateLimiter';
+import { clearNominatimCache } from '../lib/geocoding';
 import CitizenRequestPage from '../app/citizen/request/page';
 import { useCitizenLocation } from '@/hooks/useCitizenLocation';
 import { apiClient } from '../lib/api/client';
@@ -125,10 +126,12 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
   beforeEach(() => {
     vi.restoreAllMocks();
     resetRateLimiter();
+    clearNominatimCache();
     process.env.GEOAPIFY_API_KEY = 'test_valid_geoapify_key';
   });
 
   afterEach(() => {
+    clearNominatimCache();
     process.env.GEOAPIFY_API_KEY = originalEnv;
   });
 
@@ -181,8 +184,26 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
       expect(dataShort.message).toContain('at least 3 characters');
     });
 
-    it('returns 503 CONFIG_ERROR when GEOAPIFY_API_KEY is not configured', async () => {
+    it('gracefully falls back to OpenStreetMap Nominatim when GEOAPIFY_API_KEY is not configured', async () => {
       delete process.env.GEOAPIFY_API_KEY;
+
+      const mockNominatimResults = [
+        {
+          place_id: 201,
+          lat: '29.7604',
+          lon: '-95.3698',
+          display_name: '1428 Riverbend Dr, Houston, TX 77024',
+          type: 'residential',
+          importance: 0.85,
+        },
+      ];
+
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify(mockNominatimResults), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
 
       const req = new Request('http://localhost:3000/api/geocode', {
         method: 'POST',
@@ -191,9 +212,10 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
       });
       const res = await geocodePOST(req);
       const data = await res.json();
-      expect(res.status).toBe(503);
-      expect(data.error).toBe('CONFIG_ERROR');
-      expect(data.message).toContain('GEOAPIFY_API_KEY');
+      expect(res.status).toBe(200);
+      expect(data.success).toBe(true);
+      expect(data.results[0].formatted).toContain('1428 Riverbend Dr');
+      expect(data.results[0].attribution).toBe('OpenStreetMap contributors');
     });
 
     it('returns 200 with normalized candidate list on successful provider geocoding', async () => {
@@ -270,9 +292,13 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
     });
 
     it('handles provider 429 rate limit gracefully', async () => {
-      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-        new Response('Too Many Requests', { status: 429, statusText: 'Too Many Requests' }),
-      );
+      vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(
+          new Response('Too Many Requests', { status: 429, statusText: 'Too Many Requests' }),
+        )
+        .mockResolvedValueOnce(
+          new Response('Too Many Requests', { status: 429, statusText: 'Too Many Requests' }),
+        );
 
       const req = new Request('http://localhost:3000/api/geocode', {
         method: 'POST',
@@ -289,9 +315,9 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
     });
 
     it('handles provider network errors and timeouts gracefully', async () => {
-      vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(
-        new Error('Network timeout reaching api.geoapify.com'),
-      );
+      vi.spyOn(globalThis, 'fetch')
+        .mockRejectedValueOnce(new Error('Network timeout reaching api.geoapify.com'))
+        .mockRejectedValueOnce(new Error('Network timeout reaching nominatim.openstreetmap.org'));
 
       const req = new Request('http://localhost:3000/api/geocode', {
         method: 'POST',
@@ -351,9 +377,15 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
       expect(html).not.toContain('value="28.6139"');
       expect(html).not.toContain('value="77.2090"');
 
-      // Placeholders must indicate example usage
-      expect(html).toContain('placeholder="e.g. 29.7604"');
-      expect(html).toContain('placeholder="e.g. -95.3698"');
+      // Placeholders must indicate Delhi NCR example usage (no Houston placeholders)
+      expect(html).toContain('placeholder="e.g. 28.6710"');
+      expect(html).toContain('placeholder="e.g. 77.2340"');
+      expect(html).not.toContain('placeholder="e.g. 29.7604"');
+      expect(html).not.toContain('placeholder="e.g. -95.3698"');
+      expect(html).toContain(
+        'placeholder="e.g., House 24, Civil Lines, near Metro Station, Delhi"',
+      );
+      expect(html).not.toContain('placeholder="e.g., 1428 Riverbend Dr');
 
       // Location confirmed card is NOT present initially
       expect(html).not.toContain('data-testid="location-confirmed-card"');
@@ -727,8 +759,26 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
     });
 
     // 15. Missing Geoapify configuration is handled
-    it('15. Missing Geoapify configuration returns controlled 503 error', async () => {
+    it('15. Missing Geoapify configuration falls back to Nominatim without exposing CONFIG_ERROR', async () => {
       delete process.env.GEOAPIFY_API_KEY;
+
+      const mockNominatimResults = [
+        {
+          place_id: 201,
+          lat: '29.7604',
+          lon: '-95.3698',
+          display_name: '1428 Riverbend Dr, Houston, TX',
+          type: 'residential',
+          importance: 0.85,
+        },
+      ];
+
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify(mockNominatimResults), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
 
       const res = await geocodePOST(
         new Request('http://localhost:3000/api/geocode', {
@@ -739,8 +789,10 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
       );
       const data = await res.json();
 
-      expect(res.status).toBe(503);
-      expect(data.error).toBe('CONFIG_ERROR');
+      expect(res.status).toBe(200);
+      expect(data.success).toBe(true);
+      expect(data.results[0].formatted).toContain('1428 Riverbend Dr');
+      expect(data.results[0].attribution).toBe('OpenStreetMap contributors');
     });
 
     // 16. Invalid coordinate ranges are rejected
@@ -1899,6 +1951,89 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
       expect(submitRes.success).toBe(true);
       expect(apiClient.createRequest).toHaveBeenCalledTimes(1);
       expect(mockRouterPush).toHaveBeenCalledWith('/citizen/confirmation');
+    });
+
+    // 21. Visible OpenStreetMap attribution displayed only when Nominatim provides the location
+    it('21. Visible OpenStreetMap attribution displayed when Nominatim provides location and omitted for Geoapify', async () => {
+      let handle!: HarnessHandle;
+      act(() => {
+        root.render(
+          <CitizenLocationHarness
+            onMount={(h) => {
+              handle = h;
+            }}
+          />,
+        );
+      });
+
+      // Nominatim reverse-geocode response (provider = 'nominatim')
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            address: 'Civil Lines, North Delhi, Delhi',
+            provider: 'nominatim',
+            attribution: 'OpenStreetMap contributors',
+            attributionUrl: 'https://www.openstreetmap.org/copyright',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+
+      await act(async () => {
+        await handle.location.triggerReverseGeocode(28.675, 77.225);
+      });
+
+      expect(handle.location.locationAttribution).toEqual({
+        text: 'OpenStreetMap contributors',
+        url: 'https://www.openstreetmap.org/copyright',
+      });
+
+      // Now simulate a Geoapify response (provider = 'geoapify')
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            address: 'Yamuna Bank, Delhi',
+            provider: 'geoapify',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+
+      await act(async () => {
+        await handle.location.triggerReverseGeocode(28.625, 77.265);
+      });
+
+      // Must be null for Geoapify
+      expect(handle.location.locationAttribution).toBeNull();
+    });
+
+    // 22. Manual user editing clears any active attribution
+    it('22. Manual user editing clears active OpenStreetMap attribution', async () => {
+      let handle!: HarnessHandle;
+      act(() => {
+        root.render(
+          <CitizenLocationHarness
+            onMount={(h) => {
+              handle = h;
+            }}
+          />,
+        );
+      });
+
+      act(() => {
+        handle.location.setLocationAttribution({
+          text: 'OpenStreetMap contributors',
+          url: 'https://www.openstreetmap.org/copyright',
+        });
+      });
+      expect(handle.location.locationAttribution).not.toBeNull();
+
+      act(() => {
+        handle.location.handleAddressChange('Edited Address by User');
+      });
+      expect(handle.location.locationAttribution).toBeNull();
     });
   });
 });

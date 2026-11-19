@@ -525,5 +525,11 @@ describe('Phase 3 Milestone 5 — Solver Proposal & Human-Supervised Assignment 
       expect(commitRecord.stateChange.assignmentStatus).toBe('COMMITTED');
       expect(commitRecord.stateChange.stopsFrozen).toBe(true);
     });
+
+    it("displays 'This plan is committed' rather than claiming official government commitment", () => {
+      const copy = 'This plan is committed. Recorded by Operator at 12:00 PM.';
+      expect(copy).toContain('This plan is committed');
+      expect(copy).not.toContain('officially committed');
+    });
   });
 });

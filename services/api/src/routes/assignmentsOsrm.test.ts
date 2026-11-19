@@ -13,6 +13,7 @@ import type {
   DbResource,
   DbShelter,
 } from '../db/schema.js';
+import { handleMockServiceAreaQuery } from '../geo/mockServiceAreaQuery.js';
 
 class InMemoryAssignmentDbStub implements Queryable {
   public requests: Map<string, DbRequest> = new Map();
@@ -33,6 +34,11 @@ class InMemoryAssignmentDbStub implements Queryable {
   ): Promise<{ rows: R[]; command: string; rowCount: number; oid: number; fields: [] }> {
     const sql = typeof sqlOrConfig === 'string' ? sqlOrConfig : sqlOrConfig.text;
     const vals = values ?? (sqlOrConfig as { values?: unknown[] }).values ?? [];
+
+    const serviceAreaRes = handleMockServiceAreaQuery<R>(sql, vals);
+    if (serviceAreaRes) {
+      return serviceAreaRes;
+    }
 
     if (sql.trim() === 'BEGIN' || sql.trim() === 'COMMIT' || sql.trim() === 'ROLLBACK') {
       return { rows: [], command: sql.trim(), rowCount: 0, oid: 0, fields: [] };
