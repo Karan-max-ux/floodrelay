@@ -310,20 +310,44 @@ export class AuthService {
 
     const existing = await this.repo.getOperatorByUsername(initialUser);
     if (!existing) {
-      await this.createOperator({
-        username: initialUser,
-        password: initialPass,
-        name: initialName,
-        role: 'ADMIN',
-      });
-      console.log(`[Auth] Initial operator account "${initialUser}" initialized.`);
+      try {
+        await this.createOperator({
+          username: initialUser,
+          password: initialPass,
+          name: initialName,
+          role: 'ADMIN',
+        });
+        console.log(`[Auth] Initial operator account "${initialUser}" initialized.`);
+      } catch (err: unknown) {
+        // If concurrent startup created the operator in the interim, verify it safely
+        const concurrentExisting = await this.repo.getOperatorByUsername(initialUser);
+        if (concurrentExisting) {
+          const isValid = this.verifyPassword(
+            initialPass,
+            concurrentExisting.salt,
+            concurrentExisting.password_hash,
+          );
+          if (isValid) {
+            console.log(`[Auth] Configured initial operator account "${initialUser}" verified.`);
+            return;
+          }
+        }
+        throw err;
+      }
     } else if (hasExplicitConfig) {
-      // If explicit operator credentials were provided, ensure the password is synchronized
+      // Case C & D: Verify existing operator credentials without resetting or modifying stored credentials
       const isValid = this.verifyPassword(initialPass, existing.salt, existing.password_hash);
-      if (!isValid && this.repo.updateOperatorPassword) {
-        const { hash, salt } = this.hashPassword(initialPass);
-        await this.repo.updateOperatorPassword(existing.id, hash, salt);
-        console.log(`[Auth] Initial operator account "${initialUser}" password synchronized.`);
+      if (isValid) {
+        // Case C: Configured credentials match stored operator. No modifications.
+        console.log(`[Auth] Configured initial operator account "${initialUser}" verified.`);
+      } else {
+        // Case D: Configured credentials differ from stored operator. Do NOT reset password. Fail safely.
+        console.error(
+          `[Security Warning] Configured INITIAL_OPERATOR_PASSWORD does not match stored credentials for existing operator "${initialUser}". Automatic password reset on startup is prohibited. Credential rotation requires explicit authorization.`,
+        );
+        throw new Error(
+          `[Security Violation] Configured initial operator "${initialUser}" already exists but configured password does not match stored credentials. Automatic password reset on startup is prohibited. Credential rotation requires explicit authorization.`,
+        );
       }
     }
   }
@@ -351,6 +375,16 @@ export class InMemoryAuthRepository implements IAuthRepository {
   async insertOperator(
     operator: Omit<DbOperator, 'created_at' | 'updated_at'>,
   ): Promise<DbOperator> {
+    const key = operator.username.trim().toLowerCase();
+    for (const existing of this.operators.values()) {
+      if (existing.username.toLowerCase() === key) {
+        const err = new Error(
+          `duplicate key value violates unique constraint "operators_username_key"`,
+        );
+        (err as unknown as { code: string }).code = '23505';
+        throw err;
+      }
+    }
     const full: DbOperator = {
       ...operator,
       created_at: new Date(),
