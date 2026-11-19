@@ -13,6 +13,7 @@ import {
   type RepairSolver,
 } from './services/repairOrchestrationService.js';
 import { ForecastService } from './services/floodForecast/forecastService.js';
+import { handleMockServiceAreaQuery } from './geo/mockServiceAreaQuery.js';
 import type {
   DbRequest,
   DbResource,
@@ -52,6 +53,11 @@ class InMemoryDemoQueryable implements Queryable {
       sql === 'ROLLBACK;'
     ) {
       return { rows: [], command: 'TX', rowCount: 0, oid: 0, fields: [] };
+    }
+
+    const serviceAreaRes = handleMockServiceAreaQuery<R>(sql, vals);
+    if (serviceAreaRes) {
+      return serviceAreaRes;
     }
 
     // Insert Request

@@ -163,6 +163,7 @@ describe('Phase 8C — Operator Tactical Map Component Rendering & Provenance Gu
           routes: true,
           blockages: true,
           repairOverlay: false,
+          floodForecast: false,
         },
         urgencyFilter: 'ALL',
         selectedEntity: null,
