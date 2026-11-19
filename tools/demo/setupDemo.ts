@@ -27,7 +27,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
-export async function runDemoSetup(): Promise<{
+export async function runDemoSetup(options?: { closePool?: boolean }): Promise<{
   runId: string;
   scenarioId: string;
   baselineAssignmentId: string;
@@ -65,7 +65,9 @@ export async function runDemoSetup(): Promise<{
 
     // Step 3: Clean prior tracked demo runs for idempotent clean slate
     console.log('Cleaning previous tracked demo runs if present...');
-    const cleanupCounts = await cleanupTrackedDemoFixtures(pool);
+    const cleanupCounts = await cleanupTrackedDemoFixtures(pool, undefined, {
+      preserveOperators: true,
+    });
     if (cleanupCounts.cleanedRuns > 0) {
       console.log(
         `✔ Purged prior demo fixtures (${cleanupCounts.cleanedRuns} run(s), ${cleanupCounts.deletedRequests} requests, ${cleanupCounts.deletedAssignments} assignments).`,
@@ -427,7 +429,9 @@ export async function runDemoSetup(): Promise<{
       throw stepErr;
     }
   } finally {
-    await closePool();
+    if (options?.closePool ?? process.argv[1] === fileURLToPath(import.meta.url)) {
+      await closePool();
+    }
   }
 }
 

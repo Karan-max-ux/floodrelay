@@ -38,7 +38,10 @@ export function verifyDemoDatabaseSafety(): void {
   }
 }
 
-export async function runDemoCleanup(targetRunId?: string): Promise<DemoCleanupCounts> {
+export async function runDemoCleanup(
+  targetRunId?: string,
+  options?: { closePool?: boolean },
+): Promise<DemoCleanupCounts> {
   const pool = getPool();
 
   try {
@@ -73,7 +76,9 @@ export async function runDemoCleanup(targetRunId?: string): Promise<DemoCleanupC
 
     return results;
   } finally {
-    await closePool();
+    if (options?.closePool ?? process.argv[1] === fileURLToPath(import.meta.url)) {
+      await closePool();
+    }
   }
 }
 

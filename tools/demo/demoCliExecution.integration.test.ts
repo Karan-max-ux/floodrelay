@@ -9,11 +9,7 @@ import {
   PostgisRepository,
   AuthService,
 } from '@floodrelay/api';
-import {
-  assertDisposableDemoDatabase,
-  provisionDisposableDemoMarker,
-  DEMO_OPERATOR_OWNERSHIP_TABLE,
-} from './demoDbGuard.js';
+import { assertDisposableDemoDatabase, DEMO_OPERATOR_OWNERSHIP_TABLE } from './demoDbGuard.js';
 import { runDemoSetup } from './setupDemo.js';
 import { runDemoCleanup } from './cleanupDemo.js';
 
@@ -36,52 +32,58 @@ describe.runIf(shouldRun)('Real Demo CLI Execution & PostGIS Lifecycle Suite', (
   const sentinelUsername = 'unrelated_sentinel_operator';
   const sentinelPassword = 'SentinelSecurePassword2026!';
   const sentinelRequestId = 'req-sentinel-unrelated-999';
-  let hasPostgis = false;
+  const originalDemoAuth = process.env.ALLOW_DISPOSABLE_DEMO_DB;
 
   beforeAll(async () => {
+    // 1. Scope ALLOW_DISPOSABLE_DEMO_DB=1 strictly to this verified disposable demo integration execution
+    if (
+      !process.env.ALLOW_DISPOSABLE_DEMO_DB &&
+      (process.env.ALLOW_DISPOSABLE_REPAIR_TEST_DB === '1' ||
+        process.env.ALLOW_DISPOSABLE_REPAIR_TEST_DB === 'true')
+    ) {
+      process.env.ALLOW_DISPOSABLE_DEMO_DB = '1';
+    }
+
     const pool = getPool();
-    try {
-      const extCheck = await pool.query(
-        `SELECT 1 FROM pg_available_extensions WHERE name = 'postgis'`,
+
+    // 2. When PostGIS integration is required, missing PostGIS MUST cause a clear test failure
+    const extCheck = await pool.query<{ count: string }>(
+      `SELECT count(*) FROM pg_available_extensions WHERE name = 'postgis'`,
+    );
+    if (parseInt(extCheck.rows[0]?.count || '0', 10) === 0) {
+      throw new Error(
+        'POSTGIS_NOT_AVAILABLE: The connected PostgreSQL database does not have the "postgis" extension available. ' +
+          'Live demo CLI lifecycle integration tests require PostgreSQL with PostGIS installed.',
       );
-      hasPostgis = extCheck.rows.length > 0;
-    } catch {
-      hasPostgis = false;
     }
 
-    if (!hasPostgis) {
-      console.warn(
-        '[Demo CLI Integration] PostgreSQL is missing PostGIS extension. Tests requiring PostGIS will be skipped.',
-      );
-      return;
-    }
+    // 3. Strict safety validation: verifies explicit demo authorization, approved host, approved dbName, and identity marker.
+    // Catch-all bypass behavior is removed; any safety validation failure immediately halts the test suite.
+    await assertDisposableDemoDatabase(pool);
 
-    // Guard: ensure database is verified disposable demo or test target
-    await assertDisposableDemoDatabase(pool).catch(async () => {
-      // If marker missing in test db, provision it safely
-      await provisionDisposableDemoMarker(pool);
-      await assertDisposableDemoDatabase(pool);
-    });
-
+    // 4. Ensure migrations are applied
     await runMigrationsUp(pool);
   });
 
   afterAll(async () => {
-    if (hasPostgis) {
-      const pool = getPool();
-      try {
-        await pool.query(`DELETE FROM requests WHERE id = $1`, [sentinelRequestId]);
-        await pool.query(`DELETE FROM operators WHERE username = $1`, [sentinelUsername]);
-      } catch {
-        // ignore
-      }
+    // Restore or clear scoped ALLOW_DISPOSABLE_DEMO_DB
+    if (originalDemoAuth !== undefined) {
+      process.env.ALLOW_DISPOSABLE_DEMO_DB = originalDemoAuth;
+    } else {
+      delete process.env.ALLOW_DISPOSABLE_DEMO_DB;
+    }
+
+    const pool = getPool();
+    try {
+      await pool.query(`DELETE FROM requests WHERE id = $1`, [sentinelRequestId]);
+      await pool.query(`DELETE FROM operators WHERE username = $1`, [sentinelUsername]);
+    } catch {
+      // ignore
     }
     await closePool();
   });
 
   it('proves demo:setup provisions demo environment, creates manifest, and protects sentinel records', async () => {
-    if (!hasPostgis) return;
-
     const pool = getPool();
     const repo = new PostgisRepository(pool);
     const authService = new AuthService(repo);
@@ -102,8 +104,8 @@ describe.runIf(shouldRun)('Real Demo CLI Execution & PostGIS Lifecycle Suite', (
       [sentinelRequestId],
     );
 
-    // 2. Execute the actual runDemoSetup() CLI entrypoint
-    const setupResult = await runDemoSetup();
+    // 2. Execute the actual runDemoSetup() CLI entrypoint (with closePool: false to keep pool alive for test assertions)
+    const setupResult = await runDemoSetup({ closePool: false });
 
     expect(setupResult.runId).toMatch(/^demo_run_/);
     expect(setupResult.scenarioId).toBe('scenario-demo-yamuna-2026');
@@ -153,8 +155,6 @@ describe.runIf(shouldRun)('Real Demo CLI Execution & PostGIS Lifecycle Suite', (
   });
 
   it('proves repeated demo:setup reuses operator and maintains idempotency without deleting sentinels', async () => {
-    if (!hasPostgis) return;
-
     const pool = getPool();
     const repo = new PostgisRepository(pool);
     const authService = new AuthService(repo);
@@ -162,8 +162,8 @@ describe.runIf(shouldRun)('Real Demo CLI Execution & PostGIS Lifecycle Suite', (
     // Read initial password
     const initialCreds = JSON.parse(fs.readFileSync(credPath, 'utf-8'));
 
-    // Execute setup a second time
-    const repeatResult = await runDemoSetup();
+    // Execute setup a second time (keeping pool alive)
+    const repeatResult = await runDemoSetup({ closePool: false });
     expect(repeatResult.runId).toMatch(/^demo_run_/);
 
     // Credentials must remain valid
@@ -181,13 +181,11 @@ describe.runIf(shouldRun)('Real Demo CLI Execution & PostGIS Lifecycle Suite', (
   });
 
   it('proves demo:cleanup safely purges demo fixtures, unlinks credentials, and preserves sentinels', async () => {
-    if (!hasPostgis) return;
-
     const pool = getPool();
     const repo = new PostgisRepository(pool);
 
-    // Execute runDemoCleanup()
-    const cleanupResult = await runDemoCleanup();
+    // Execute runDemoCleanup() (keeping pool alive)
+    const cleanupResult = await runDemoCleanup(undefined, { closePool: false });
 
     expect(cleanupResult.cleanedRuns).toBeGreaterThanOrEqual(1);
     expect(cleanupResult.deletedRequests).toBeGreaterThan(0);
@@ -213,9 +211,7 @@ describe.runIf(shouldRun)('Real Demo CLI Execution & PostGIS Lifecycle Suite', (
   });
 
   it('proves demo:cleanup is idempotent when executed again', async () => {
-    if (!hasPostgis) return;
-
-    const secondCleanup = await runDemoCleanup();
+    const secondCleanup = await runDemoCleanup(undefined, { closePool: false });
     expect(secondCleanup.cleanedRuns).toBe(0);
     expect(secondCleanup.deletedRequests).toBe(0);
     expect(secondCleanup.deletedAssignments).toBe(0);

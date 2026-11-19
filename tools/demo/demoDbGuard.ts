@@ -430,6 +430,7 @@ export async function getActiveDemoRunManifests(
 export async function cleanupTrackedDemoFixtures(
   pool: pg.Pool,
   runId?: string,
+  options?: { preserveOperators?: boolean },
 ): Promise<DemoCleanupCounts> {
   const manifests = await getActiveDemoRunManifests(pool, runId);
   if (manifests.length === 0) {
@@ -537,9 +538,9 @@ export async function cleanupTrackedDemoFixtures(
     // Strictly delete ONLY operators that were newly created by the target runs
     // and have verified demo ownership matching the run IDs being cleaned up.
     // Reused demo operators and pre-existing unrelated operators are NEVER deleted.
-    const createdOperators = Array.from(
-      new Set(manifests.flatMap((m) => m.createdOperatorUsernames || [])),
-    );
+    const createdOperators = options?.preserveOperators
+      ? []
+      : Array.from(new Set(manifests.flatMap((m) => m.createdOperatorUsernames || [])));
 
     let deletedOperators = 0;
     if (createdOperators.length > 0) {

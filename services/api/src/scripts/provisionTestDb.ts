@@ -59,6 +59,34 @@ export async function provisionDisposableTestMarker(pool: pg.Pool): Promise<void
     console.log(
       `[Test DB Provision] Successfully provisioned disposable test database marker in database "${dbName}" for role "${dbUser}".`,
     );
+
+    // Also provision demo environment metadata marker on the verified disposable test database
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS demo_environment_metadata (
+        marker_key VARCHAR(64) PRIMARY KEY,
+        marker_value VARCHAR(128) NOT NULL,
+        is_disposable BOOLEAN NOT NULL DEFAULT TRUE,
+        database_name VARCHAR(64) NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await client.query(
+      `
+      INSERT INTO demo_environment_metadata (marker_key, marker_value, is_disposable, database_name)
+      VALUES ('DISPOSABLE_DEMO_ENVIRONMENT', 'FLOODRELAY_VERIFIED_DEMO_DB', TRUE, $1)
+      ON CONFLICT (marker_key) DO UPDATE SET 
+        marker_value = 'FLOODRELAY_VERIFIED_DEMO_DB',
+        is_disposable = TRUE,
+        database_name = $1,
+        created_at = NOW();
+    `,
+      [dbName],
+    );
+
+    console.log(
+      `[Demo DB Provision] Successfully provisioned disposable demo database marker in database "${dbName}".`,
+    );
   } finally {
     client.release();
   }
