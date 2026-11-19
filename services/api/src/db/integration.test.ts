@@ -6,6 +6,7 @@ import { AssignmentService } from '../services/assignmentService.js';
 import { CreateRequestSchema } from '../validation/requestSchema.js';
 import { ProposeAssignmentSchema } from '../validation/assignmentSchema.js';
 import type { RescueRequest, RescueResource, Shelter } from '@floodrelay/shared';
+import { DELHI_NCR_REGION_NAME } from '../geo/delhiNcrBoundary.js';
 
 const requireDb = Boolean(
   process.env.REQUIRE_DB && process.env.REQUIRE_DB !== '0' && process.env.REQUIRE_DB !== 'false',
@@ -3766,6 +3767,284 @@ describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
       const fetchedSim = await repo.getShelterById(simSh.id);
       expect(fetchedSim).not.toBeNull();
       expect(fetchedSim?.source).toBe('SIMULATED');
+    });
+  });
+
+  describe('8. Delhi NCR Service-Area Enforcement (PostGIS ST_Covers & Fail-Closed)', () => {
+    it('loads a valid SRID 4326 Delhi NCR boundary in PostGIS service_areas via migration 005', async () => {
+      const res = await pool.query<{
+        region_id: string;
+        region_name: string;
+        boundary_version: string;
+        dataset_sha256: string;
+        source_metadata: {
+          repositoryGeoJsonSha256?: string;
+          gisSourceFileSha256?: string;
+          initialRawExportSha256?: string;
+        };
+        is_valid: boolean;
+        srid: number;
+        area_sq_km: number;
+        near_distance_meters: number;
+      }>(`
+        SELECT
+          region_id,
+          region_name,
+          boundary_version,
+          dataset_sha256,
+          source_metadata,
+          ST_IsValid(geometry) AS is_valid,
+          ST_SRID(geometry) AS srid,
+          ST_Area(geometry::geography) / 1000000.0 AS area_sq_km,
+          ST_Distance(geometry::geography, ST_SetSRID(ST_MakePoint(77.11808, 29.99624), 4326)::geography) AS near_distance_meters
+        FROM service_areas
+        WHERE region_id = 'IN-NCR' AND is_active = TRUE;
+      `);
+
+      expect(res.rows).toHaveLength(1);
+      expect(res.rows[0]?.region_name).toBe(DELHI_NCR_REGION_NAME);
+      expect(res.rows[0]?.is_valid).toBe(true);
+      expect(Number(res.rows[0]?.srid)).toBe(4326);
+      expect(Number(res.rows[0]?.area_sq_km)).toBeGreaterThan(54000);
+      expect(Number(res.rows[0]?.area_sq_km)).toBeLessThan(57000);
+      expect(res.rows[0]?.dataset_sha256).toBe(
+        'a48e65c666c374c07364e03c79d090a8c0888971f463f804d40baf052104e8ae',
+      );
+      expect(res.rows[0]?.source_metadata.repositoryGeoJsonSha256).toBe(
+        'a48e65c666c374c07364e03c79d090a8c0888971f463f804d40baf052104e8ae',
+      );
+      expect(res.rows[0]?.source_metadata.gisSourceFileSha256).toBe(
+        'd68db39cd3e2d0892af268e2b0454166368ce3b5b8a78fcda63069ec92a641db',
+      );
+      expect(res.rows[0]?.source_metadata.initialRawExportSha256).toBe(
+        '357d77cdf69c8f5f4016c0c656e70cfcb8b1d585dcba5849e95a15299478fd1d',
+      );
+      expect(Number(res.rows[0]?.near_distance_meters)).toBeGreaterThan(300);
+      expect(Number(res.rows[0]?.near_distance_meters)).toBeLessThan(400);
+    });
+
+    it('accepts verified locations across NCT Delhi, Haryana, UP, Rajasthan, and exact outer boundary vertex via PostGIS ST_Covers', async () => {
+      const requestService = new RequestService(repo);
+      const validPoints: Array<[string, number, number]> = [
+        ['Central Delhi (Connaught Place)', 28.6315, 77.2167],
+        ['Gurugram (Haryana NCR)', 28.4949, 77.0895],
+        ['Karnal (Haryana NCR)', 29.6857, 76.9905],
+        ['Charkhi Dadri (Haryana NCR)', 28.5921, 76.2653],
+        ['Noida (UP NCR)', 28.5708, 77.3261],
+        ['Meerut (UP NCR)', 28.9845, 77.7064],
+        ['Alwar (Rajasthan NCR)', 27.553, 76.6346],
+        ['Bharatpur (Rajasthan NCR)', 27.2152, 77.503],
+        ['Exact Karnal outer boundary vertex (ST_Covers inclusive)', 29.99324, 77.11808],
+      ];
+
+      for (const [label, lat, lng] of validPoints) {
+        const check = await requestService.checkServiceArea(lat, lng);
+        expect(check.eligible, `${label} must be covered by PostGIS ST_Covers`).toBe(true);
+        expect(check.inclusiveBoundaryPolicy).toBe('ST_COVERS');
+      }
+
+      // Real DB write succeeds for genuine in-NCR request
+      const submitted = await requestService.submitRequest({
+        lat: 28.6315,
+        lng: 77.2167,
+        peopleCount: 3,
+        urgency: 'HIGH',
+        medicalNeeds: false,
+        source: 'REPORTED',
+        verificationStatus: 'UNVERIFIED',
+      });
+      expect(submitted.idempotent).toBe(false);
+      expect(submitted.request.id).toMatch(/^req-/);
+    });
+
+    it('rejects outside-NCR requests (Mumbai, Mathura, Jaipur, 110m outside Karnal boundary) with 422 and zero DB/event/audit rows', async () => {
+      const requestService = new RequestService(repo);
+      const beforeReqCount = Number(
+        (await pool.query('SELECT COUNT(*) FROM requests;')).rows[0].count,
+      );
+      const beforeEvtCount = Number(
+        (await pool.query('SELECT COUNT(*) FROM operational_events;')).rows[0].count,
+      );
+      const beforeAuditCount = Number(
+        (await pool.query('SELECT COUNT(*) FROM audit_events;')).rows[0].count,
+      );
+
+      const outsidePoints: Array<[string, number, number]> = [
+        ['Mumbai', 19.076, 72.8777],
+        ['Mathura (nearby UP)', 27.4924, 77.6737],
+        ['Jaipur (nearby RJ)', 26.9124, 75.7873],
+        ['110m outside Karnal outer boundary', 29.99424, 77.11808],
+      ];
+
+      for (const [label, lat, lng] of outsidePoints) {
+        await expect(
+          requestService.submitRequest({
+            lat,
+            lng,
+            peopleCount: 2,
+            urgency: 'CRITICAL',
+            medicalNeeds: true,
+            source: 'REPORTED',
+            verificationStatus: 'UNVERIFIED',
+          }),
+          `${label} must be rejected with 422`,
+        ).rejects.toMatchObject({
+          code: 'OUTSIDE_SERVICE_AREA',
+          statusCode: 422,
+          message:
+            'FloodRelay currently accepts rescue requests only within its supported Delhi NCR service area.',
+        });
+      }
+
+      const afterReqCount = Number(
+        (await pool.query('SELECT COUNT(*) FROM requests;')).rows[0].count,
+      );
+      const afterEvtCount = Number(
+        (await pool.query('SELECT COUNT(*) FROM operational_events;')).rows[0].count,
+      );
+      const afterAuditCount = Number(
+        (await pool.query('SELECT COUNT(*) FROM audit_events;')).rows[0].count,
+      );
+
+      expect(afterReqCount).toBe(beforeReqCount);
+      expect(afterEvtCount).toBe(beforeEvtCount);
+      expect(afterAuditCount).toBe(beforeAuditCount);
+    });
+
+    it('fails closed with 503 SERVICE_AREA_UNAVAILABLE when active service_areas row is unavailable', async () => {
+      const requestService = new RequestService(repo);
+      await pool.query("UPDATE service_areas SET is_active = FALSE WHERE region_id = 'IN-NCR';");
+      try {
+        await expect(requestService.checkServiceArea(28.6315, 77.2167)).rejects.toMatchObject({
+          code: 'SERVICE_AREA_UNAVAILABLE',
+          statusCode: 503,
+        });
+        await expect(
+          requestService.submitRequest({
+            lat: 28.6315,
+            lng: 77.2167,
+            peopleCount: 2,
+            urgency: 'HIGH',
+            medicalNeeds: false,
+            source: 'REPORTED',
+            verificationStatus: 'UNVERIFIED',
+          }),
+        ).rejects.toMatchObject({
+          code: 'SERVICE_AREA_UNAVAILABLE',
+          statusCode: 503,
+        });
+      } finally {
+        await pool.query("UPDATE service_areas SET is_active = TRUE WHERE region_id = 'IN-NCR';");
+      }
+    });
+
+    it('excludes pre-existing historical out-of-NCR operational requests from proposals without deleting them and blocks out-of-NCR commit', async () => {
+      // Seed historical out-of-NCR request directly in DB (simulating pre-policy record)
+      await repo.insertRequest({
+        id: 'req_hist_out_ncr_1',
+        lat: 19.076,
+        lng: 72.8777,
+        peopleCount: 3,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        verificationStatus: 'UNVERIFIED',
+        medicalNeeds: false,
+        createdAt: new Date().toISOString(),
+      });
+      await repo.insertRequest({
+        id: 'req_in_ncr_live_1',
+        lat: 28.65,
+        lng: 77.23,
+        peopleCount: 3,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        verificationStatus: 'UNVERIFIED',
+        medicalNeeds: false,
+        createdAt: new Date().toISOString(),
+      });
+      await repo.insertResource(
+        {
+          id: 'res_in_ncr_live_1',
+          name: 'Delhi Boat Live 1',
+          type: 'BOAT',
+          capacity: 6,
+          speedKmH: 25,
+          lat: 28.66,
+          lng: 77.24,
+          status: 'AVAILABLE',
+        },
+        'REAL',
+      );
+      await repo.insertShelter(
+        {
+          id: 'sh_in_ncr_live_1',
+          name: 'Delhi Camp Live 1',
+          lat: 28.667,
+          lng: 77.228,
+          capacity: 100,
+        },
+        'REAL',
+      );
+
+      const plan = await assignmentService.proposeAssignment(ProposeAssignmentSchema.parse({}));
+      const servedIds = plan.routes.flatMap((r) => r.servedRequestIds);
+      expect(servedIds).toContain('req_in_ncr_live_1');
+      expect(servedIds).not.toContain('req_hist_out_ncr_1');
+      expect(plan.unserved).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            requestId: 'req_hist_out_ncr_1',
+            reason: 'ISOLATED_ZONE',
+          }),
+        ]),
+      );
+
+      // Verify historical row was preserved intact in DB (not deleted or mutated)
+      const histRow = await repo.getRequestById('req_hist_out_ncr_1');
+      expect(histRow).not.toBeNull();
+      expect(histRow?.status).toBe('PENDING');
+
+      // Defense-in-depth: a manually forged proposal referencing the out-of-NCR request cannot be committed
+      await repo.insertAssignmentWithStops(
+        {
+          id: 'assign_forged_out_ncr',
+          scenario_id: 'live-operations',
+          status: 'PROPOSED',
+          metrics: plan.metrics,
+          unserved: [],
+          committed_at: null,
+          committed_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: 'stop_forged_1',
+            assignment_id: 'assign_forged_out_ncr',
+            resource_id: 'res_in_ncr_live_1',
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: 'req_hist_out_ncr_1',
+            location: 'POINT(72.8777 19.076)',
+            passengers_picked_up: 3,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+        ],
+      );
+
+      await expect(
+        assignmentService.commitAssignment('assign_forged_out_ncr', {
+          operatorId: 'operator_safe',
+        }),
+      ).rejects.toMatchObject({
+        code: 'OUTSIDE_SERVICE_AREA',
+        statusCode: 422,
+      });
     });
   });
 });

@@ -42,3 +42,21 @@ export function isAbortError(err: unknown): boolean {
   }
   return false;
 }
+
+export function isOutsideServiceArea(err: unknown): boolean {
+  if (!err) return false;
+  if (err instanceof ApiClientError) {
+    return err.statusCode === 422 || err.code === 'OUTSIDE_SERVICE_AREA';
+  }
+  const anyErr = err as { statusCode?: number; code?: string };
+  return anyErr.statusCode === 422 || anyErr.code === 'OUTSIDE_SERVICE_AREA';
+}
+
+export function isServiceAreaUnavailable(err: unknown): boolean {
+  if (!err) return false;
+  if (err instanceof ApiClientError) {
+    return err.statusCode === 503 || err.code === 'SERVICE_AREA_UNAVAILABLE';
+  }
+  const anyErr = err as { statusCode?: number; code?: string };
+  return anyErr.statusCode === 503 || anyErr.code === 'SERVICE_AREA_UNAVAILABLE';
+}

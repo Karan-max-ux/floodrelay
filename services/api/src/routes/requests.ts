@@ -1,5 +1,9 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
-import { CreateRequestSchema, ListRequestsFilterSchema } from '../validation/requestSchema.js';
+import {
+  CreateRequestSchema,
+  ListRequestsFilterSchema,
+  ServiceAreaCheckSchema,
+} from '../validation/requestSchema.js';
 import type { RequestService } from '../services/requestService.js';
 import type { AuthService } from '../services/authService.js';
 import { requireOperatorAuth } from '../middleware/authMiddleware.js';
@@ -12,6 +16,57 @@ export function createRequestsRouter(
   const authGuard = authService
     ? requireOperatorAuth(authService)
     : (_req: Request, _res: Response, next: NextFunction) => next();
+
+  // POST /requests/service-area-check - Verify whether exact coordinates lie inside supported Delhi NCR coverage
+  router.post(
+    '/service-area-check',
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const parsed = ServiceAreaCheckSchema.safeParse(req.body);
+        if (!parsed.success) {
+          res.status(400).json({
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Valid finite latitude (-90 to 90) and longitude (-180 to 180) are required',
+              details: parsed.error.format(),
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        try {
+          const check = await requestService.checkServiceArea(
+            parsed.data.lat,
+            parsed.data.lng,
+            parsed.data.accuracy,
+          );
+          res.status(200).json({
+            success: true,
+            data: check,
+          });
+        } catch (domainErr: unknown) {
+          const code = (domainErr as { code?: string }).code;
+          const statusCode = (domainErr as { statusCode?: number }).statusCode;
+          const details = (domainErr as { details?: unknown }).details;
+          if (code && statusCode) {
+            res.status(statusCode).json({
+              error: {
+                code,
+                message: (domainErr as Error).message,
+                ...(details !== undefined ? { details } : {}),
+                timestamp: new Date().toISOString(),
+              },
+            });
+            return;
+          }
+          throw domainErr;
+        }
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
 
   // POST /requests - Submit new rescue request with idempotency & duplicate detection
   router.post('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -43,11 +98,13 @@ export function createRequestsRouter(
       } catch (domainErr: unknown) {
         const code = (domainErr as { code?: string }).code;
         const statusCode = (domainErr as { statusCode?: number }).statusCode;
+        const details = (domainErr as { details?: unknown }).details;
         if (code && statusCode) {
           res.status(statusCode).json({
             error: {
               code,
               message: (domainErr as Error).message,
+              ...(details !== undefined ? { details } : {}),
               timestamp: new Date().toISOString(),
             },
           });
@@ -255,11 +312,13 @@ export function createRequestsRouter(
         } catch (domainErr: unknown) {
           const code = (domainErr as { code?: string }).code;
           const statusCode = (domainErr as { statusCode?: number }).statusCode;
+          const details = (domainErr as { details?: unknown }).details;
           if (code && statusCode) {
             res.status(statusCode).json({
               error: {
                 code,
                 message: (domainErr as Error).message,
+                ...(details !== undefined ? { details } : {}),
                 timestamp: new Date().toISOString(),
               },
             });

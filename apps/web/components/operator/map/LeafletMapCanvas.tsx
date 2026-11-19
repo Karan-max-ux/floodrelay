@@ -1,11 +1,15 @@
 'use client';
 
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { MapContainer, TileLayer, Marker, Polyline, Polygon, Popup, useMap } from 'react-leaflet';
 import type { RescueRequest, BlockedZone, FloodForecastContext } from '@floodrelay/shared';
 import type { AssignmentRecord } from '@/lib/api/types';
+import {
+  TACTICAL_MAP_DEFAULT_CENTRE,
+  TACTICAL_MAP_DEFAULT_ZOOM,
+} from '@/lib/fixtures/mapReferenceData';
 import { getTileConfig } from './tileConfig';
 import {
   formatDistanceKm,
@@ -197,14 +201,45 @@ function getRiverStationIcon(risk: string): L.DivIcon {
 // Controller component for programmatic map viewport movements
 function MapMovementController({
   allCoordinates,
+  operationalCoordinates,
   selectedEntity,
   actionTrigger,
 }: {
   allCoordinates: [number, number][];
+  operationalCoordinates: [number, number][];
   selectedEntity: SelectedMapEntity;
   actionTrigger?: { type: 'fit' | 'center-critical' | 'zoom-in' | 'zoom-out'; id: number } | null;
 }) {
   const map = useMap();
+  const userHasInteractedRef = useRef(false);
+  const hasAutoFittedRef = useRef(false);
+
+  // Track explicit user pan/zoom so we never override operator viewport control
+  useEffect(() => {
+    const markUserInteraction = () => {
+      userHasInteractedRef.current = true;
+    };
+    map.on('dragstart', markUserInteraction);
+    map.on('zoomstart', markUserInteraction);
+    return () => {
+      map.off('dragstart', markUserInteraction);
+      map.off('zoomstart', markUserInteraction);
+    };
+  }, [map]);
+
+  // Fit once to actual database coordinates (incidents/routes) if present and user has not panned/zoomed
+  useEffect(() => {
+    if (hasAutoFittedRef.current || userHasInteractedRef.current) return;
+    if (operationalCoordinates.length === 0) return;
+
+    hasAutoFittedRef.current = true;
+    if (operationalCoordinates.length === 1) {
+      map.setView(operationalCoordinates[0]!, Math.max(map.getZoom(), 13), { animate: false });
+    } else {
+      const bounds = L.latLngBounds(operationalCoordinates.map(([lat, lng]) => [lat, lng]));
+      map.fitBounds(bounds, { padding: [48, 48], maxZoom: 15, animate: false });
+    }
+  }, [operationalCoordinates, map]);
 
   useEffect(() => {
     if (!actionTrigger) return;
@@ -287,8 +322,8 @@ export default function LeafletMapCanvas({
     return coords;
   }, [filteredRequests, stagedFleet, stagedShelters, layers]);
 
-  // Default center: Delhi Yamuna Basin
-  const defaultCenter: [number, number] = [28.671, 77.234];
+  // Centralised Delhi–Yamuna tactical map default centre (does not constrain database coordinates)
+  const defaultCenter: [number, number] = TACTICAL_MAP_DEFAULT_CENTRE;
 
   // Tile layer configuration
   const tileConfig = getTileConfig(tileTheme);
@@ -304,11 +339,27 @@ export default function LeafletMapCanvas({
     }));
   }, [layers.routes, selectedAssignment, tileTheme]);
 
+  // Operational coordinates (database incidents + selected assignment route vertices) for initial auto-fit
+  const operationalCoordinates: [number, number][] = useMemo(() => {
+    const coords: [number, number][] = [];
+    if (layers.incidents) {
+      filteredRequests.forEach((r) => coords.push([r.lat, r.lng]));
+    }
+    if (layers.routes) {
+      renderedRoutes.forEach((routeItem) => {
+        routeItem.segments.forEach((seg) => {
+          seg.positions.forEach((pt) => coords.push(pt));
+        });
+      });
+    }
+    return coords;
+  }, [filteredRequests, renderedRoutes, layers.incidents, layers.routes]);
+
   return (
     <div className="w-full h-full relative z-0">
       <MapContainer
         center={defaultCenter}
-        zoom={12}
+        zoom={TACTICAL_MAP_DEFAULT_ZOOM}
         scrollWheelZoom={true}
         style={{
           width: '100%',
@@ -326,6 +377,7 @@ export default function LeafletMapCanvas({
 
         <MapMovementController
           allCoordinates={allCoordinates}
+          operationalCoordinates={operationalCoordinates}
           selectedEntity={selectedEntity}
           actionTrigger={actionTrigger}
         />
@@ -346,7 +398,12 @@ export default function LeafletMapCanvas({
               >
                 <Popup className="custom-leaflet-popup">
                   <div className="text-xs p-1 space-y-1">
-                    <div className="font-mono font-bold text-on-surface">{req.id}</div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono font-bold text-on-surface">{req.id}</span>
+                      <span className="font-mono text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300">
+                        {req.source === 'SIMULATED' ? 'SIMULATED' : 'REAL / REPORTED'}
+                      </span>
+                    </div>
                     <div className="text-[11px] font-semibold text-tertiary">
                       {req.urgency} Priority • {req.peopleCount} Pax
                     </div>
@@ -376,7 +433,9 @@ export default function LeafletMapCanvas({
                 <Popup>
                   <div className="text-xs p-1 space-y-1">
                     <div className="font-bold text-on-surface">{craft.name}</div>
-                    <div className="text-[11px] text-primary">Staged Standby Unit</div>
+                    <div className="text-[10px] font-mono font-bold text-amber-700 uppercase">
+                      {`${craft.source || 'SIMULATED'} • Reference Fleet (Demo Only)`}
+                    </div>
                     <div className="text-[10px] text-on-surface-variant">
                       Cap: {craft.capacity} pax • Depot: {craft.depotName}
                     </div>
@@ -403,11 +462,12 @@ export default function LeafletMapCanvas({
                 <Popup>
                   <div className="text-xs p-1 space-y-1">
                     <div className="font-bold text-on-surface">{shelter.name}</div>
-                    <div className="text-[11px] text-emerald-700 font-semibold">
-                      {shelter.status}
+                    <div className="text-[10px] font-mono font-bold text-amber-700 uppercase">
+                      {`${shelter.source || 'SIMULATED'} • Unverified Reference`}
                     </div>
+                    <div className="text-[11px] text-slate-700 font-semibold">{shelter.status}</div>
                     <div className="text-[10px] text-on-surface-variant">
-                      {shelter.availableBeds} / {shelter.capacity} Beds Available
+                      Simulated Reference: {shelter.availableBeds} / {shelter.capacity} Beds
                     </div>
                   </div>
                 </Popup>
@@ -467,12 +527,16 @@ export default function LeafletMapCanvas({
             >
               <Popup>
                 <div className="text-xs p-1 space-y-1">
-                  <div className="font-bold text-red-400 font-mono">{zone.name || zone.id}</div>
-                  <div className="text-[11px] font-semibold text-slate-300">
+                  <div className="font-bold text-red-600 font-mono">{zone.name || zone.id}</div>
+                  <div className="text-[10px] font-mono font-bold text-amber-700 uppercase">
+                    SIMULATED • Synthetic Reference Hazard
+                  </div>
+                  <div className="text-[11px] font-semibold text-slate-700">
                     Severity: {zone.severity}
                   </div>
-                  <div className="text-[10px] text-slate-400">
-                    Routing engine redirects vessels away from this perimeter
+                  <div className="text-[10px] text-slate-600">
+                    Synthetic hazard polygon for routing evaluation; not live flood-extent
+                    telemetry.
                   </div>
                 </div>
               </Popup>

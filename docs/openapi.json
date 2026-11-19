@@ -329,6 +329,26 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Assignment references operational request, resource, or shelter coordinates outside the supported Delhi NCR service area (OUTSIDE_SERVICE_AREA)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service-area boundary verification is temporarily unavailable (SERVICE_AREA_UNAVAILABLE)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1431,6 +1451,26 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Coordinates lie outside the supported Delhi NCR service area (OUTSIDE_SERVICE_AREA)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service-area boundary verification is temporarily unavailable (SERVICE_AREA_UNAVAILABLE)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       },
@@ -1578,6 +1618,54 @@
             "CookieAuth": []
           }
         ]
+      }
+    },
+    "/requests/service-area-check": {
+      "post": {
+        "summary": "Check whether coordinates fall within the supported Delhi NCR service area",
+        "description": "Public read-only spatial check evaluating exact WGS84 coordinates against the active authoritative Delhi NCR boundary using PostGIS ST_Covers (boundary-inclusive). Fails closed with HTTP 503 if boundary verification is unavailable.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceAreaCheckRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Service-area eligibility evaluated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAreaCheckResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or non-finite latitude/longitude coordinates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service-area boundary verification is temporarily unavailable (SERVICE_AREA_UNAVAILABLE)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/requests/{id}": {
@@ -3146,6 +3234,125 @@
           }
         }
       },
+      "ServiceAreaCheckRequest": {
+        "type": "object",
+        "required": ["lat", "lng"],
+        "properties": {
+          "lat": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90,
+            "example": 28.6139
+          },
+          "lng": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180,
+            "example": 77.209
+          },
+          "accuracy": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Estimated GPS/location accuracy radius in meters",
+            "example": 15
+          }
+        }
+      },
+      "ServiceAreaUncertaintyAssessment": {
+        "type": "object",
+        "required": [
+          "isNearBoundary",
+          "boundaryDistanceMeters",
+          "thresholdMeters",
+          "justification"
+        ],
+        "properties": {
+          "isNearBoundary": {
+            "type": "boolean",
+            "example": false
+          },
+          "boundaryDistanceMeters": {
+            "type": "number",
+            "example": 0
+          },
+          "thresholdMeters": {
+            "type": "number",
+            "example": 1000
+          },
+          "justification": {
+            "type": "string",
+            "example": "Point is covered by authoritative Delhi NCR boundary geometry via PostGIS ST_Covers."
+          },
+          "hasPoorAccuracy": {
+            "type": "boolean",
+            "example": false
+          }
+        }
+      },
+      "ServiceAreaCheckResult": {
+        "type": "object",
+        "required": [
+          "eligible",
+          "status",
+          "distanceToBoundaryMeters",
+          "regionId",
+          "regionName",
+          "boundaryVersion",
+          "inclusiveBoundaryPolicy",
+          "uncertaintyAssessment"
+        ],
+        "properties": {
+          "eligible": {
+            "type": "boolean",
+            "example": true
+          },
+          "status": {
+            "type": "string",
+            "enum": ["INSIDE", "NEAR_BOUNDARY_OUTSIDE", "OUTSIDE"],
+            "example": "INSIDE"
+          },
+          "distanceToBoundaryMeters": {
+            "type": "number",
+            "example": 0
+          },
+          "regionId": {
+            "type": "string",
+            "nullable": true,
+            "example": "IN-NCR"
+          },
+          "regionName": {
+            "type": "string",
+            "nullable": true,
+            "example": "Delhi National Capital Region (NCR)"
+          },
+          "boundaryVersion": {
+            "type": "string",
+            "nullable": true,
+            "example": "ncrpb-2026-gb-ind-adm2-v1"
+          },
+          "inclusiveBoundaryPolicy": {
+            "type": "string",
+            "enum": ["ST_COVERS"],
+            "example": "ST_COVERS"
+          },
+          "uncertaintyAssessment": {
+            "$ref": "#/components/schemas/ServiceAreaUncertaintyAssessment"
+          }
+        }
+      },
+      "ServiceAreaCheckResponse": {
+        "type": "object",
+        "required": ["success", "data"],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/ServiceAreaCheckResult"
+          }
+        }
+      },
       "FloodForecastResponse": {
         "type": "object",
         "required": ["success", "data", "timestamp"],
@@ -3308,6 +3515,9 @@
           },
           "disclaimer": {
             "type": "string"
+          }
+        }
+      }
           }
         }
       }

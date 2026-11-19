@@ -19,6 +19,8 @@ export interface CitizenReceipt {
   waterLevel?: string;
   hasSpecialNeeds?: boolean;
   hasFieldNotes?: boolean;
+  savedAt?: string;
+  verifiedByBackend?: boolean;
   // Backward compatibility with legacy receipts
   address?: string;
   lat?: number;
@@ -27,22 +29,42 @@ export interface CitizenReceipt {
   notes?: string;
 }
 
-export interface CitizenReceiptCardProps {
-  initialReceipt?: CitizenReceipt;
+export interface SubmissionOutcome {
+  status: 'ACCEPTED' | 'REJECTED_OUTSIDE' | 'UNAVAILABLE';
+  receiptId?: string;
+  message?: string;
+  timestamp: string;
 }
 
-export const CitizenReceiptCard: React.FC<CitizenReceiptCardProps> = ({ initialReceipt } = {}) => {
+export interface CitizenReceiptCardProps {
+  initialReceipt?: CitizenReceipt;
+  initialOutcome?: SubmissionOutcome;
+}
+
+export const CitizenReceiptCard: React.FC<CitizenReceiptCardProps> = ({
+  initialReceipt,
+  initialOutcome,
+} = {}) => {
   const [receipt, setReceipt] = useState<CitizenReceipt | null>(initialReceipt ?? null);
-  const [isLoading, setIsLoading] = useState<boolean>(!initialReceipt);
+  const [outcome, setOutcome] = useState<SubmissionOutcome | null>(initialOutcome ?? null);
+  const [showEarlierReceipt, setShowEarlierReceipt] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(!initialReceipt && !initialOutcome);
   const [copied, setCopied] = useState<boolean>(false);
 
   useEffect(() => {
-    if (initialReceipt) return;
+    if (initialReceipt || initialOutcome) return;
     try {
       if (typeof window !== 'undefined') {
+        const storedOutcome = sessionStorage.getItem('floodrelay_last_submission_outcome');
+        if (storedOutcome) {
+          setOutcome(JSON.parse(storedOutcome));
+        }
         const stored = sessionStorage.getItem('floodrelay_citizen_receipt');
         if (stored) {
-          setReceipt(JSON.parse(stored));
+          const parsed = JSON.parse(stored);
+          if (parsed && typeof parsed.id === 'string' && parsed.id.trim()) {
+            setReceipt(parsed);
+          }
         }
       }
     } catch (e) {
@@ -50,7 +72,7 @@ export const CitizenReceiptCard: React.FC<CitizenReceiptCardProps> = ({ initialR
     } finally {
       setIsLoading(false);
     }
-  }, [initialReceipt]);
+  }, [initialReceipt, initialOutcome]);
 
   const copyTicketId = () => {
     if (receipt?.id && typeof navigator !== 'undefined' && navigator.clipboard) {
@@ -63,12 +85,84 @@ export const CitizenReceiptCard: React.FC<CitizenReceiptCardProps> = ({ initialR
   const formatTimestamp = (isoString?: string): string =>
     isoString ? formatRegionDateTime(isoString) : 'Just now';
 
+  const isLatestRejected = Boolean(
+    outcome &&
+    (outcome.status === 'REJECTED_OUTSIDE' || outcome.status === 'UNAVAILABLE') &&
+    (!receipt ||
+      !receipt.savedAt ||
+      new Date(outcome.timestamp).getTime() >= new Date(receipt.savedAt).getTime()),
+  );
+
   if (isLoading) {
     return (
       <main className="flex-1 w-full max-w-5xl mx-auto px-4 md:px-8 py-16 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3 text-on-surface-variant">
           <span className="w-8 h-8 border-3 border-primary border-t-transparent rounded-full animate-spin" />
           <span className="text-sm font-semibold">Loading your request receipt...</span>
+        </div>
+      </main>
+    );
+  }
+
+  // Rejection Guard: A recent submission was rejected or unavailable
+  if (isLatestRejected && !showEarlierReceipt) {
+    return (
+      <main className="flex-1 w-full max-w-4xl mx-auto px-4 md:px-8 py-12 pb-20">
+        <div className="bg-surface-container-lowest border-2 border-red-500 rounded-xl p-8 text-center space-y-6 shadow-sm">
+          <div className="w-16 h-16 rounded-full bg-red-100 text-red-700 mx-auto flex items-center justify-center">
+            <span className="material-symbols-outlined text-3xl">location_off</span>
+          </div>
+
+          <div className="space-y-3">
+            <h1 className="font-manrope text-2xl md:text-3xl font-bold text-on-surface">
+              No Rescue Request Created for Your Latest Attempt
+            </h1>
+            <p className="text-sm text-on-surface-variant max-w-xl mx-auto leading-relaxed">
+              {outcome?.status === 'REJECTED_OUTSIDE'
+                ? 'Your most recent rescue assistance request was not accepted because the selected location lies outside FloodRelay’s supported Delhi NCR service area. No request ticket was recorded or dispatched.'
+                : 'Your most recent rescue assistance request could not be accepted because service-area verification was temporarily unavailable. No request ticket was recorded.'}
+            </p>
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-900 max-w-md mx-auto">
+              In immediate danger in India, please dial{' '}
+              <a className="font-bold underline text-red-800" href="tel:112">
+                112
+              </a>{' '}
+              directly.
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+            <a
+              className="w-full sm:w-auto px-6 py-3 rounded-lg bg-red-700 text-white font-bold text-sm hover:bg-red-800 transition-colors flex items-center justify-center gap-2"
+              href="tel:112"
+            >
+              <span className="material-symbols-outlined text-lg">phone_in_talk</span>
+              <span>Call 112 Emergency</span>
+            </a>
+            <Link
+              className="w-full sm:w-auto px-6 py-3 rounded-lg bg-surface-container border border-outline-variant text-on-surface font-semibold text-sm hover:bg-surface-container-high transition-colors flex items-center justify-center gap-2"
+              href="/citizen/request"
+            >
+              <span className="material-symbols-outlined text-lg">edit_location</span>
+              <span>Submit New Request (Change Location)</span>
+            </Link>
+          </div>
+
+          {receipt && (
+            <div className="pt-6 border-t border-outline-variant text-xs text-on-surface-variant space-y-2">
+              <p>
+                You have an earlier recorded request ticket ({receipt.id}) from a previous
+                submission.
+              </p>
+              <button
+                className="text-primary font-bold underline hover:text-primary-container"
+                onClick={() => setShowEarlierReceipt(true)}
+                type="button"
+              >
+                View Earlier Request Receipt ({receipt.id})
+              </button>
+            </div>
+          )}
         </div>
       </main>
     );
@@ -153,6 +247,31 @@ export const CitizenReceiptCard: React.FC<CitizenReceiptCardProps> = ({ initialR
 
   return (
     <main className="flex-1 w-full max-w-5xl mx-auto px-4 md:px-8 py-8 md:py-12 pb-20">
+      {isLatestRejected && showEarlierReceipt && (
+        <div
+          className="mb-6 p-4 rounded-xl border-2 border-amber-500 bg-amber-50 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+          data-testid="earlier-receipt-notice"
+        >
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-amber-600 text-lg shrink-0">
+              history
+            </span>
+            <span>
+              Displaying previously recorded request ({receipt.id}) from an earlier submission.
+              Note: Your most recent submission attempt was outside the Delhi NCR service area and
+              was not accepted.
+            </span>
+          </div>
+          <button
+            className="font-bold underline text-amber-900 shrink-0 self-start sm:self-auto hover:text-amber-700"
+            onClick={() => setShowEarlierReceipt(false)}
+            type="button"
+          >
+            View Rejection Notice
+          </button>
+        </div>
+      )}
+
       {/* System Status Micro-Banner */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-4 py-2.5 mb-6 bg-surface-container-low border border-outline-variant rounded-lg text-xs text-on-surface-variant">
         <div className="flex items-center gap-2">

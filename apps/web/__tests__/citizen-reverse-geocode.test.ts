@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 import { POST } from '../app/api/reverse-geocode/route';
+import { clearNominatimCache } from '../lib/geocoding';
 import CitizenRequestPage from '../app/citizen/request/page';
 import type { UrgencyLevel } from '@floodrelay/shared';
 import type { CreateRequestInput } from '../lib/api/types';
@@ -15,9 +16,11 @@ describe('Citizen GPS Address Autofill & Reverse Geocoding', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    clearNominatimCache();
   });
 
   afterEach(() => {
+    clearNominatimCache();
     process.env.GEOAPIFY_API_KEY = originalEnv;
   });
 
@@ -61,8 +64,29 @@ describe('Citizen GPS Address Autofill & Reverse Geocoding', () => {
       expect(dataLng.error).toBe('VALIDATION_ERROR');
     });
 
-    it('returns controlled 503 CONFIG_ERROR when GEOAPIFY_API_KEY is not set', async () => {
+    it('gracefully falls back to OpenStreetMap Nominatim when GEOAPIFY_API_KEY is not set', async () => {
       delete process.env.GEOAPIFY_API_KEY;
+
+      const mockNominatimResponse = {
+        place_id: 101,
+        lat: '30.872505',
+        lon: '75.870605',
+        display_name: 'Ferozepur Road, Ludhiana, Punjab, 141001, India',
+        address: {
+          road: 'Ferozepur Road',
+          city: 'Ludhiana',
+          state: 'Punjab',
+          postcode: '141001',
+          country: 'India',
+        },
+      };
+
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify(mockNominatimResponse), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
 
       const request = new Request('http://localhost:3000/api/reverse-geocode', {
         method: 'POST',
@@ -73,10 +97,10 @@ describe('Citizen GPS Address Autofill & Reverse Geocoding', () => {
       const response = await POST(request);
       const data = await response.json();
 
-      expect(response.status).toBe(503);
-      expect(data.success).toBe(false);
-      expect(data.error).toBe('CONFIG_ERROR');
-      expect(data.message).toContain('GEOAPIFY_API_KEY');
+      expect(response.status).toBe(200);
+      expect(data.success).toBe(true);
+      expect(data.address).toContain('Ferozepur Road, Ludhiana');
+      expect(data.provider).toBe('nominatim');
     });
 
     it('returns 200 with formatted address on successful provider reverse geocoding', async () => {
@@ -152,12 +176,19 @@ describe('Citizen GPS Address Autofill & Reverse Geocoding', () => {
     it('returns 502 PROVIDER_ERROR when provider returns an HTTP error', async () => {
       process.env.GEOAPIFY_API_KEY = 'test_valid_api_key_123';
 
-      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-        new Response('Unauthorized: Invalid API key', {
-          status: 401,
-          statusText: 'Unauthorized',
-        }),
-      );
+      vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(
+          new Response('Unauthorized: Invalid API key', {
+            status: 401,
+            statusText: 'Unauthorized',
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response('Service Unavailable', {
+            status: 503,
+            statusText: 'Service Unavailable',
+          }),
+        );
 
       const request = new Request('http://localhost:3000/api/reverse-geocode', {
         method: 'POST',
@@ -176,9 +207,9 @@ describe('Citizen GPS Address Autofill & Reverse Geocoding', () => {
     it('returns 502 PROVIDER_NETWORK_ERROR when provider fetch throws a network error', async () => {
       process.env.GEOAPIFY_API_KEY = 'test_valid_api_key_123';
 
-      vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(
-        new Error('getaddrinfo ENOTFOUND api.geoapify.com'),
-      );
+      vi.spyOn(globalThis, 'fetch')
+        .mockRejectedValueOnce(new Error('getaddrinfo ENOTFOUND api.geoapify.com'))
+        .mockRejectedValueOnce(new Error('getaddrinfo ENOTFOUND nominatim.openstreetmap.org'));
 
       const request = new Request('http://localhost:3000/api/reverse-geocode', {
         method: 'POST',
@@ -287,9 +318,12 @@ describe('Citizen GPS Address Autofill & Reverse Geocoding', () => {
           } else {
             state.reverseGeocodeStatus = 'ERROR';
             const baseMsg = data?.message || 'Unable to determine street address.';
-            state.reverseGeocodeMessage = baseMsg.includes('manually')
-              ? baseMsg
-              : `${baseMsg} Coordinates are saved — please enter your street address or landmark manually.`;
+            state.reverseGeocodeMessage =
+              baseMsg.includes('GEOAPIFY') || baseMsg.includes('CONFIG_ERROR')
+                ? 'Automatic address lookup is temporarily unavailable. Your GPS coordinates are saved — please specify your street name or a nearby landmark.'
+                : baseMsg.includes('manually')
+                  ? baseMsg
+                  : `${baseMsg} Coordinates are saved — please enter your street address or landmark manually.`;
           }
         } catch {
           if (seq !== state.lookupSeq) return;
@@ -529,8 +563,8 @@ describe('Citizen GPS Address Autofill & Reverse Geocoding', () => {
       expect(state.reverseGeocodeMessage).toContain('please enter your street address or landmark');
     });
 
-    // 7. Missing API key returns a controlled error
-    it('7. Missing API key returns a controlled error', async () => {
+    // 7. Missing API key returns a controlled error and sanitizes message for citizen
+    it('7. Missing API key returns a controlled error and sanitizes message for citizen', async () => {
       const { state, triggerReverseGeocode } = createHarness();
 
       vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
@@ -547,7 +581,11 @@ describe('Citizen GPS Address Autofill & Reverse Geocoding', () => {
       await triggerReverseGeocode(29.8, -95.4);
 
       expect(state.reverseGeocodeStatus).toBe('ERROR');
-      expect(state.reverseGeocodeMessage).toContain('missing GEOAPIFY_API_KEY');
+      expect(state.reverseGeocodeMessage).toBe(
+        'Automatic address lookup is temporarily unavailable. Your GPS coordinates are saved — please specify your street name or a nearby landmark.',
+      );
+      expect(state.reverseGeocodeMessage).not.toContain('GEOAPIFY_API_KEY');
+      expect(state.reverseGeocodeMessage).not.toContain('CONFIG_ERROR');
     });
 
     // 8. GPS permission denied does not invoke geocoding

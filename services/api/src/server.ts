@@ -2,11 +2,13 @@ import { createApp } from './app.js';
 import { getPool } from './db/connection.js';
 import { PostgisRepository } from './db/repository.js';
 import { AuthService } from './services/authService.js';
+import { ServiceAreaService } from './services/serviceAreaService.js';
 
 const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const pool = getPool();
 const repo = new PostgisRepository(pool);
 const authService = new AuthService(repo);
+const serviceAreaService = new ServiceAreaService(repo);
 
 // Ensure initial operator account exists and perform startup readiness check
 try {
@@ -37,6 +39,23 @@ try {
   ) {
     console.error(
       '[Startup Fatal] Security violation or database requirement failure during production startup. Exiting.',
+    );
+    process.exit(1);
+  }
+}
+
+// Perform active PostGIS boundary integrity attestation against canonical Delhi NCR GeoJSON
+try {
+  const attestation = await serviceAreaService.attestActiveBoundaryIntegrity();
+  console.log(
+    `[Startup] Active PostGIS boundary attested (region: ${attestation.regionId}, version: ${attestation.boundaryVersion}, area: ${attestation.areaSqKm.toFixed(1)} sq km, wkb_hash: ${attestation.geometryWkbHash.slice(0, 12)}...).`,
+  );
+} catch (err: unknown) {
+  const errMsg = err instanceof Error ? err.message : String(err);
+  console.error('[Startup Error] Active PostGIS boundary attestation failed:', errMsg);
+  if (process.env.REQUIRE_DB === '1' || process.env.NODE_ENV === 'production') {
+    console.error(
+      '[Startup Fatal] Active PostGIS boundary integrity attestation failed in production/REQUIRE_DB mode. Exiting.',
     );
     process.exit(1);
   }

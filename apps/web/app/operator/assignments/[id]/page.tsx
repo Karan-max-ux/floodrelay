@@ -687,7 +687,7 @@ export default function AssignmentReviewPage({ params }: PageProps) {
                 </defs>
                 <rect width="100%" height="100%" fill="url(#tacticalGrid)" />
 
-                {/* Simulated bayou curve */}
+                {/* Simulated Yamuna floodplain curve */}
                 <path
                   d="M -20,160 C 120,150 220,190 320,170 C 420,150 520,170 600,150"
                   fill="none"
@@ -878,7 +878,7 @@ export default function AssignmentReviewPage({ params }: PageProps) {
                 </>
               ) : (
                 <>
-                  This plan is officially committed. Recorded by{' '}
+                  This plan is committed. Recorded by{' '}
                   <strong className="text-slate-900">{plan.committed_by || 'Operator'}</strong> at{' '}
                   {formattedCommitted}.
                 </>

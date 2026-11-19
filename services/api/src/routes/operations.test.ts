@@ -16,6 +16,7 @@ import type {
   DbBlockedZone,
   DbAuditEvent,
 } from '../db/schema.js';
+import { handleMockServiceAreaQuery } from '../geo/mockServiceAreaQuery.js';
 
 class MockOperationsQueryable implements Queryable {
   public requests = new Map<string, DbRequest>();
@@ -31,6 +32,11 @@ class MockOperationsQueryable implements Queryable {
     const rawSql = typeof sqlOrConfig === 'string' ? sqlOrConfig : sqlOrConfig.text;
     const sql = rawSql.replace(/\s+/g, ' ').trim();
     const vals = values ?? (sqlOrConfig as { values?: unknown[] }).values ?? [];
+
+    const serviceAreaRes = handleMockServiceAreaQuery<R>(sql, vals);
+    if (serviceAreaRes) {
+      return serviceAreaRes;
+    }
 
     if (sql.includes('BEGIN') || sql.includes('COMMIT') || sql.includes('ROLLBACK')) {
       return { rows: [], command: 'TX', rowCount: 0, oid: 0, fields: [] };

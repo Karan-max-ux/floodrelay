@@ -378,7 +378,7 @@ export default function RepairComparison({
               <textarea
                 value={operatorNotes}
                 onChange={(e) => setOperatorNotes(e.target.value)}
-                placeholder="e.g. Approved detour around Heights Blvd surge hazard."
+                placeholder="e.g. Approved detour around Old Railway Bridge surge hazard."
                 className="w-full h-20 p-2.5 rounded-lg bg-surface-container border border-outline-variant text-xs text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-1 focus:ring-primary"
               />
             </div>

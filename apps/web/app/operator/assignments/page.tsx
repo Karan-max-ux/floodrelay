@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { formatRegionDateTime } from '@/lib/region';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { UrgencyBadge } from '@/components/ui/UrgencyBadge';
 import { apiClient } from '@/lib/api/client';
@@ -876,7 +877,7 @@ function OperatorAssignmentsContent() {
                         <span className="text-slate-600">{travelDistKm}</span>
                       </td>
                       <td className="py-3 px-4 font-mono text-[11px] text-slate-500">
-                        {plan.createdAt ? new Date(plan.createdAt).toLocaleString() : '—'}
+                        {plan.createdAt ? formatRegionDateTime(plan.createdAt) : '—'}
                       </td>
                       <td className="py-3 px-4 text-right">
                         <Link

@@ -2,12 +2,20 @@
 
 import { useState, useRef } from 'react';
 import type { GeocodeCandidate } from '@/app/api/geocode/route';
+import type { ServiceAreaCheckResult } from '@/lib/api/types';
 
 export type GpsStatus =
   'IDLE' | 'ACQUIRING' | 'ACQUIRED' | 'DENIED' | 'UNAVAILABLE' | 'TIMEOUT' | 'UNSUPPORTED';
 export type ReverseGeocodeStatus = 'IDLE' | 'LOOKING_UP' | 'FOUND' | 'UNAVAILABLE' | 'ERROR';
 export type GeocodeStatus = 'IDLE' | 'SEARCHING' | 'FOUND' | 'NO_MATCH' | 'ERROR';
 export type LocationSource = 'NONE' | 'GPS' | 'GEOCODED' | 'MANUAL';
+export type ServiceAreaStatus =
+  'IDLE' | 'CHECKING' | 'ELIGIBLE' | 'OUTSIDE' | 'NEAR_BOUNDARY' | 'UNAVAILABLE';
+
+export interface LocationAttribution {
+  text: string;
+  url: string;
+}
 
 export interface ConfirmedLocationDetails {
   address: string;
@@ -21,6 +29,7 @@ export interface UseCitizenLocationOptions {
   onFieldEdited?: () => void;
   onErrorsClear?: (fields: string[]) => void;
   onSetError?: (field: string, message: string) => void;
+  enableServiceAreaCheck?: boolean;
 }
 
 export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
@@ -45,18 +54,153 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
   const [locationSource, setLocationSource] = useState<LocationSource>('NONE');
   const [isLocationConfirmed, setIsLocationConfirmed] = useState<boolean>(false);
   const [confirmedDetails, setConfirmedDetails] = useState<ConfirmedLocationDetails | null>(null);
+  const [locationAttribution, setLocationAttribution] = useState<LocationAttribution | null>(null);
+
+  // Service-Area Verification State
+  const [serviceAreaStatus, setServiceAreaStatus] = useState<ServiceAreaStatus>('IDLE');
+  const [serviceAreaInfo, setServiceAreaInfo] = useState<ServiceAreaCheckResult | null>(null);
+  const [serviceAreaError, setServiceAreaError] = useState<string | null>(null);
 
   // Invalidation & Stale-Response Guards
   const lookupSeqRef = useRef<number>(0);
   const geocodeSeqRef = useRef<number>(0);
+  const serviceAreaSeqRef = useRef<number>(0);
   const userEditedDuringLookupRef = useRef<boolean>(false);
   const userEditedAddressRef = useRef<boolean>(false);
   const geocodeAbortControllerRef = useRef<AbortController | null>(null);
   const lookupAbortControllerRef = useRef<AbortController | null>(null);
+  const serviceAreaAbortControllerRef = useRef<AbortController | null>(null);
+
+  const invalidateServiceArea = () => {
+    serviceAreaSeqRef.current += 1;
+    if (serviceAreaAbortControllerRef.current) {
+      serviceAreaAbortControllerRef.current.abort();
+      serviceAreaAbortControllerRef.current = null;
+    }
+    setServiceAreaStatus('IDLE');
+    setServiceAreaInfo(null);
+    setServiceAreaError(null);
+  };
 
   const invalidateConfirmation = () => {
     setIsLocationConfirmed(false);
     setConfirmedDetails(null);
+    invalidateServiceArea();
+  };
+
+  const checkServiceAreaCoordinates = async (
+    latNum: number,
+    lngNum: number,
+    accuracyMeters?: number,
+  ): Promise<boolean> => {
+    if (!options.enableServiceAreaCheck) {
+      return true;
+    }
+
+    if (
+      !Number.isFinite(latNum) ||
+      !Number.isFinite(lngNum) ||
+      latNum < -90 ||
+      latNum > 90 ||
+      lngNum < -180 ||
+      lngNum > 180
+    ) {
+      setServiceAreaStatus('IDLE');
+      setServiceAreaInfo(null);
+      setServiceAreaError('Invalid coordinates');
+      return false;
+    }
+
+    if (serviceAreaAbortControllerRef.current) {
+      serviceAreaAbortControllerRef.current.abort();
+    }
+    const abortController = new AbortController();
+    serviceAreaAbortControllerRef.current = abortController;
+
+    const seq = ++serviceAreaSeqRef.current;
+    setServiceAreaStatus('CHECKING');
+    setServiceAreaError(null);
+
+    try {
+      const res = await fetch('/requests/service-area-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lat: latNum,
+          lng: lngNum,
+          ...(typeof accuracyMeters === 'number' && Number.isFinite(accuracyMeters)
+            ? { accuracy: accuracyMeters }
+            : {}),
+        }),
+        signal: abortController.signal,
+      });
+
+      if (seq !== serviceAreaSeqRef.current) return false;
+
+      const data = await res.json().catch(() => null);
+      if (seq !== serviceAreaSeqRef.current) return false;
+
+      if (res.ok && data?.success && data?.data) {
+        setServiceAreaInfo(data.data);
+        if (data.data.eligible) {
+          setServiceAreaStatus('ELIGIBLE');
+          setServiceAreaError(null);
+          return true;
+        } else if (
+          data.data.status === 'NEAR_BOUNDARY_OUTSIDE' ||
+          data.data.uncertaintyAssessment?.isNearBoundary
+        ) {
+          setServiceAreaStatus('NEAR_BOUNDARY');
+          setServiceAreaError(null);
+          setIsLocationConfirmed(false);
+          return false;
+        } else {
+          setServiceAreaStatus('OUTSIDE');
+          setServiceAreaError(null);
+          setIsLocationConfirmed(false);
+          return false;
+        }
+      } else if (res.status === 422 || data?.error?.code === 'OUTSIDE_SERVICE_AREA') {
+        const isNear =
+          data?.error?.details?.status === 'NEAR_BOUNDARY_OUTSIDE' ||
+          data?.error?.details?.isNearBoundary === true;
+        setServiceAreaStatus(isNear ? 'NEAR_BOUNDARY' : 'OUTSIDE');
+        setServiceAreaInfo(null);
+        setServiceAreaError(null);
+        setIsLocationConfirmed(false);
+        return false;
+      } else {
+        setServiceAreaStatus('UNAVAILABLE');
+        setServiceAreaInfo(null);
+        setServiceAreaError(
+          data?.error?.message ||
+            'Unable to verify Delhi NCR service area right now. Please try again shortly or call 112.',
+        );
+        return false;
+      }
+    } catch (err: unknown) {
+      if ((err as Error)?.name === 'AbortError') return false;
+      if (seq !== serviceAreaSeqRef.current) return false;
+
+      setServiceAreaStatus('UNAVAILABLE');
+      setServiceAreaInfo(null);
+      setServiceAreaError(
+        'Unable to contact service-area verification service. Please try again shortly or call 112.',
+      );
+      return false;
+    }
+  };
+
+  const retryServiceAreaCheck = () => {
+    const latNum = parseFloat(lat);
+    const lngNum = parseFloat(lng);
+    if (!isNaN(latNum) && !isNaN(lngNum)) {
+      void checkServiceAreaCoordinates(
+        latNum,
+        lngNum,
+        locationSource === 'GPS' && typeof gpsAccuracy === 'number' ? gpsAccuracy : undefined,
+      );
+    }
   };
 
   /**
@@ -68,6 +212,7 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
    */
   const handleAddressChange = (newVal: string) => {
     setAddress(newVal);
+    setLocationAttribution(null);
     userEditedDuringLookupRef.current = true;
     userEditedAddressRef.current = true;
 
@@ -107,6 +252,7 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
   const handleCoordinateChange = (field: 'lat' | 'lng', newVal: string) => {
     if (field === 'lat') setLat(newVal);
     else setLng(newVal);
+    setLocationAttribution(null);
 
     // 1. Invalidate pending reverse-geocoding responses
     lookupSeqRef.current += 1;
@@ -201,9 +347,17 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
         }
       } else {
         setGeocodeStatus('ERROR');
+        const rawMsg = data?.message;
+        const isSafeMessage =
+          rawMsg &&
+          typeof rawMsg === 'string' &&
+          !rawMsg.includes('GEOAPIFY') &&
+          !rawMsg.includes('CONFIG_ERROR') &&
+          !rawMsg.includes('PROVIDER_');
         setGeocodeMessage(
-          data?.message ||
-            'Unable to determine location for this address. Please refine your search or use GPS.',
+          isSafeMessage
+            ? rawMsg
+            : 'Unable to determine location for this address. Please refine your search or use GPS.',
         );
       }
     } catch (err: unknown) {
@@ -213,7 +367,7 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
       if (seq !== geocodeSeqRef.current) return;
       setGeocodeStatus('ERROR');
       setGeocodeMessage(
-        'Network error looking up address. Please check your connection or use GPS.',
+        'Unable to determine location for this address. Please check your connection or use GPS.',
       );
     }
   };
@@ -238,12 +392,29 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
       source: 'GEOCODED',
     });
 
+    if (
+      candidate.attribution?.includes('OpenStreetMap') ||
+      candidate.attribution?.includes('OSM') ||
+      candidate.attributionUrl?.includes('openstreetmap.org')
+    ) {
+      setLocationAttribution({
+        text: candidate.attribution || '© OpenStreetMap contributors',
+        url: candidate.attributionUrl || 'https://www.openstreetmap.org/copyright',
+      });
+    } else {
+      setLocationAttribution(null);
+    }
+
     setGeocodeCandidates([]);
     setGeocodeStatus('FOUND');
     setGeocodeMessage(null);
     userEditedAddressRef.current = false;
     onFieldEdited?.();
     onErrorsClear?.(['address', 'lat', 'lng', 'location']);
+
+    if (options.enableServiceAreaCheck) {
+      void checkServiceAreaCoordinates(candidate.lat, candidate.lng);
+    }
   };
 
   /**
@@ -292,7 +463,25 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
           const formattedAddress = data.address.trim();
           setAddress(formattedAddress);
           setReverseGeocodeStatus('FOUND');
-          setReverseGeocodeMessage(null);
+          setReverseGeocodeMessage(
+            data.isApproximate
+              ? data.message ||
+                  'Approximate regional landmark identified. Please specify your exact street address or building number.'
+              : null,
+          );
+
+          if (
+            data.provider === 'nominatim' ||
+            data.attribution?.includes('OpenStreetMap') ||
+            data.attributionUrl?.includes('openstreetmap.org')
+          ) {
+            setLocationAttribution({
+              text: data.attribution || '© OpenStreetMap contributors',
+              url: data.attributionUrl || 'https://www.openstreetmap.org/copyright',
+            });
+          } else {
+            setLocationAttribution(null);
+          }
 
           // REQUIREMENT: Automatically populate coordinates and address,
           // but KEEP isLocationConfirmed=false until citizen explicitly confirms.
@@ -303,20 +492,27 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
           onErrorsClear?.(['address', 'lat', 'lng']);
         } else {
           setReverseGeocodeStatus('UNAVAILABLE');
-          const baseMsg = data?.message || 'No street address found for these coordinates.';
+          setLocationAttribution(null);
+          const rawMsg = data?.message;
+          const isSafe =
+            rawMsg &&
+            typeof rawMsg === 'string' &&
+            !rawMsg.includes('GEOAPIFY') &&
+            !rawMsg.includes('CONFIG_ERROR') &&
+            !rawMsg.includes('PROVIDER_') &&
+            !rawMsg.includes('<!DOCTYPE') &&
+            !rawMsg.includes('<html');
           setReverseGeocodeMessage(
-            baseMsg.includes('manually')
-              ? baseMsg
-              : `${baseMsg} Coordinates are saved — please enter your street address or landmark manually.`,
+            isSafe
+              ? rawMsg
+              : 'Automatic address lookup is temporarily unavailable. Your GPS coordinates are saved — please specify your street name or a nearby landmark.',
           );
         }
       } else {
         setReverseGeocodeStatus('ERROR');
-        const baseMsg = data?.message || 'Unable to determine street address.';
+        setLocationAttribution(null);
         setReverseGeocodeMessage(
-          baseMsg.includes('manually')
-            ? baseMsg
-            : `${baseMsg} Coordinates are saved — please enter your street address or landmark manually.`,
+          'Automatic address lookup is temporarily unavailable. Your GPS coordinates are saved — please specify your street name or a nearby landmark.',
         );
       }
     } catch (err: unknown) {
@@ -328,8 +524,9 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
         return;
       }
       setReverseGeocodeStatus('ERROR');
+      setLocationAttribution(null);
       setReverseGeocodeMessage(
-        'Network error looking up address. Coordinates are saved — please enter your street address or landmark manually.',
+        'Automatic address lookup is temporarily unavailable. Your GPS coordinates are saved — please specify your street name or a nearby landmark.',
       );
     }
   };
@@ -343,6 +540,7 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
       return;
     }
 
+    setLocationAttribution(null);
     setGpsStatus('ACQUIRING');
     invalidateConfirmation();
 
@@ -362,6 +560,14 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
 
         // Reverse-geocode to find nearest street address
         void triggerReverseGeocode(pos.coords.latitude, pos.coords.longitude);
+
+        if (options.enableServiceAreaCheck) {
+          void checkServiceAreaCoordinates(
+            pos.coords.latitude,
+            pos.coords.longitude,
+            pos.coords.accuracy,
+          );
+        }
       },
       (err) => {
         // Strict geolocation error handling: NO fake/ Houston fallback coordinates
@@ -420,6 +626,11 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
 
     onErrorsClear?.(['address', 'lat', 'lng', 'location']);
     onFieldEdited?.();
+
+    if (options.enableServiceAreaCheck) {
+      void checkServiceAreaCoordinates(latNum, lngNum);
+    }
+
     return true;
   };
 
@@ -446,10 +657,23 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
     setGeocodeMessage,
     locationSource,
     setLocationSource,
+    locationAttribution,
+    setLocationAttribution,
     isLocationConfirmed,
     setIsLocationConfirmed,
     confirmedDetails,
     setConfirmedDetails,
+    serviceAreaStatus,
+    setServiceAreaStatus,
+    serviceAreaInfo,
+    setServiceAreaInfo,
+    serviceAreaError,
+    setServiceAreaError,
+    serviceAreaSeqRef,
+    serviceAreaAbortControllerRef,
+    checkServiceAreaCoordinates,
+    retryServiceAreaCheck,
+    invalidateServiceArea,
     lookupSeqRef,
     geocodeSeqRef,
     userEditedDuringLookupRef,
