@@ -94,6 +94,8 @@ describe.runIf(shouldRun)('Real Demo CLI Execution & PostGIS Lifecycle Suite', (
     try {
       await pool.query(`DELETE FROM requests WHERE id = $1`, [sentinelRequestId]);
       await pool.query(`DELETE FROM operators WHERE username = $1`, [sentinelUsername]);
+      await pool.query(`DELETE FROM ${DEMO_OPERATOR_OWNERSHIP_TABLE}`);
+      await pool.query(`DELETE FROM operators WHERE username = 'demo_operator'`);
     } catch {
       // ignore
     }

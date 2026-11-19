@@ -277,9 +277,16 @@ export class AuthService {
    * In development/test environments, provisions an initial operator if empty.
    */
   public async ensureInitialOperator(): Promise<void> {
-    const count = await this.repo.countOperators();
-    if (count > 0) {
-      return;
+    const hasExplicitConfig = Boolean(
+      process.env.INITIAL_OPERATOR_USERNAME && process.env.INITIAL_OPERATOR_PASSWORD,
+    );
+
+    // If no explicit operator was configured and database already has operators, do nothing
+    if (!hasExplicitConfig) {
+      const count = await this.repo.countOperators();
+      if (count > 0) {
+        return;
+      }
     }
 
     const isProd = process.env.NODE_ENV === 'production';
@@ -301,13 +308,24 @@ export class AuthService {
       return;
     }
 
-    await this.createOperator({
-      username: initialUser,
-      password: initialPass,
-      name: initialName,
-      role: 'ADMIN',
-    });
-    console.log(`[Auth] Initial operator account "${initialUser}" initialized.`);
+    const existing = await this.repo.getOperatorByUsername(initialUser);
+    if (!existing) {
+      await this.createOperator({
+        username: initialUser,
+        password: initialPass,
+        name: initialName,
+        role: 'ADMIN',
+      });
+      console.log(`[Auth] Initial operator account "${initialUser}" initialized.`);
+    } else if (hasExplicitConfig) {
+      // If explicit operator credentials were provided, ensure the password is synchronized
+      const isValid = this.verifyPassword(initialPass, existing.salt, existing.password_hash);
+      if (!isValid && this.repo.updateOperatorPassword) {
+        const { hash, salt } = this.hashPassword(initialPass);
+        await this.repo.updateOperatorPassword(existing.id, hash, salt);
+        console.log(`[Auth] Initial operator account "${initialUser}" password synchronized.`);
+      }
+    }
   }
 }
 
