@@ -63,12 +63,26 @@ Citizen location intake (`apps/web/lib/geocoding.ts`, `apps/web/hooks/useCitizen
 **Non-negotiable geocoding invariants:**
 
 - Citizen-provided GPS or manual coordinates are **never replaced** by an approximate landmark's coordinates.
-- Valid WGS84 coordinates outside the Delhi NCR reference bounding box are **never rejected**.
+- Geocoding and reverse-geocoding lookup endpoints accept any valid WGS84 coordinates without throwing runtime crashes or internal errors.
+- However, final rescue request submission (`POST /requests`) strictly enforces the authoritative Delhi NCR service area boundary (`docs/service-area.md`); coordinates outside the NCR boundary are rejected with HTTP 422 `OUTSIDE_SERVICE_AREA` and zero database writes.
 - In horizontally scaled multi-instance or serverless deployments, process-local Nominatim caching/rate-limiting does not provide a global distributed rate limit; deploy a dedicated Nominatim gateway or commercial API key for multi-instance production use.
 
 ---
 
-## 5. Emergency Numbers & Unverified Real-World Data
+## 5. Authoritative Delhi NCR Service-Area Boundary & Intake Enforcement
+
+FloodRelay restricts rescue assistance intake to the official **National Capital Region (NCR)**:
+
+- **Authoritative Extent:** Encompasses all 34 constituent administrative districts (~55,083 sq. km) across the NCT of Delhi (11 districts), Haryana (14 districts), Uttar Pradesh (8 districts), and Rajasthan (2 districts). See [docs/service-area.md](service-area.md) for full provenance, GeoJSON checksums, and dataset details.
+- **PostGIS Enforcement:** Spatial containment is evaluated in PostgreSQL via `ST_Covers(geometry, ST_SetSRID(ST_MakePoint(lng, lat), 4326))` using an indexed `GEOMETRY(MultiPolygon, 4326)` table (`service_areas`).
+- **Outside-Area Intake Contract:** Out-of-NCR submissions are rejected with HTTP 422 `OUTSIDE_SERVICE_AREA` before any request, operational event, or audit record is created.
+- **Fail-Closed Availability:** If the service-area boundary dataset is missing or unverified, requests fail closed with HTTP 503 `SERVICE_AREA_UNAVAILABLE` without exposing database internals.
+- **Citizen Guidance:** The Citizen Portal immediately displays clear emergency guidance directing citizens in immediate danger to **Call 112** (`tel:112`), provides options to change location or retry, and never displays a fake confirmation ticket.
+- **Confirmation Page Guard:** Protects against stale `sessionStorage` receipts being presented as confirmation of newly rejected submissions.
+
+---
+
+## 6. Emergency Numbers & Unverified Real-World Data
 
 | Category                                                           | Status                          | Source / Policy                                                                                                                                                                        |
 | ------------------------------------------------------------------ | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -79,7 +93,7 @@ Citizen location intake (`apps/web/lib/geocoding.ts`, `apps/web/hooks/useCitizen
 
 ---
 
-## 6. Hindi (`hi-IN`) Localisation Status
+## 7. Hindi (`hi-IN`) Localisation Status
 
 - **Architecture Ready (`apps/web/lib/i18n/`):**
   - Typed `CitizenMessages` keys cover citizen-critical domains: `home`, `request`, `validation`, `emergency`, and `confirmation`.
