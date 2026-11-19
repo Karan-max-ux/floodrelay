@@ -253,11 +253,86 @@ To add a new operational service area (e.g. Mumbai MMR, Chennai, Kerala):
 
 ---
 
-## 8. Mandatory Deployment Sequence & Configuration Requirements
+## 8. Active PostGIS Boundary Attestation & Anti-Tampering
+
+### Separation of Concerns
+
+FloodRelay performs **two distinct integrity checks**:
+
+1. **Repository GeoJSON checksum verification** (`loadDelhiNcrBoundaryDataset()` → SHA-256 of the on-disk `.geojson` file). This confirms that the application binary contains the approved boundary geometry. It runs during dataset loading.
+
+2. **Active PostGIS boundary attestation** (`ServiceAreaService.attestActiveBoundaryIntegrity()`). This confirms that the **live database polygon** is topologically identical to the approved GeoJSON. It runs during production startup/readiness, **after** the GeoJSON checksum passes.
+
+These are **not interchangeable**. A matching file checksum does not prove the database geometry is correct. A matching database metadata row does not prove the geometry was not substituted.
+
+### Attestation Procedure
+
+On startup (`services/api/src/server.ts`), the API service:
+
+1. Loads the approved GeoJSON and verifies its pinned SHA-256.
+2. Calls `repo.attestServiceAreaBoundary(canonicalGeometriesJson)`, which:
+   - Transmits the 34 canonical constituent geometries as a JSON array parameter.
+   - Executes `ST_Equals` and mutual `ST_Covers` between the database's dissolved active boundary and the canonical dissolved geometry.
+   - Returns `region_id`, `boundary_version`, `dataset_sha256`, `is_valid`, `srid`, `point_count`, `area_sq_km`, `geometry_wkb_hash` (`MD5(ST_AsBinary(geometry))`), `is_topologically_equal`, and `is_mutually_covered`.
+3. Validates all fields against trusted application constants:
+   - `region_id = 'IN-NCR'`
+   - `boundary_version = 'ncrpb-2026-gb-ind-adm2-v1'`
+   - `dataset_sha256` matches the pinned repository GeoJSON SHA-256
+   - `is_valid = true`, `srid = 4326`
+   - `is_topologically_equal = true` or `is_mutually_covered = true`
+4. Stores the attested `geometry_wkb_hash` as a **static field** on `ServiceAreaService`, shared across all repository instances (including transaction-backed `txRepo`).
+5. In production (`NODE_ENV=production` or `REQUIRE_DB=1`), attestation failure causes `process.exit(1)`.
+
+### Runtime Anti-Tampering
+
+After attestation, every `checkCoordinates()` call compares the query result's `geometry_wkb_hash` against the stored attested hash. If they differ, the request is rejected with **503 `SERVICE_AREA_UNAVAILABLE`** (fail-closed). This detects post-startup `UPDATE` / DDL tampering of the active boundary without reconstructing the full NCR polygon on every request.
+
+> No SQL, file paths, hash values, or PostGIS function names are exposed in HTTP error responses.
+
+### Regression Test Coverage
+
+14 attestation-specific test cases in `serviceAreaEnforcement.test.ts`:
+
+| #   | Scenario                                                        | Expected Outcome                      |
+| --- | --------------------------------------------------------------- | ------------------------------------- |
+| 1   | Correct boundary (all fields match, ST_Equals=true)             | Attestation succeeds, WKB hash stored |
+| 2   | Wrong `region_id`                                               | Attestation throws                    |
+| 3   | Wrong `boundary_version`                                        | Attestation throws                    |
+| 4   | Wrong `dataset_sha256`                                          | Attestation throws                    |
+| 5   | Topological mismatch (geometry substituted, metadata unchanged) | Attestation throws                    |
+| 6   | Invalid SRID (3857 instead of 4326)                             | Attestation throws                    |
+| 7   | Multiple active boundaries (2 rows)                             | Attestation throws                    |
+| 8   | Missing active boundary (0 rows)                                | Attestation throws                    |
+| 9   | PostGIS database failure                                        | Attestation throws                    |
+| 10  | Successful attestation → `checkCoordinates` works               | 200 / eligible                        |
+| 11  | Post-attestation WKB hash change → `checkCoordinates` rejects   | 503 (no hash leak)                    |
+| 12  | All failure modes → zero DB writes                              | 0 inserts across all tables           |
+| 13  | HTTP POST /requests → 503 after tampered geometry               | 503 + zero writes                     |
+| 14  | ST_IsValid=false                                                | Attestation throws                    |
+
+---
+
+## 9. Citizen Portal Form Fields (Accurate Reference)
+
+The Citizen Portal rescue request form (`apps/web/app/citizen/request/page.tsx`) collects:
+
+1. **Address** (`addressInput`) — text field with forward geocoding search
+2. **Latitude / Longitude** (`latInput`, `lngInput`) — populated via GPS, geocoding selection, or manual entry
+3. **Water Situation** (`waterLevelInput`) — descriptive text
+4. **Number of People** (`partyCount`) — numeric stepper
+5. **Special Assistance Needs** (checkboxes): `elderlyChildren`, `mobilityImpaired`, `medicalOxygen`, `pets`
+6. **Urgency Level** (radio): `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`
+7. **Field Notes** (`notesInput`) — free-text, labelled "Additional Instructions / Landmark Details"
+
+> **The form does NOT collect a contact name or phone number.**
+
+---
+
+## 10. Mandatory Deployment Sequence & Configuration Requirements
 
 There is **no feature flag** to bypass service-area enforcement (`ENABLE_SERVICE_AREA_CHECK` was an imaginary feature flag; service area enforcement is mandatory and unconditional).
 
-Production deployments must execute the following 8-step sequence:
+Production deployments must execute the following 9-step sequence:
 
 1. **PostGIS Provisioning:** Provision a PostgreSQL 15+ database instance with the PostGIS extension enabled (`CREATE EXTENSION IF NOT EXISTS postgis;`).
 2. **Core Migrations:** Apply base schema migrations `001_initial_schema.sql` through `004_route_indexes.sql`.
@@ -268,7 +343,11 @@ Production deployments must execute the following 8-step sequence:
    FROM service_areas WHERE is_active = TRUE;
    ```
    Assert `is_valid = true` and `area_sq_km` between 54,000 and 57,000.
-5. **Backend Deployment:** Deploy the `@floodrelay/api` container with `DATABASE_URL` configured. On startup, the service verifies the SHA-256 integrity of `services/api/src/geo/delhi-ncr-boundary.geojson` against `DELHI_NCR_EXPECTED_DATASET_SHA256`.
+5. **Backend Deployment:** Deploy the `@floodrelay/api` container with `DATABASE_URL` configured. On startup, the service:
+   - Verifies the SHA-256 integrity of `services/api/src/geo/delhi-ncr-boundary.geojson` against `DELHI_NCR_EXPECTED_DATASET_SHA256`.
+   - Performs active PostGIS boundary attestation via `attestActiveBoundaryIntegrity()`, including topological `ST_Equals` comparison against canonical GeoJSON and WKB hash capture.
+   - Aborts startup (`process.exit(1)`) in production if attestation fails.
 6. **Health & Endpoint Check:** Execute `GET /health` and `POST /requests/service-area-check` with known test coordinates (e.g. Connaught Place `28.6315, 77.2167`) to verify 200 OK response with `status: "INSIDE"`.
 7. **Frontend Deployment:** Deploy the `@floodrelay/web` Next.js frontend with `NEXT_PUBLIC_API_URL` pointing to the API service.
 8. **Traffic Enablement:** Direct ingress load balancers / reverse proxies to route public citizen and operator traffic to the updated deployment.
+9. **Post-Deployment Monitoring:** Monitor application logs for `[Startup]` attestation success messages and periodic `[ServiceAreaService]` geometry hash consistency.

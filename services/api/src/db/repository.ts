@@ -99,10 +99,26 @@ export interface ServiceAreaCoverageRow {
   region_id: string;
   region_name: string;
   boundary_version: string;
+  dataset_sha256: string;
   is_valid: boolean;
   srid: number;
+  geometry_wkb_hash: string;
   is_covered: boolean;
   distance_meters?: number;
+}
+
+export interface ServiceAreaAttestationRow {
+  region_id: string;
+  region_name: string;
+  boundary_version: string;
+  dataset_sha256: string;
+  is_valid: boolean;
+  srid: number;
+  point_count: number;
+  area_sq_km: number;
+  geometry_wkb_hash: string;
+  is_topologically_equal: boolean;
+  is_mutually_covered: boolean;
 }
 
 export class PostgisRepository {
@@ -2135,14 +2151,56 @@ export class PostgisRepository {
         region_id,
         region_name,
         boundary_version,
+        dataset_sha256,
         ST_IsValid(geometry) AS is_valid,
         ST_SRID(geometry) AS srid,
+        MD5(ST_AsBinary(geometry)) AS geometry_wkb_hash,
         ST_Covers(geometry, ST_SetSRID(ST_MakePoint($1, $2), 4326)) AS is_covered,
         ST_Distance(geometry::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS distance_meters
       FROM service_areas
       WHERE is_active = TRUE;
     `;
     const res = await this.client.query<ServiceAreaCoverageRow>(sql, [lng, lat]);
+    return res.rows;
+  }
+
+  /**
+   * Performs topological attestation of active database service area boundary geometry
+   * against the canonical GeoJSON geometry (dissolved constituent polygons) using PostGIS ST_Equals.
+   */
+  async attestServiceAreaBoundary(
+    canonicalGeometriesJson: string,
+  ): Promise<ServiceAreaAttestationRow[]> {
+    const sql = `
+      WITH canonical AS (
+        SELECT ST_Multi(
+          ST_MakeValid(
+            ST_UnaryUnion(
+              ST_Collect(
+                ST_SetSRID(ST_GeomFromGeoJSON(elem::text), 4326)
+              )
+            )
+          )
+        ) AS canonical_geom
+        FROM jsonb_array_elements($1::jsonb) AS elem
+      )
+      SELECT
+        sa.region_id,
+        sa.region_name,
+        sa.boundary_version,
+        sa.dataset_sha256,
+        ST_IsValid(sa.geometry) AS is_valid,
+        ST_SRID(sa.geometry) AS srid,
+        ST_NPoints(sa.geometry) AS point_count,
+        (ST_Area(sa.geometry::geography) / 1000000.0) AS area_sq_km,
+        MD5(ST_AsBinary(sa.geometry)) AS geometry_wkb_hash,
+        ST_Equals(sa.geometry, c.canonical_geom) AS is_topologically_equal,
+        (ST_Covers(sa.geometry, c.canonical_geom) AND ST_Covers(c.canonical_geom, sa.geometry)) AS is_mutually_covered
+      FROM service_areas sa
+      CROSS JOIN canonical c
+      WHERE sa.is_active = TRUE;
+    `;
+    const res = await this.client.query<ServiceAreaAttestationRow>(sql, [canonicalGeometriesJson]);
     return res.rows;
   }
 }

@@ -23,7 +23,18 @@ class ServiceAreaMockDb implements Queryable {
   public insertedEvents: unknown[] = [];
   public insertedAudits: unknown[] = [];
   public byIdempotencyKey = new Map<string, Record<string, unknown>>();
-  public mode: 'ACTIVE' | 'MISSING_BOUNDARY' | 'INVALID_GEOMETRY' | 'DB_ERROR' = 'ACTIVE';
+  public mode:
+    | 'ACTIVE'
+    | 'MISSING_BOUNDARY'
+    | 'INVALID_GEOMETRY'
+    | 'DB_ERROR'
+    | 'WRONG_REGION_ID'
+    | 'WRONG_VERSION'
+    | 'WRONG_CHECKSUM'
+    | 'INVALID_SRID'
+    | 'MULTIPLE_BOUNDARIES'
+    | 'TOPOLOGICAL_MISMATCH'
+    | 'TAMPERED_GEOMETRY_HASH' = 'ACTIVE';
 
   async query<R extends Record<string, unknown> = Record<string, unknown>>(
     sqlOrConfig: string | { text: string; values?: unknown[] },
@@ -39,8 +50,111 @@ class ServiceAreaMockDb implements Queryable {
       if (this.mode === 'MISSING_BOUNDARY') {
         return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
       }
+
+      if (sql.includes('WITH canonical AS') || sql.includes('ST_Equals')) {
+        if (this.mode === 'MULTIPLE_BOUNDARIES') {
+          return {
+            rows: [
+              {
+                region_id: DELHI_NCR_REGION_ID,
+                region_name: DELHI_NCR_REGION_NAME,
+                boundary_version: DELHI_NCR_BOUNDARY_VERSION,
+                dataset_sha256: DELHI_NCR_EXPECTED_DATASET_SHA256,
+                is_valid: true,
+                srid: 4326,
+                point_count: 9510,
+                area_sq_km: 55223.3,
+                geometry_wkb_hash: 'c8f7d9a1e2b3c4d5e6f708192a3b4c5d',
+                is_topologically_equal: true,
+                is_mutually_covered: true,
+              } as unknown as R,
+              {
+                region_id: 'IN-NCR-2',
+                region_name: 'Delhi NCR Duplicate',
+                boundary_version: DELHI_NCR_BOUNDARY_VERSION,
+                dataset_sha256: DELHI_NCR_EXPECTED_DATASET_SHA256,
+                is_valid: true,
+                srid: 4326,
+                point_count: 9510,
+                area_sq_km: 55223.3,
+                geometry_wkb_hash: 'c8f7d9a1e2b3c4d5e6f708192a3b4c5d',
+                is_topologically_equal: true,
+                is_mutually_covered: true,
+              } as unknown as R,
+            ],
+            command: 'SELECT',
+            rowCount: 2,
+            oid: 0,
+            fields: [],
+          };
+        }
+
+        return {
+          rows: [
+            {
+              region_id: this.mode === 'WRONG_REGION_ID' ? 'IN-MUMBAI' : DELHI_NCR_REGION_ID,
+              region_name: DELHI_NCR_REGION_NAME,
+              boundary_version:
+                this.mode === 'WRONG_VERSION' ? 'legacy-v0' : DELHI_NCR_BOUNDARY_VERSION,
+              dataset_sha256:
+                this.mode === 'WRONG_CHECKSUM'
+                  ? '0000000000000000000000000000000000000000000000000000000000000000'
+                  : DELHI_NCR_EXPECTED_DATASET_SHA256,
+              is_valid: this.mode !== 'INVALID_GEOMETRY',
+              srid: this.mode === 'INVALID_SRID' ? 3857 : 4326,
+              point_count: 9510,
+              area_sq_km: 55223.3,
+              geometry_wkb_hash:
+                this.mode === 'TAMPERED_GEOMETRY_HASH'
+                  ? 'altered_wkb_hash_99999999'
+                  : 'c8f7d9a1e2b3c4d5e6f708192a3b4c5d',
+              is_topologically_equal: this.mode !== 'TOPOLOGICAL_MISMATCH',
+              is_mutually_covered: this.mode !== 'TOPOLOGICAL_MISMATCH',
+            } as unknown as R,
+          ],
+          command: 'SELECT',
+          rowCount: 1,
+          oid: 0,
+          fields: [],
+        };
+      }
+
+      if (this.mode === 'MULTIPLE_BOUNDARIES') {
+        return {
+          rows: [
+            {
+              region_id: DELHI_NCR_REGION_ID,
+              region_name: DELHI_NCR_REGION_NAME,
+              boundary_version: DELHI_NCR_BOUNDARY_VERSION,
+              dataset_sha256: DELHI_NCR_EXPECTED_DATASET_SHA256,
+              is_valid: true,
+              srid: 4326,
+              geometry_wkb_hash: 'c8f7d9a1e2b3c4d5e6f708192a3b4c5d',
+              is_covered: true,
+              distance_meters: 0,
+            } as unknown as R,
+            {
+              region_id: 'IN-NCR-2',
+              region_name: 'Delhi NCR Duplicate',
+              boundary_version: DELHI_NCR_BOUNDARY_VERSION,
+              dataset_sha256: DELHI_NCR_EXPECTED_DATASET_SHA256,
+              is_valid: true,
+              srid: 4326,
+              geometry_wkb_hash: 'c8f7d9a1e2b3c4d5e6f708192a3b4c5d',
+              is_covered: true,
+              distance_meters: 0,
+            } as unknown as R,
+          ],
+          command: 'SELECT',
+          rowCount: 2,
+          oid: 0,
+          fields: [],
+        };
+      }
+
       const lng = vals[0] as number;
       const lat = vals[1] as number;
+
       if (this.mode === 'INVALID_GEOMETRY') {
         return {
           rows: [
@@ -48,8 +162,10 @@ class ServiceAreaMockDb implements Queryable {
               region_id: DELHI_NCR_REGION_ID,
               region_name: DELHI_NCR_REGION_NAME,
               boundary_version: DELHI_NCR_BOUNDARY_VERSION,
+              dataset_sha256: DELHI_NCR_EXPECTED_DATASET_SHA256,
               is_valid: false,
               srid: 4326,
+              geometry_wkb_hash: 'c8f7d9a1e2b3c4d5e6f708192a3b4c5d',
               is_covered: false,
             } as unknown as R,
           ],
@@ -59,15 +175,25 @@ class ServiceAreaMockDb implements Queryable {
           fields: [],
         };
       }
+
       const evalRes = evaluateDelhiNcrCoverage(lat, lng);
       return {
         rows: [
           {
-            region_id: DELHI_NCR_REGION_ID,
+            region_id: this.mode === 'WRONG_REGION_ID' ? 'IN-MUMBAI' : DELHI_NCR_REGION_ID,
             region_name: DELHI_NCR_REGION_NAME,
-            boundary_version: DELHI_NCR_BOUNDARY_VERSION,
+            boundary_version:
+              this.mode === 'WRONG_VERSION' ? 'legacy-v0' : DELHI_NCR_BOUNDARY_VERSION,
+            dataset_sha256:
+              this.mode === 'WRONG_CHECKSUM'
+                ? '0000000000000000000000000000000000000000000000000000000000000000'
+                : DELHI_NCR_EXPECTED_DATASET_SHA256,
             is_valid: true,
-            srid: 4326,
+            srid: this.mode === 'INVALID_SRID' ? 3857 : 4326,
+            geometry_wkb_hash:
+              this.mode === 'TAMPERED_GEOMETRY_HASH'
+                ? 'altered_wkb_hash_99999999'
+                : 'c8f7d9a1e2b3c4d5e6f708192a3b4c5d',
             is_covered: evalRes.covered,
             distance_meters: evalRes.distanceToBoundaryMeters,
           } as unknown as R,
@@ -161,6 +287,7 @@ describe('Phase 9 — Delhi NCR Service-Area Enforcement & Fail-Closed Guardrail
 
   beforeEach(async () => {
     resetCachedBoundaryDatasetForTest();
+    ServiceAreaService.resetAttestationForTest();
     db = new ServiceAreaMockDb();
     const repo = new PostgisRepository(db);
     serviceAreaService = new ServiceAreaService(repo);
@@ -836,6 +963,200 @@ describe('Phase 9 — Delhi NCR Service-Area Enforcement & Fail-Closed Guardrail
       expect(db.insertedRequests).toHaveLength(0);
       expect(db.insertedEvents).toHaveLength(0);
       expect(db.insertedAudits).toHaveLength(0);
+    });
+  });
+
+  describe('Active PostGIS Boundary Integrity Attestation & Anti-Tampering Suite', () => {
+    // Test 1 — Correct boundary accepted: attestation succeeds with valid metadata and topology
+    it('Test 1: attestation succeeds when DB boundary matches approved GeoJSON (correct region, version, checksum, ST_Equals)', async () => {
+      db.mode = 'ACTIVE';
+      const result = await serviceAreaService.attestActiveBoundaryIntegrity();
+
+      expect(result.regionId).toBe(DELHI_NCR_REGION_ID);
+      expect(result.boundaryVersion).toBe(DELHI_NCR_BOUNDARY_VERSION);
+      expect(result.datasetSha256).toBe(DELHI_NCR_EXPECTED_DATASET_SHA256);
+      expect(result.isValid).toBe(true);
+      expect(result.srid).toBe(4326);
+      expect(result.isTopologicallyEqual).toBe(true);
+      expect(result.isMutuallyCovered).toBe(true);
+      expect(result.geometryWkbHash).toBe('c8f7d9a1e2b3c4d5e6f708192a3b4c5d');
+      expect(result.attestedAt).toBeInstanceOf(Date);
+
+      // Verify static state was set
+      expect(ServiceAreaService.getAttestedGeometryWkbHash()).toBe(
+        'c8f7d9a1e2b3c4d5e6f708192a3b4c5d',
+      );
+      expect(ServiceAreaService.getAttestationResult()).toEqual(result);
+    });
+
+    // Test 2 — Wrong region ID: attestation fails when DB row has unexpected region_id
+    it('Test 2: attestation rejects mismatched region_id', async () => {
+      db.mode = 'WRONG_REGION_ID';
+      await expect(serviceAreaService.attestActiveBoundaryIntegrity()).rejects.toThrow(
+        /region_id mismatch.*expected.*IN-NCR.*actual.*IN-MUMBAI/i,
+      );
+      expect(ServiceAreaService.getAttestedGeometryWkbHash()).toBeNull();
+    });
+
+    // Test 3 — Wrong version: attestation fails when boundary_version doesn't match
+    it('Test 3: attestation rejects mismatched boundary_version', async () => {
+      db.mode = 'WRONG_VERSION';
+      await expect(serviceAreaService.attestActiveBoundaryIntegrity()).rejects.toThrow(
+        /version mismatch.*expected.*ncrpb-2026-gb-ind-adm2-v1.*actual.*legacy-v0/i,
+      );
+      expect(ServiceAreaService.getAttestedGeometryWkbHash()).toBeNull();
+    });
+
+    // Test 4 — Wrong checksum: attestation fails when dataset_sha256 doesn't match
+    it('Test 4: attestation rejects mismatched dataset_sha256', async () => {
+      db.mode = 'WRONG_CHECKSUM';
+      await expect(serviceAreaService.attestActiveBoundaryIntegrity()).rejects.toThrow(
+        /dataset_sha256 mismatch/i,
+      );
+      expect(ServiceAreaService.getAttestedGeometryWkbHash()).toBeNull();
+    });
+
+    // Test 5 — Modified polygon with unchanged metadata: ST_Equals detects geometry substitution
+    it('Test 5: attestation rejects topological mismatch (ST_Equals=false) even when metadata matches', async () => {
+      db.mode = 'TOPOLOGICAL_MISMATCH';
+      await expect(serviceAreaService.attestActiveBoundaryIntegrity()).rejects.toThrow(
+        /does not topologically match/i,
+      );
+      expect(ServiceAreaService.getAttestedGeometryWkbHash()).toBeNull();
+    });
+
+    // Test 6 — Invalid SRID: attestation rejects geometry in wrong CRS
+    it('Test 6: attestation rejects SRID != 4326', async () => {
+      db.mode = 'INVALID_SRID';
+      await expect(serviceAreaService.attestActiveBoundaryIntegrity()).rejects.toThrow(
+        /SRID mismatch.*expected 4326.*actual 3857/i,
+      );
+      expect(ServiceAreaService.getAttestedGeometryWkbHash()).toBeNull();
+    });
+
+    // Test 7 — Multiple active boundaries: attestation requires exactly 1 active row
+    it('Test 7: attestation rejects multiple active service_areas rows', async () => {
+      db.mode = 'MULTIPLE_BOUNDARIES';
+      await expect(serviceAreaService.attestActiveBoundaryIntegrity()).rejects.toThrow(
+        /Multiple active service-area boundaries.*2 rows/i,
+      );
+      expect(ServiceAreaService.getAttestedGeometryWkbHash()).toBeNull();
+    });
+
+    // Test 8 — Missing active boundary: attestation fails when no active row exists
+    it('Test 8: attestation rejects when no active service-area boundary exists', async () => {
+      db.mode = 'MISSING_BOUNDARY';
+      await expect(serviceAreaService.attestActiveBoundaryIntegrity()).rejects.toThrow(
+        /No active service-area boundary found/i,
+      );
+      expect(ServiceAreaService.getAttestedGeometryWkbHash()).toBeNull();
+    });
+
+    // Test 9 — PostGIS down -> 503: attestation propagates DB errors
+    it('Test 9: attestation propagates database failure as Error', async () => {
+      db.mode = 'DB_ERROR';
+      await expect(serviceAreaService.attestActiveBoundaryIntegrity()).rejects.toThrow(
+        /Database query failed during service-area boundary attestation/i,
+      );
+      expect(ServiceAreaService.getAttestedGeometryWkbHash()).toBeNull();
+    });
+
+    // Test 10 — Approved geometry succeeds, then checkCoordinates works normally
+    it('Test 10: after successful attestation, checkCoordinates passes for inside-NCR point', async () => {
+      db.mode = 'ACTIVE';
+      await serviceAreaService.attestActiveBoundaryIntegrity();
+
+      const result = await serviceAreaService.checkCoordinates(28.6315, 77.2167);
+      expect(result.eligible).toBe(true);
+      expect(result.status).toBe('INSIDE');
+    });
+
+    // Test 11 — Post-attestation polygon changes detected via WKB hash mismatch
+    it('Test 11: checkCoordinates rejects with 503 when geometry WKB hash changes after attestation', async () => {
+      // First, attest successfully
+      db.mode = 'ACTIVE';
+      await serviceAreaService.attestActiveBoundaryIntegrity();
+      expect(ServiceAreaService.getAttestedGeometryWkbHash()).toBe(
+        'c8f7d9a1e2b3c4d5e6f708192a3b4c5d',
+      );
+
+      // Now simulate the DB geometry being tampered after attestation
+      db.mode = 'TAMPERED_GEOMETRY_HASH';
+      try {
+        await serviceAreaService.checkCoordinates(28.6315, 77.2167);
+        // Should not reach here
+        expect(true).toBe(false);
+      } catch (err: unknown) {
+        const domainErr = err as { code?: string; statusCode?: number; message?: string };
+        expect(domainErr.code).toBe('SERVICE_AREA_UNAVAILABLE');
+        expect(domainErr.statusCode).toBe(503);
+        // Error message must NOT leak the hash values
+        expect(domainErr.message).not.toContain('c8f7d9a1');
+        expect(domainErr.message).not.toContain('altered_wkb_hash');
+      }
+    });
+
+    // Test 12 — Zero DB writes on attestation failure: rejected attestation must not create any rows
+    it('Test 12: failed attestation produces zero database writes', async () => {
+      const failureModes: Array<ServiceAreaMockDb['mode']> = [
+        'WRONG_REGION_ID',
+        'WRONG_VERSION',
+        'WRONG_CHECKSUM',
+        'INVALID_SRID',
+        'MULTIPLE_BOUNDARIES',
+        'MISSING_BOUNDARY',
+        'TOPOLOGICAL_MISMATCH',
+        'DB_ERROR',
+      ];
+
+      for (const mode of failureModes) {
+        db.insertedRequests = [];
+        db.insertedEvents = [];
+        db.insertedAudits = [];
+        ServiceAreaService.resetAttestationForTest();
+        db.mode = mode;
+
+        await expect(serviceAreaService.attestActiveBoundaryIntegrity()).rejects.toThrow();
+        expect(db.insertedRequests, `mode=${mode}: zero request writes`).toHaveLength(0);
+        expect(db.insertedEvents, `mode=${mode}: zero event writes`).toHaveLength(0);
+        expect(db.insertedAudits, `mode=${mode}: zero audit writes`).toHaveLength(0);
+      }
+    });
+
+    // Additional: HTTP integration test — after WKB hash tampering, POST /requests returns 503
+    it('POST /requests returns 503 SERVICE_AREA_UNAVAILABLE when geometry tampered after attestation', async () => {
+      // Attest successfully first
+      db.mode = 'ACTIVE';
+      await serviceAreaService.attestActiveBoundaryIntegrity();
+
+      // Simulate post-attestation tampering
+      db.mode = 'TAMPERED_GEOMETRY_HASH';
+      const res = await request(app).post('/requests').send({
+        lat: 28.6315,
+        lng: 77.2167,
+        peopleCount: 2,
+        urgency: 'HIGH',
+      });
+
+      expect(res.status).toBe(503);
+      expect(res.body.error.code).toBe('SERVICE_AREA_UNAVAILABLE');
+      // Must NOT contain internal hash or SQL details
+      expect(JSON.stringify(res.body)).not.toContain('c8f7d9a1');
+      expect(JSON.stringify(res.body)).not.toContain('altered_wkb_hash');
+      expect(JSON.stringify(res.body)).not.toContain('ST_');
+      // Zero DB writes
+      expect(db.insertedRequests).toHaveLength(0);
+      expect(db.insertedEvents).toHaveLength(0);
+      expect(db.insertedAudits).toHaveLength(0);
+    });
+
+    // Additional: Invalid geometry (ST_IsValid=false) fails attestation
+    it('attestation rejects when PostGIS reports ST_IsValid=false', async () => {
+      db.mode = 'INVALID_GEOMETRY';
+      await expect(serviceAreaService.attestActiveBoundaryIntegrity()).rejects.toThrow(
+        /geometry topology is invalid/i,
+      );
+      expect(ServiceAreaService.getAttestedGeometryWkbHash()).toBeNull();
     });
   });
 });

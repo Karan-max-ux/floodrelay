@@ -222,6 +222,11 @@ export function loadDelhiNcrBoundaryDataset(): {
   return cachedDataset;
 }
 
+export function getCanonicalNcrFeatureGeometriesJson(): string {
+  const { dataset } = loadDelhiNcrBoundaryDataset();
+  return JSON.stringify(dataset.features.map((f) => f.geometry));
+}
+
 function pointOnSegment(
   px: number,
   py: number,
