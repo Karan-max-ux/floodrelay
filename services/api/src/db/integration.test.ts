@@ -11,7 +11,7 @@ import { DELHI_NCR_REGION_NAME } from '../geo/delhiNcrBoundary.js';
 const requireDb = Boolean(
   process.env.REQUIRE_DB && process.env.REQUIRE_DB !== '0' && process.env.REQUIRE_DB !== 'false',
 );
-const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
+const hasDatabaseUrl = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 
 if (requireDb && !hasDatabaseUrl) {
   throw new Error(
@@ -27,8 +27,22 @@ if (hasDatabaseUrl) {
     const probePool = getPool();
     const probeClient = await probePool.connect();
     try {
-      await probeClient.query('SELECT 1');
-      dbAvailable = true;
+      const res = await probeClient.query<{ db_name: string }>(
+        'SELECT current_database() AS db_name',
+      );
+      const dbName = res.rows[0]?.db_name;
+      if (dbName === 'floodrelay_test') {
+        dbAvailable = true;
+      } else {
+        if (requireDb) {
+          throw new Error(
+            `REQUIRE_DB is set in CI / environment, but the connected database "${dbName}" is not the dedicated test database "floodrelay_test". Destructive tests aborted to protect operational data.`,
+          );
+        }
+        console.warn(
+          `[Database Safety Guard] Connected database is "${dbName}". Live PostGIS integration tests require dedicated "floodrelay_test" database. Skipping destructive tests to protect operational data.`,
+        );
+      }
     } finally {
       probeClient.release();
     }
@@ -48,6 +62,22 @@ if (hasDatabaseUrl) {
 
 const shouldRun = requireDb || dbAvailable;
 
+async function assertDisposableTestDatabase(pool: ReturnType<typeof getPool>): Promise<void> {
+  const client = await pool.connect();
+  try {
+    const res = await client.query<{ db_name: string }>('SELECT current_database() AS db_name');
+    const dbName = res.rows[0]?.db_name;
+    if (dbName !== 'floodrelay_test') {
+      throw new Error(
+        `CRITICAL_DATABASE_SAFETY_GUARD: Refusing destructive test execution on database "${dbName}". ` +
+          'Destructive integration tests may ONLY run against the dedicated disposable test database "floodrelay_test".',
+      );
+    }
+  } finally {
+    client.release();
+  }
+}
+
 describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
   const pool = getPool();
   const repo = new PostgisRepository(pool);
@@ -60,6 +90,7 @@ describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
         `Database connection failed under REQUIRE_DB mode: ${dbProbeError?.message || 'unknown error'}`,
       );
     }
+    await assertDisposableTestDatabase(pool);
     const client = await pool.connect();
     try {
       await client.query('DROP TRIGGER IF EXISTS trg_test_fail_audit ON audit_events;');
@@ -84,6 +115,7 @@ describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
   });
 
   beforeEach(async () => {
+    await assertDisposableTestDatabase(pool);
     const client = await pool.connect();
     try {
       await client.query('DELETE FROM assignment_stops;');

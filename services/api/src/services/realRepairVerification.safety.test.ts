@@ -12,7 +12,11 @@ const requireDb = Boolean(
   process.env.REQUIRE_DB && process.env.REQUIRE_DB !== '0' && process.env.REQUIRE_DB !== 'false',
 );
 const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
-const shouldRun = requireDb || hasDatabaseUrl;
+const hasAllowFlag = Boolean(
+  process.env.ALLOW_DISPOSABLE_REPAIR_TEST_DB === '1' ||
+  process.env.ALLOW_DISPOSABLE_REPAIR_TEST_DB === 'true',
+);
+const shouldRunLive = (requireDb || hasDatabaseUrl) && hasAllowFlag;
 
 describe('Database Safety Guard & Fixture Isolation Tests (PR #29)', () => {
   it('CI=true alone does not authorize destructive tests', async () => {
@@ -480,144 +484,147 @@ describe('FixtureRegistry Transaction Rollback & State Preservation Tests', () =
   });
 });
 
-describe.runIf(shouldRun)('Live Database Fixture Isolation & Non-Destructive Cleanup Tests', () => {
-  it('live database connects, verifies marker, and executes live guard check', async () => {
-    const pool = getPool();
-    const info = await assertDisposableTestDatabase(pool);
-    expect(info.databaseName).toBe('floodrelay_test');
-    expect(info.serverAddr).toBeDefined();
-  });
+describe.runIf(shouldRunLive)(
+  'Live Database Fixture Isolation & Non-Destructive Cleanup Tests',
+  () => {
+    it('live database connects, verifies marker, and executes live guard check', async () => {
+      const pool = getPool();
+      const info = await assertDisposableTestDatabase(pool);
+      expect(info.databaseName).toBe('floodrelay_test');
+      expect(info.serverAddr).toBeDefined();
+    });
 
-  it('cleanup deletes only records created by the test run and preserves existing unrelated proposals', async () => {
-    const pool = getPool();
-    await assertDisposableTestDatabase(pool);
+    it('cleanup deletes only records created by the test run and preserves existing unrelated proposals', async () => {
+      const pool = getPool();
+      await assertDisposableTestDatabase(pool);
 
-    const testRunRegistry = new FixtureRegistry();
-    const unrelatedRegistry = new FixtureRegistry();
+      const testRunRegistry = new FixtureRegistry();
+      const unrelatedRegistry = new FixtureRegistry();
 
-    // 1. Seed an unrelated proposal that looks like a repair proposal
-    const unrelatedProposalId = `prop-repair-unrelated-${crypto.randomUUID()}`;
-    unrelatedRegistry.trackAssignment(unrelatedProposalId);
+      // 1. Seed an unrelated proposal that looks like a repair proposal
+      const unrelatedProposalId = `prop-repair-unrelated-${crypto.randomUUID()}`;
+      unrelatedRegistry.trackAssignment(unrelatedProposalId);
 
-    await pool.query(
-      `INSERT INTO assignments (id, scenario_id, status, metrics, unserved, created_at, updated_at)
+      await pool.query(
+        `INSERT INTO assignments (id, scenario_id, status, metrics, unserved, created_at, updated_at)
        VALUES ($1, 'scenario-unrelated', 'PROPOSED', '{}'::jsonb, '[]'::jsonb, NOW(), NOW());`,
-      [unrelatedProposalId],
-    );
+        [unrelatedProposalId],
+      );
 
-    // 2. Seed an unrelated committed assignment
-    const unrelatedCommittedId = `asgn-committed-unrelated-${crypto.randomUUID()}`;
-    unrelatedRegistry.trackAssignment(unrelatedCommittedId);
+      // 2. Seed an unrelated committed assignment
+      const unrelatedCommittedId = `asgn-committed-unrelated-${crypto.randomUUID()}`;
+      unrelatedRegistry.trackAssignment(unrelatedCommittedId);
 
-    await pool.query(
-      `INSERT INTO assignments (id, scenario_id, status, metrics, unserved, committed_at, committed_by, created_at, updated_at)
+      await pool.query(
+        `INSERT INTO assignments (id, scenario_id, status, metrics, unserved, committed_at, committed_by, created_at, updated_at)
        VALUES ($1, 'scenario-unrelated', 'COMMITTED', '{}'::jsonb, '[]'::jsonb, NOW(), 'TEST_OPERATOR', NOW(), NOW());`,
-      [unrelatedCommittedId],
-    );
+        [unrelatedCommittedId],
+      );
 
-    // 3. Seed fixtures owned by the test run
-    const testProposalId = `prop-repair-test-${testRunRegistry.runId}`;
-    testRunRegistry.trackAssignment(testProposalId);
+      // 3. Seed fixtures owned by the test run
+      const testProposalId = `prop-repair-test-${testRunRegistry.runId}`;
+      testRunRegistry.trackAssignment(testProposalId);
 
-    await pool.query(
-      `INSERT INTO assignments (id, scenario_id, status, metrics, unserved, created_at, updated_at)
+      await pool.query(
+        `INSERT INTO assignments (id, scenario_id, status, metrics, unserved, created_at, updated_at)
        VALUES ($1, 'scenario-test', 'PROPOSED', '{}'::jsonb, '[]'::jsonb, NOW(), NOW());`,
-      [testProposalId],
-    );
+        [testProposalId],
+      );
 
-    try {
-      // 4. Run cleanup on the test run registry ONLY
-      await testRunRegistry.cleanup(pool);
+      try {
+        // 4. Run cleanup on the test run registry ONLY
+        await testRunRegistry.cleanup(pool);
 
-      // 5. Verify the test run proposal WAS deleted
-      const testCheck = await pool.query('SELECT id FROM assignments WHERE id = $1;', [
-        testProposalId,
-      ]);
-      expect(testCheck.rows.length).toBe(0);
+        // 5. Verify the test run proposal WAS deleted
+        const testCheck = await pool.query('SELECT id FROM assignments WHERE id = $1;', [
+          testProposalId,
+        ]);
+        expect(testCheck.rows.length).toBe(0);
 
-      // 6. CRITICAL: Verify existing unrelated proposal WAS PRESERVED!
-      const unrelatedCheck = await pool.query('SELECT id FROM assignments WHERE id = $1;', [
-        unrelatedProposalId,
-      ]);
-      expect(unrelatedCheck.rows.length).toBe(1);
+        // 6. CRITICAL: Verify existing unrelated proposal WAS PRESERVED!
+        const unrelatedCheck = await pool.query('SELECT id FROM assignments WHERE id = $1;', [
+          unrelatedProposalId,
+        ]);
+        expect(unrelatedCheck.rows.length).toBe(1);
 
-      // 7. CRITICAL: Verify existing committed assignment WAS PRESERVED!
-      const committedCheck = await pool.query('SELECT id FROM assignments WHERE id = $1;', [
-        unrelatedCommittedId,
-      ]);
-      expect(committedCheck.rows.length).toBe(1);
-    } finally {
-      // Clean up the unrelated test row
-      await unrelatedRegistry.cleanup(pool);
-    }
-  });
+        // 7. CRITICAL: Verify existing committed assignment WAS PRESERVED!
+        const committedCheck = await pool.query('SELECT id FROM assignments WHERE id = $1;', [
+          unrelatedCommittedId,
+        ]);
+        expect(committedCheck.rows.length).toBe(1);
+      } finally {
+        // Clean up the unrelated test row
+        await unrelatedRegistry.cleanup(pool);
+      }
+    });
 
-  it('proves concurrent or repeated test runs do not collide or delete each other’s fixtures', async () => {
-    const pool = getPool();
-    await assertDisposableTestDatabase(pool);
+    it('proves concurrent or repeated test runs do not collide or delete each other’s fixtures', async () => {
+      const pool = getPool();
+      await assertDisposableTestDatabase(pool);
 
-    const runA = new FixtureRegistry();
-    const runB = new FixtureRegistry();
+      const runA = new FixtureRegistry();
+      const runB = new FixtureRegistry();
 
-    const reqA = runA.generateId('req');
-    const reqB = runB.generateId('req');
-    runA.requestIds.add(reqA);
-    runB.requestIds.add(reqB);
+      const reqA = runA.generateId('req');
+      const reqB = runB.generateId('req');
+      runA.requestIds.add(reqA);
+      runB.requestIds.add(reqB);
 
-    await pool.query(
-      `INSERT INTO requests (id, location, people_count, urgency, status, source, created_at, updated_at)
+      await pool.query(
+        `INSERT INTO requests (id, location, people_count, urgency, status, source, created_at, updated_at)
        VALUES ($1, ST_SetSRID(ST_MakePoint(77.2, 28.5), 4326), 2, 'HIGH', 'PENDING', 'SIMULATED', NOW(), NOW()),
               ($2, ST_SetSRID(ST_MakePoint(77.3, 28.6), 4326), 1, 'LOW', 'PENDING', 'SIMULATED', NOW(), NOW());`,
-      [reqA, reqB],
-    );
+        [reqA, reqB],
+      );
 
-    try {
-      // Clean up run A only
-      await runA.cleanup(pool);
-
-      // reqA must be deleted
-      const checkA = await pool.query('SELECT id FROM requests WHERE id = $1;', [reqA]);
-      expect(checkA.rows.length).toBe(0);
-
-      // reqB must STILL EXIST (not deleted by run A's cleanup!)
-      const checkB = await pool.query('SELECT id FROM requests WHERE id = $1;', [reqB]);
-      expect(checkB.rows.length).toBe(1);
-    } finally {
-      await runB.cleanup(pool);
-    }
-  });
-
-  it('test fixture cleanup works reliably in finally block after test assertion failure', async () => {
-    const pool = getPool();
-    await assertDisposableTestDatabase(pool);
-
-    const failingRun = new FixtureRegistry();
-    const reqFail = failingRun.generateId('req_fail');
-    failingRun.requestIds.add(reqFail);
-
-    await pool.query(
-      `INSERT INTO requests (id, location, people_count, urgency, status, source, created_at, updated_at)
-       VALUES ($1, ST_SetSRID(ST_MakePoint(77.2, 28.5), 4326), 2, 'HIGH', 'PENDING', 'SIMULATED', NOW(), NOW());`,
-      [reqFail],
-    );
-
-    // Simulate an assertion error inside a try...finally block
-    let caughtError: Error | undefined;
-    try {
       try {
-        throw new Error('SIMULATED_ASSERTION_FAILURE');
+        // Clean up run A only
+        await runA.cleanup(pool);
+
+        // reqA must be deleted
+        const checkA = await pool.query('SELECT id FROM requests WHERE id = $1;', [reqA]);
+        expect(checkA.rows.length).toBe(0);
+
+        // reqB must STILL EXIST (not deleted by run A's cleanup!)
+        const checkB = await pool.query('SELECT id FROM requests WHERE id = $1;', [reqB]);
+        expect(checkB.rows.length).toBe(1);
       } finally {
-        await failingRun.cleanup(pool);
+        await runB.cleanup(pool);
       }
-    } catch (err: unknown) {
-      caughtError = err as Error;
-    }
+    });
 
-    expect(caughtError).toBeDefined();
-    expect(caughtError?.message).toBe('SIMULATED_ASSERTION_FAILURE');
+    it('test fixture cleanup works reliably in finally block after test assertion failure', async () => {
+      const pool = getPool();
+      await assertDisposableTestDatabase(pool);
 
-    // Verify cleanup ran and deleted the fixture despite the failure
-    const check = await pool.query('SELECT id FROM requests WHERE id = $1;', [reqFail]);
-    expect(check.rows.length).toBe(0);
-  });
-});
+      const failingRun = new FixtureRegistry();
+      const reqFail = failingRun.generateId('req_fail');
+      failingRun.requestIds.add(reqFail);
+
+      await pool.query(
+        `INSERT INTO requests (id, location, people_count, urgency, status, source, created_at, updated_at)
+       VALUES ($1, ST_SetSRID(ST_MakePoint(77.2, 28.5), 4326), 2, 'HIGH', 'PENDING', 'SIMULATED', NOW(), NOW());`,
+        [reqFail],
+      );
+
+      // Simulate an assertion error inside a try...finally block
+      let caughtError: Error | undefined;
+      try {
+        try {
+          throw new Error('SIMULATED_ASSERTION_FAILURE');
+        } finally {
+          await failingRun.cleanup(pool);
+        }
+      } catch (err: unknown) {
+        caughtError = err as Error;
+      }
+
+      expect(caughtError).toBeDefined();
+      expect(caughtError?.message).toBe('SIMULATED_ASSERTION_FAILURE');
+
+      // Verify cleanup ran and deleted the fixture despite the failure
+      const check = await pool.query('SELECT id FROM requests WHERE id = $1;', [reqFail]);
+      expect(check.rows.length).toBe(0);
+    });
+  },
+);

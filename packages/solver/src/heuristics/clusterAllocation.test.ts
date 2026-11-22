@@ -2,6 +2,7 @@ import type { Scenario } from '@floodrelay/shared';
 import { describe, expect, it } from 'vitest';
 import { solveNearestFirst } from '../baselines/nearestFirst.js';
 import { generateScenario } from '../generator.js';
+import type { TravelTimeProvider } from '../routing/travelTime.js';
 import { solveClusterAllocation } from './clusterAllocation.js';
 
 describe('solveClusterAllocation', () => {
@@ -202,5 +203,438 @@ describe('solveClusterAllocation', () => {
     const routeResourceIds = plan.routes.map((r) => r.resourceId);
     expect(routeResourceIds).not.toContain(scenario.resources[0]!.id);
     expect(routeResourceIds).not.toContain(scenario.resources[1]!.id);
+  });
+
+  it('prefers road-capable vehicle with OSRM over boat with straight-line for road-accessible incident', () => {
+    const scenario: Scenario = {
+      id: 'test-road-pref',
+      metadata: {
+        id: 'test-road-pref',
+        name: 'Road Pref Test',
+        region: 'Delhi',
+        createdAt: '2026-10-15T12:00:00Z',
+        bounds: { minLat: 28.5, maxLat: 28.7, minLng: 77.1, maxLng: 77.3 },
+      },
+      requests: [
+        {
+          id: 'req-terrestrial-1',
+          lat: 28.612,
+          lng: 77.229,
+          peopleCount: 3,
+          urgency: 'CRITICAL',
+          createdAt: '2026-10-15T12:00:00Z',
+          source: 'SIMULATED',
+        },
+      ],
+      resources: [
+        {
+          id: 'res-boat-1',
+          name: 'Rescue Boat',
+          type: 'BOAT',
+          capacity: 6,
+          speedKmH: 25,
+          lat: 28.66,
+          lng: 77.24,
+          status: 'AVAILABLE',
+        },
+        {
+          id: 'res-truck-1',
+          name: 'Rescue Truck',
+          type: 'HIGH_WATER_VEHICLE',
+          capacity: 10,
+          speedKmH: 30,
+          lat: 28.665,
+          lng: 77.218,
+          status: 'AVAILABLE',
+        },
+      ],
+      shelters: [
+        {
+          id: 'sh-1',
+          name: 'Relief Shelter',
+          capacity: 100,
+          lat: 28.667,
+          lng: 77.228,
+        },
+      ],
+    };
+
+    // Provider where boat has lower straight-line time (10 min), but truck has genuine OSRM road time (15 min)
+    const mockProvider: TravelTimeProvider = {
+      getTravelEstimate: (
+        _from,
+        _to,
+        _speed?: number,
+        _isFlooded?: boolean,
+        resourceType?: string,
+      ) => {
+        if (resourceType === 'HIGH_WATER_VEHICLE') {
+          return { distanceKm: 15, durationMinutes: 15, source: 'OSRM' };
+        }
+        return { distanceKm: 8, durationMinutes: 10, source: 'STRAIGHT_LINE' };
+      },
+      getMatrix: () => [],
+    };
+
+    const plan = solveClusterAllocation(scenario, { travelTimeProvider: mockProvider });
+    expect(plan.routes.length).toBeGreaterThan(0);
+    const assignedRoute = plan.routes.find((r) => r.servedRequestIds.includes('req-terrestrial-1'));
+    expect(assignedRoute).toBeDefined();
+    expect(assignedRoute!.resourceId).toBe('res-truck-1');
+  });
+
+  it('selects boat when road vehicle is blocked or has NoRoute (water-accessible incident)', () => {
+    const scenario: Scenario = {
+      id: 'water-scenario',
+      metadata: {
+        id: 'water-scenario',
+        name: 'Water Access Scenario',
+        region: 'Delhi',
+        createdAt: '2026-10-15T12:00:00Z',
+        bounds: { minLat: 28.5, maxLat: 28.7, minLng: 77.1, maxLng: 77.3 },
+      },
+      requests: [
+        {
+          id: 'req-island-1',
+          lat: 28.612,
+          lng: 77.229,
+          peopleCount: 4,
+          urgency: 'CRITICAL',
+          createdAt: '2026-10-15T12:00:00Z',
+          source: 'SIMULATED',
+        },
+      ],
+      resources: [
+        {
+          id: 'res-truck-1',
+          name: 'Rescue Truck',
+          type: 'HIGH_WATER_VEHICLE',
+          capacity: 10,
+          speedKmH: 30,
+          lat: 28.665,
+          lng: 77.218,
+          status: 'AVAILABLE',
+        },
+        {
+          id: 'res-boat-1',
+          name: 'Rescue Boat',
+          type: 'BOAT',
+          capacity: 6,
+          speedKmH: 25,
+          lat: 28.66,
+          lng: 77.24,
+          status: 'AVAILABLE',
+        },
+      ],
+      shelters: [
+        {
+          id: 'sh-1',
+          name: 'Relief Shelter',
+          capacity: 100,
+          lat: 28.667,
+          lng: 77.228,
+        },
+      ],
+    };
+
+    const mockProvider: TravelTimeProvider = {
+      getTravelEstimate: (
+        _from,
+        _to,
+        _speed?: number,
+        _isFlooded?: boolean,
+        resourceType?: string,
+      ) => {
+        if (resourceType === 'HIGH_WATER_VEHICLE') {
+          // Road route blocked by floodwaters or no road network
+          return {
+            distanceKm: Number.POSITIVE_INFINITY,
+            durationMinutes: Number.POSITIVE_INFINITY,
+            blocked: true,
+          };
+        }
+        return { distanceKm: 5, durationMinutes: 12, source: 'STRAIGHT_LINE' };
+      },
+      getMatrix: () => [],
+    };
+
+    const plan = solveClusterAllocation(scenario, { travelTimeProvider: mockProvider });
+    expect(plan.routes.length).toBeGreaterThan(0);
+    const assignedRoute = plan.routes.find((r) => r.servedRequestIds.includes('req-island-1'));
+    expect(assignedRoute).toBeDefined();
+    expect(assignedRoute!.resourceId).toBe('res-boat-1');
+  });
+
+  it('selects helicopter when aircraft access is appropriate and faster', () => {
+    const scenario: Scenario = {
+      id: 'heli-scenario',
+      metadata: {
+        id: 'heli-scenario',
+        name: 'Air Evacuation Scenario',
+        region: 'Delhi',
+        createdAt: '2026-10-15T12:00:00Z',
+        bounds: { minLat: 28.5, maxLat: 28.7, minLng: 77.1, maxLng: 77.3 },
+      },
+      requests: [
+        {
+          id: 'req-remote-1',
+          lat: 28.612,
+          lng: 77.229,
+          peopleCount: 2,
+          urgency: 'CRITICAL',
+          createdAt: '2026-10-15T12:00:00Z',
+          source: 'SIMULATED',
+        },
+      ],
+      resources: [
+        {
+          id: 'res-truck-1',
+          name: 'Rescue Truck',
+          type: 'HIGH_WATER_VEHICLE',
+          capacity: 10,
+          speedKmH: 30,
+          lat: 28.665,
+          lng: 77.218,
+          status: 'AVAILABLE',
+        },
+        {
+          id: 'res-heli-1',
+          name: 'Rescue Helicopter',
+          type: 'HELICOPTER',
+          capacity: 4,
+          speedKmH: 150,
+          lat: 28.7,
+          lng: 77.1,
+          status: 'AVAILABLE',
+        },
+      ],
+      shelters: [
+        {
+          id: 'sh-1',
+          name: 'Relief Shelter',
+          capacity: 100,
+          lat: 28.667,
+          lng: 77.228,
+        },
+      ],
+    };
+
+    const mockProvider: TravelTimeProvider = {
+      getTravelEstimate: (
+        _from,
+        _to,
+        _speed?: number,
+        _isFlooded?: boolean,
+        resourceType?: string,
+      ) => {
+        if (resourceType === 'HIGH_WATER_VEHICLE') {
+          // Road route has NoRoute / blocked
+          return {
+            distanceKm: Number.POSITIVE_INFINITY,
+            durationMinutes: Number.POSITIVE_INFINITY,
+            blocked: true,
+          };
+        }
+        return { distanceKm: 15, durationMinutes: 6, source: 'STRAIGHT_LINE' };
+      },
+      getMatrix: () => [],
+    };
+
+    const plan = solveClusterAllocation(scenario, { travelTimeProvider: mockProvider });
+    expect(plan.routes.length).toBeGreaterThan(0);
+    const assignedRoute = plan.routes.find((r) => r.servedRequestIds.includes('req-remote-1'));
+    expect(assignedRoute).toBeDefined();
+    expect(assignedRoute!.resourceId).toBe('res-heli-1');
+  });
+
+  it('strictly respects vehicle capacity constraints during allocation', () => {
+    const scenario: Scenario = {
+      id: 'capacity-scenario',
+      metadata: {
+        id: 'capacity-scenario',
+        name: 'Capacity Scenario',
+        region: 'Delhi',
+        createdAt: '2026-10-15T12:00:00Z',
+        bounds: { minLat: 28.5, maxLat: 28.7, minLng: 77.1, maxLng: 77.3 },
+      },
+      requests: [
+        {
+          id: 'req-large-family',
+          lat: 28.612,
+          lng: 77.229,
+          peopleCount: 8,
+          urgency: 'HIGH',
+          createdAt: '2026-10-15T12:00:00Z',
+          source: 'SIMULATED',
+        },
+      ],
+      resources: [
+        {
+          id: 'res-boat-small',
+          name: 'Small Boat',
+          type: 'BOAT',
+          capacity: 4, // Cannot fit 8
+          speedKmH: 25,
+          lat: 28.62,
+          lng: 77.23,
+          status: 'AVAILABLE',
+        },
+        {
+          id: 'res-truck-large',
+          name: 'Large Truck',
+          type: 'HIGH_WATER_VEHICLE',
+          capacity: 10, // Can fit 8
+          speedKmH: 30,
+          lat: 28.63,
+          lng: 77.24,
+          status: 'AVAILABLE',
+        },
+      ],
+      shelters: [
+        {
+          id: 'sh-1',
+          name: 'Relief Shelter',
+          capacity: 100,
+          lat: 28.64,
+          lng: 77.25,
+        },
+      ],
+    };
+
+    const mockProvider: TravelTimeProvider = {
+      getTravelEstimate: () => ({ distanceKm: 5, durationMinutes: 10, source: 'STRAIGHT_LINE' }),
+      getMatrix: () => [],
+    };
+
+    const plan = solveClusterAllocation(scenario, { travelTimeProvider: mockProvider });
+    const assignedRoute = plan.routes.find((r) => r.servedRequestIds.includes('req-large-family'));
+    expect(assignedRoute).toBeDefined();
+    expect(assignedRoute!.resourceId).toBe('res-truck-large');
+  });
+
+  it('constructs multi-stop pickup and shelter-dropoff legs correctly', () => {
+    const scenario: Scenario = {
+      id: 'multistop-scenario',
+      metadata: {
+        id: 'multistop-scenario',
+        name: 'Multi-stop Scenario',
+        region: 'Delhi',
+        createdAt: '2026-10-15T12:00:00Z',
+        bounds: { minLat: 28.5, maxLat: 28.7, minLng: 77.1, maxLng: 77.3 },
+      },
+      requests: [
+        {
+          id: 'req-stop-1',
+          lat: 28.612,
+          lng: 77.229,
+          peopleCount: 3,
+          urgency: 'HIGH',
+          createdAt: '2026-10-15T12:00:00Z',
+          source: 'SIMULATED',
+        },
+        {
+          id: 'req-stop-2',
+          lat: 28.615,
+          lng: 77.231,
+          peopleCount: 4,
+          urgency: 'MEDIUM',
+          createdAt: '2026-10-15T12:00:00Z',
+          source: 'SIMULATED',
+        },
+      ],
+      resources: [
+        {
+          id: 'res-truck-1',
+          name: 'Large Truck',
+          type: 'HIGH_WATER_VEHICLE',
+          capacity: 10,
+          speedKmH: 30,
+          lat: 28.61,
+          lng: 77.22,
+          status: 'AVAILABLE',
+        },
+      ],
+      shelters: [
+        {
+          id: 'sh-1',
+          name: 'Relief Shelter',
+          capacity: 100,
+          lat: 28.63,
+          lng: 77.25,
+        },
+      ],
+    };
+
+    const mockProvider: TravelTimeProvider = {
+      getTravelEstimate: () => ({ distanceKm: 3, durationMinutes: 8, source: 'OSRM' }),
+      getMatrix: () => [],
+    };
+
+    const plan = solveClusterAllocation(scenario, { travelTimeProvider: mockProvider });
+    expect(plan.routes.length).toBe(1);
+    const route = plan.routes[0]!;
+    expect(route.servedRequestIds).toContain('req-stop-1');
+    expect(route.servedRequestIds).toContain('req-stop-2');
+    // Verify stops include pickups followed by dropoff at shelter
+    const pickups = route.stops.filter((s) => s.type === 'PICKUP');
+    const dropoffs = route.stops.filter((s) => s.type === 'DROPOFF');
+    expect(pickups.length).toBe(2);
+    expect(dropoffs.length).toBeGreaterThanOrEqual(1);
+    expect(dropoffs[dropoffs.length - 1]!.targetId).toBe('sh-1');
+  });
+
+  it('safely handles scenario where no suitable resource is available', () => {
+    const scenario: Scenario = {
+      id: 'no-resource-scenario',
+      metadata: {
+        id: 'no-resource-scenario',
+        name: 'No Resource Scenario',
+        region: 'Delhi',
+        createdAt: '2026-10-15T12:00:00Z',
+        bounds: { minLat: 28.5, maxLat: 28.7, minLng: 77.1, maxLng: 77.3 },
+      },
+      requests: [
+        {
+          id: 'req-impossible',
+          lat: 28.612,
+          lng: 77.229,
+          peopleCount: 20, // Exceeds all capacities
+          urgency: 'HIGH',
+          createdAt: '2026-10-15T12:00:00Z',
+          source: 'SIMULATED',
+        },
+      ],
+      resources: [
+        {
+          id: 'res-small',
+          name: 'Small Boat',
+          type: 'BOAT',
+          capacity: 5,
+          speedKmH: 25,
+          lat: 28.61,
+          lng: 77.22,
+          status: 'AVAILABLE',
+        },
+      ],
+      shelters: [
+        {
+          id: 'sh-1',
+          name: 'Relief Shelter',
+          capacity: 100,
+          lat: 28.63,
+          lng: 77.25,
+        },
+      ],
+    };
+
+    const mockProvider: TravelTimeProvider = {
+      getTravelEstimate: () => ({ distanceKm: 5, durationMinutes: 10, source: 'STRAIGHT_LINE' }),
+      getMatrix: () => [],
+    };
+
+    const plan = solveClusterAllocation(scenario, { travelTimeProvider: mockProvider });
+    // Since req-impossible cannot fit into any resource, no route can serve it
+    const served = plan.routes.flatMap((r) => r.servedRequestIds);
+    expect(served).not.toContain('req-impossible');
   });
 });
