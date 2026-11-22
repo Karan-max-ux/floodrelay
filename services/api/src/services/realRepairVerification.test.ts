@@ -20,7 +20,11 @@ const requireDb = Boolean(
   process.env.REQUIRE_DB && process.env.REQUIRE_DB !== '0' && process.env.REQUIRE_DB !== 'false',
 );
 const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
-const shouldRun = requireDb || hasDatabaseUrl;
+const hasAllowFlag = Boolean(
+  process.env.ALLOW_DISPOSABLE_REPAIR_TEST_DB === '1' ||
+  process.env.ALLOW_DISPOSABLE_REPAIR_TEST_DB === 'true',
+);
+const shouldRun = (requireDb || hasDatabaseUrl) && hasAllowFlag;
 
 describe.runIf(shouldRun)(
   'Real Seeded Repair Integration & Exact Frozen-Stop Invariants (PR #29)',

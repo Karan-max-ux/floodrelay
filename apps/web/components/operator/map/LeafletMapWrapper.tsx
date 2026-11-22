@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import type { RescueRequest, BlockedZone, FloodForecastContext } from '@floodrelay/shared';
 import type { AssignmentRecord } from '@/lib/api/types';
 import type { StagedAsset, StagedShelter, SelectedMapEntity, MapLayers } from './LeafletMapCanvas';
+import type { RouteMode } from './routeDisplay';
 
 const LeafletMapCanvas = dynamic(() => import('./LeafletMapCanvas'), {
   ssr: false,
@@ -26,6 +27,9 @@ interface LeafletMapWrapperProps {
   stagedFleet: StagedAsset[];
   stagedShelters: StagedShelter[];
   selectedAssignment: AssignmentRecord | null;
+  selectedRepairAssignment?: AssignmentRecord | null;
+  activeRepairRouteIndex?: number;
+  onSelectRepairRoute?: (routeIndex: number) => void;
   blockedZones?: BlockedZone[];
   repairRoutePolylines?: Array<{ resourceId: string; latlngs: [number, number][] }>;
   forecastContext?: FloodForecastContext | null;
@@ -35,6 +39,9 @@ interface LeafletMapWrapperProps {
   onSelectEntity: (entity: SelectedMapEntity) => void;
   tileTheme: 'dark' | 'standard';
   actionTrigger?: { type: 'fit' | 'center-critical' | 'zoom-in' | 'zoom-out'; id: number } | null;
+  routeMode?: RouteMode;
+  onSwitchRouteMode?: (mode: RouteMode) => void;
+  resourceTypeMap?: Map<string, string>;
 }
 
 export default function LeafletMapWrapper(props: LeafletMapWrapperProps) {

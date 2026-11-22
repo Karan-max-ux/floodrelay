@@ -2,7 +2,14 @@
 
 import React from 'react';
 import Link from 'next/link';
+import type { ResourceRoute } from '@floodrelay/shared';
 import type { SelectedMapEntity } from './LeafletMapCanvas';
+import {
+  type RouteDisplayMetrics,
+  type RouteMode,
+  formatDistanceKm,
+  formatDurationMinutes,
+} from './routeDisplay';
 import { formatRegionDateTime } from '@/lib/region';
 import { UrgencyBadge } from '@/components/ui/UrgencyBadge';
 import { StatusBadge } from '@/components/ui/StatusBadge';
@@ -10,9 +17,26 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 export interface MapInspectorDrawerProps {
   selectedEntity: SelectedMapEntity;
   onClose: () => void;
+  assignedRoute?: ResourceRoute | null;
+  assignedResourceName?: string | null;
+  assignedResourceType?: string | null;
+  routeMetrics?: RouteDisplayMetrics | null;
+  routeMode?: RouteMode;
+  onPlanAssignment?: () => Promise<void> | void;
+  isPlanningAssignment?: boolean;
 }
 
-export function MapInspectorDrawer({ selectedEntity, onClose }: MapInspectorDrawerProps) {
+export function MapInspectorDrawer({
+  selectedEntity,
+  onClose,
+  assignedRoute,
+  assignedResourceName,
+  assignedResourceType,
+  routeMetrics,
+  routeMode = 'ROAD',
+  onPlanAssignment,
+  isPlanningAssignment = false,
+}: MapInspectorDrawerProps) {
   if (!selectedEntity) {
     return (
       <div className="p-8 text-center text-on-surface-variant text-xs space-y-2 my-auto">
@@ -65,6 +89,66 @@ export function MapInspectorDrawer({ selectedEntity, onClose }: MapInspectorDraw
               </span>
             )}
           </div>
+
+          {/* Assigned Mission Status & Route Telemetry */}
+          {assignedRoute ? (
+            <div className="p-3 rounded-lg bg-blue-50/90 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-slate-800 dark:text-slate-100 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                  Active Route Assigned
+                </span>
+                <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-200 border border-blue-300 dark:border-blue-700">
+                  {routeMode === 'DIRECT'
+                    ? 'Direct / Air'
+                    : routeMetrics?.source === 'OSRM'
+                      ? 'OSRM Road Route'
+                      : 'Straight-Line Vector'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-0.5">
+                <div className="p-2 rounded bg-white/80 dark:bg-slate-900/80 border border-blue-200/60 dark:border-blue-800/60">
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block">
+                    Assigned Resource
+                  </span>
+                  <span
+                    className="font-bold text-slate-900 dark:text-slate-100 text-xs block truncate"
+                    title={assignedResourceName || assignedRoute.resourceId}
+                  >
+                    {assignedResourceName || assignedRoute.resourceId}
+                  </span>
+                  <span className="font-mono text-[9px] text-blue-600 dark:text-blue-400 block mt-0.5">
+                    {assignedResourceType || 'HIGH_WATER_VEHICLE'}
+                  </span>
+                </div>
+
+                <div className="p-2 rounded bg-white/80 dark:bg-slate-900/80 border border-blue-200/60 dark:border-blue-800/60">
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block">
+                    Mission Transit
+                  </span>
+                  <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">
+                    {routeMetrics
+                      ? `${formatDistanceKm(routeMetrics.distanceKm)} • ${formatDurationMinutes(routeMetrics.durationMinutes)}`
+                      : 'Calculating...'}
+                  </span>
+                  <span className="font-mono text-[9px] text-slate-500 dark:text-slate-400 block mt-0.5">
+                    {routeMetrics?.source === 'OSRM' ? 'Road Network' : 'Straight-Line Vector'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="p-2.5 rounded-lg bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 flex items-start gap-2">
+              <span className="material-symbols-outlined text-amber-600 dark:text-amber-400 text-base shrink-0 mt-0.5">
+                info
+              </span>
+              <span className="text-[11px] leading-tight">
+                No active route assignment serving this incident. Click{' '}
+                <strong>Plan Assignment</strong> below to calculate rescue mission.
+              </span>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-2">
             <div className="p-2.5 rounded-lg bg-surface border border-outline-variant/60">
@@ -257,9 +341,25 @@ export function MapInspectorDrawer({ selectedEntity, onClose }: MapInspectorDraw
       {/* Incident Assignment Navigation Action */}
       {selectedEntity.type === 'incident' && (
         <div className="pt-3 border-t border-outline-variant space-y-2">
+          {onPlanAssignment ? (
+            <button
+              type="button"
+              onClick={onPlanAssignment}
+              disabled={isPlanningAssignment}
+              className="w-full py-2.5 px-4 rounded-lg bg-teal-700 hover:bg-teal-800 disabled:bg-teal-900 disabled:opacity-60 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+            >
+              <span className="material-symbols-outlined text-[16px]">assignment</span>
+              <span>{isPlanningAssignment ? 'Generating Mission Plan...' : 'Plan Assignment'}</span>
+            </button>
+          ) : null}
+
           <Link
             href="/operator/assignments"
-            className="w-full py-2.5 px-4 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+            className={`w-full rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-sm ${
+              onPlanAssignment
+                ? 'py-2 px-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700'
+                : 'py-2.5 px-4 bg-teal-700 hover:bg-teal-800 text-white'
+            }`}
           >
             <span className="material-symbols-outlined text-[16px]">assignment</span>
             <span>Plan Assignment</span>

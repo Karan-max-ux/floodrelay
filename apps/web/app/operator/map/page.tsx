@@ -6,13 +6,16 @@ import type { UrgencyLevel } from '@floodrelay/shared';
 import { apiClient } from '@/lib/api/client';
 import type { AssignmentRecord } from '@/lib/api/types';
 import LeafletMapWrapper from '@/components/operator/map/LeafletMapWrapper';
-import type { MapLayers } from '@/components/operator/map/LeafletMapCanvas';
+import type { MapLayers, StagedAsset } from '@/components/operator/map/LeafletMapCanvas';
 import {
-  extractRouteLatLngs,
+  extractRepairStops,
   formatDistanceKm,
   formatDurationMinutes,
+  getRouteDisplayMetrics,
   getRouteSourceLabel,
+  isRepairAssignment,
   summarizeAssignmentRoutes,
+  type RouteMode,
 } from '@/components/operator/map/routeDisplay';
 import { MapInspectorDrawer } from '@/components/operator/map/MapInspectorDrawer';
 import { useLiveRequests } from '@/hooks/useLiveRequests';
@@ -21,7 +24,6 @@ import { useFloodForecast } from '@/hooks/useFloodForecast';
 import { useMapSelection } from '@/hooks/useMapSelection';
 import { LiveStatusIndicator } from '@/components/operator/LiveStatusIndicator';
 import type { LivePollingStatus } from '@/hooks/useLivePolling';
-import { SIMULATED_REPAIR_RESULT } from '@/lib/fixtures/repairFixtures';
 import {
   STAGED_SECTOR_FLEET,
   STAGED_SECTOR_SHELTERS,
@@ -58,8 +60,87 @@ function OperatorMapContent() {
   const [selectedAssignmentDetail, setSelectedAssignmentDetail] = useState<AssignmentRecord | null>(
     null,
   );
+  // Route display mode: 'ROAD' (OSRM road network) vs 'DIRECT' (Straight-line direct transit vector)
+  const [routeMode, setRouteMode] = useState<RouteMode>('ROAD');
+  const [isPlanningAssignment, setIsPlanningAssignment] = useState(false);
 
-  // Sync selected assignment
+  // Live fleet loading from authoritative DB
+  const [liveFleet, setLiveFleet] = useState<StagedAsset[]>([]);
+
+  useEffect(() => {
+    let isCancelled = false;
+    apiClient
+      .listResources()
+      .then((resList) => {
+        if (isCancelled || !Array.isArray(resList)) return;
+        const mapped: StagedAsset[] = resList.map((r) => ({
+          id: r.id,
+          name: r.name || r.id,
+          type: r.type,
+          capacity: r.capacity,
+          speedKmH: r.speedKmH || (r.type === 'BOAT' ? 25 : 30),
+          lat: r.lat,
+          lng: r.lng,
+          status: 'AVAILABLE',
+          depotName: `${r.name || r.id} Depot`,
+          source: r.source || 'REAL',
+        }));
+        setLiveFleet(mapped);
+      })
+      .catch(() => {
+        // Fall back cleanly to static staged fleet
+      });
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  const combinedFleet = useMemo(() => {
+    const list = [...liveFleet];
+    const existingIds = new Set(liveFleet.map((f) => f.id));
+    for (const sf of STAGED_SECTOR_FLEET) {
+      if (!existingIds.has(sf.id)) {
+        list.push(sf);
+      }
+    }
+    return list;
+  }, [liveFleet]);
+
+  // Combined shelters including dropoff shelters from active assignment
+  const combinedShelters = useMemo(() => {
+    const list = [...STAGED_SECTOR_SHELTERS];
+    if (selectedAssignmentDetail?.routes) {
+      for (const r of selectedAssignmentDetail.routes) {
+        for (const s of r.stops || []) {
+          if (s.type === 'DROPOFF' && !list.some((item) => item.id === s.targetId)) {
+            list.push({
+              id: s.targetId,
+              name:
+                s.targetId === 'sh_in_ncr_live_1'
+                  ? 'Delhi Camp Live 1 (Relief Shelter)'
+                  : `Shelter (${s.targetId})`,
+              lat: s.lat,
+              lng: s.lng,
+              capacity: 100,
+              availableBeds: 100,
+              status: 'OPERATIONAL',
+              source: 'REAL',
+            });
+          }
+        }
+      }
+    }
+    return list;
+  }, [selectedAssignmentDetail]);
+
+  // Resource type map for non-road vs road vehicle distinction
+  const resourceTypeMap = useMemo(() => {
+    const map = new Map<string, string>();
+    combinedFleet.forEach((f) => map.set(f.id, f.type));
+    return map;
+  }, [combinedFleet]);
+
+  // Sync selected assignment initially
   useEffect(() => {
     if (assignments.length > 0 && !selectedAssignmentId) {
       setSelectedAssignmentId(assignments[0].id);
@@ -89,6 +170,109 @@ function OperatorMapContent() {
       controller.abort();
     };
   }, [selectedAssignmentId, assignmentsUpdated]);
+
+  const searchParams = useSearchParams();
+  const requestedId = searchParams.get('requestId');
+  const { selectedEntity, setSelectedEntity } = useMapSelection({ requests, requestedId });
+
+  // Auto-associate assignment when an incident request is selected
+  useEffect(() => {
+    if (!selectedEntity || selectedEntity.type !== 'incident') return;
+    const reqId = selectedEntity.item.id;
+
+    const servesReq = (r: { servedRequestIds?: string[]; stops?: Array<{ targetId?: string }> }) =>
+      Boolean(
+        (r.servedRequestIds && r.servedRequestIds.includes(reqId)) ||
+        (r.stops && r.stops.some((s) => s.targetId === reqId)),
+      );
+
+    const isRoadVehicle = (resId?: string) => {
+      if (!resId) return false;
+      const type = (resourceTypeMap.get(resId) || '').toUpperCase();
+      return (
+        type === 'HIGH_WATER_VEHICLE' ||
+        type === 'AMBULANCE' ||
+        type === 'TRUCK' ||
+        resId === 'res_truck_ncr_1'
+      );
+    };
+
+    const currentRoute = selectedAssignmentDetail?.routes?.find(servesReq);
+    const currentServes = Boolean(currentRoute);
+    const currentIsRoad = currentRoute ? isRoadVehicle(currentRoute.resourceId) : false;
+
+    // If current detail already serves reqId, and in ROAD mode current is road vehicle, keep it
+    if (currentServes && (routeMode !== 'ROAD' || currentIsRoad)) return;
+
+    let isCancelled = false;
+    const findAssignmentForRequest = async () => {
+      for (const a of assignments) {
+        if (a.id === selectedAssignmentId && currentServes) continue;
+        try {
+          const detail = await apiClient.getAssignment(a.id);
+          if (isCancelled) return;
+          const matchingRoute = detail.routes?.find(servesReq);
+          if (matchingRoute) {
+            const candidateIsRoad = isRoadVehicle(matchingRoute.resourceId);
+            // In ROAD mode, if looking for road vehicle and candidate is not road, continue searching unless no road exists
+            if (routeMode === 'ROAD' && !candidateIsRoad && currentServes) {
+              continue;
+            }
+            setSelectedAssignmentId(a.id);
+            setSelectedAssignmentDetail(detail);
+            return;
+          }
+        } catch {
+          // ignore lookup errors
+        }
+      }
+    };
+
+    findAssignmentForRequest();
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    selectedEntity,
+    assignments,
+    selectedAssignmentId,
+    selectedAssignmentDetail,
+    routeMode,
+    resourceTypeMap,
+  ]);
+
+  // Switch to road mode and retry fetching geometry
+  const handleSwitchToRoadMode = useCallback(async () => {
+    setRouteMode('ROAD');
+    if (selectedAssignmentId) {
+      try {
+        const detail = await apiClient.getAssignment(selectedAssignmentId);
+        setSelectedAssignmentDetail(detail);
+      } catch {
+        // ignore
+      }
+    }
+  }, [selectedAssignmentId]);
+
+  // Propose an assignment from the map for unassigned incidents
+  const handlePlanAssignment = useCallback(async () => {
+    setIsPlanningAssignment(true);
+    try {
+      const proposed = await apiClient.proposeAssignment({
+        algorithm: 'cluster-allocation',
+        includeUnverified: true,
+      });
+      await refreshAssignments();
+      if (proposed?.id) {
+        setSelectedAssignmentId(proposed.id);
+        setSelectedAssignmentDetail(proposed);
+      }
+    } catch (err) {
+      console.error('Failed to plan assignment:', err);
+    } finally {
+      setIsPlanningAssignment(false);
+    }
+  }, [refreshAssignments]);
 
   // Aggregate live status
   const liveStatus: LivePollingStatus =
@@ -131,10 +315,6 @@ function OperatorMapContent() {
     ? 'bg-white/95 backdrop-blur-md border border-slate-200 text-slate-800 shadow-lg'
     : 'bg-slate-900/95 backdrop-blur-md border border-slate-700/80 text-slate-100 shadow-2xl';
 
-  const searchParams = useSearchParams();
-  const requestedId = searchParams.get('requestId');
-  const { selectedEntity, setSelectedEntity } = useMapSelection({ requests, requestedId });
-
   // Map control trigger for programmatic movement
   const [actionTrigger, setActionTrigger] = useState<{
     type: 'fit' | 'center-critical' | 'zoom-in' | 'zoom-out';
@@ -149,15 +329,95 @@ function OperatorMapContent() {
     setLayers((prev) => ({ ...prev, [layer]: !prev[layer] }));
   };
 
-  // Native Delhi repair route polyline vectors for read-only comparison overlay (no rebasing)
-  const repairRoutePolylines = useMemo(() => {
+  // Real repair proposals / assignments recorded in the dispatch database
+  const repairAssignments = useMemo(() => {
+    return assignments.filter(isRepairAssignment);
+  }, [assignments]);
+
+  const [selectedRepairAssignmentId, setSelectedRepairAssignmentId] = useState<string>('');
+  const [selectedRepairAssignmentDetail, setSelectedRepairAssignmentDetail] =
+    useState<AssignmentRecord | null>(null);
+  const [activeRepairRouteIndex, setActiveRepairRouteIndex] = useState<number>(0);
+
+  // Sync selected repair assignment
+  useEffect(() => {
+    if (repairAssignments.length > 0) {
+      if (
+        !selectedRepairAssignmentId ||
+        !repairAssignments.some((r) => r.id === selectedRepairAssignmentId)
+      ) {
+        setSelectedRepairAssignmentId(repairAssignments[0].id);
+        setActiveRepairRouteIndex(0);
+      }
+    } else {
+      setSelectedRepairAssignmentId('');
+      setSelectedRepairAssignmentDetail(null);
+      setActiveRepairRouteIndex(0);
+    }
+  }, [repairAssignments, selectedRepairAssignmentId]);
+
+  // Fetch full hydrated assignment details (including OSRM route geometries) for the repair proposal
+  useEffect(() => {
+    if (!selectedRepairAssignmentId) {
+      setSelectedRepairAssignmentDetail(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    apiClient
+      .getAssignment(selectedRepairAssignmentId, controller.signal)
+      .then((detail) => {
+        if (!controller.signal.aborted) {
+          setSelectedRepairAssignmentDetail(detail);
+        }
+      })
+      .catch(() => {
+        // ignore aborts or errors
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [selectedRepairAssignmentId, assignmentsUpdated]);
+
+  const selectedRepairAssignmentSummary = useMemo(() => {
     return (
-      SIMULATED_REPAIR_RESULT.proposedPlan?.routes.map((r) => ({
-        resourceId: r.resourceId,
-        latlngs: extractRouteLatLngs(r),
-      })) || []
+      repairAssignments.find((a) => a.id === selectedRepairAssignmentId) ||
+      repairAssignments[0] ||
+      null
     );
-  }, []);
+  }, [repairAssignments, selectedRepairAssignmentId]);
+
+  const selectedRepairAssignment = useMemo(() => {
+    if (
+      selectedRepairAssignmentDetail &&
+      selectedRepairAssignmentDetail.id === selectedRepairAssignmentId
+    ) {
+      return selectedRepairAssignmentDetail;
+    }
+    return selectedRepairAssignmentSummary;
+  }, [selectedRepairAssignmentDetail, selectedRepairAssignmentId, selectedRepairAssignmentSummary]);
+
+  const activeRepairRoute = useMemo(() => {
+    if (!selectedRepairAssignment?.routes || selectedRepairAssignment.routes.length === 0) {
+      return null;
+    }
+    return (
+      selectedRepairAssignment.routes[activeRepairRouteIndex] ||
+      selectedRepairAssignment.routes[0] ||
+      null
+    );
+  }, [selectedRepairAssignment, activeRepairRouteIndex]);
+
+  const activeRepairRouteMetrics = useMemo(() => {
+    if (!activeRepairRoute) return null;
+    return getRouteDisplayMetrics(activeRepairRoute, routeMode, undefined, resourceTypeMap);
+  }, [activeRepairRoute, routeMode, resourceTypeMap]);
+
+  const activeRepairStops = useMemo(() => {
+    if (!activeRepairRoute) return [];
+    return extractRepairStops(activeRepairRoute);
+  }, [activeRepairRoute]);
 
   // Selected assignment record (prefer hydrated detail with Task B routes & RouteGeometry)
   const selectedAssignmentSummary = useMemo(() => {
@@ -171,10 +431,48 @@ function OperatorMapContent() {
     return selectedAssignmentSummary;
   }, [selectedAssignmentDetail, selectedAssignmentId, selectedAssignmentSummary]);
 
+  // Route serving the focused incident
+  const activeRouteForIncident = useMemo(() => {
+    if (selectedEntity?.type !== 'incident' || !selectedAssignment?.routes) return null;
+    const reqId = selectedEntity.item.id;
+    return (
+      selectedAssignment.routes.find(
+        (r) =>
+          (r.servedRequestIds && r.servedRequestIds.includes(reqId)) ||
+          (r.stops && r.stops.some((s) => s.targetId === reqId)),
+      ) ?? null
+    );
+  }, [selectedEntity, selectedAssignment]);
+
+  const activeRouteMetrics = useMemo(() => {
+    if (!activeRouteForIncident) return null;
+    return getRouteDisplayMetrics(activeRouteForIncident, routeMode, undefined, resourceTypeMap);
+  }, [activeRouteForIncident, routeMode, resourceTypeMap]);
+
+  const assignedResource = useMemo(() => {
+    if (!activeRouteForIncident) return null;
+    return combinedFleet.find((f) => f.id === activeRouteForIncident.resourceId) || null;
+  }, [activeRouteForIncident, combinedFleet]);
+
+  const assignedResourceName =
+    assignedResource?.name ||
+    (activeRouteForIncident?.resourceId === 'res_truck_ncr_1'
+      ? 'Delhi Rescue Truck 1'
+      : activeRouteForIncident?.resourceId || null);
+
+  const assignedResourceType =
+    assignedResource?.type ||
+    (activeRouteForIncident?.resourceId
+      ? resourceTypeMap.get(activeRouteForIncident.resourceId)
+      : null) ||
+    'HIGH_WATER_VEHICLE';
+
   const routeSummary = useMemo(
-    () => summarizeAssignmentRoutes(selectedAssignment?.routes ?? []),
-    [selectedAssignment],
+    () => summarizeAssignmentRoutes(selectedAssignment?.routes ?? [], routeMode, resourceTypeMap),
+    [selectedAssignment, routeMode, resourceTypeMap],
   );
+
+  const hasUnavailableRoadSegments = routeSummary.hasUnavailableRoadSegments;
 
   // Filtered requests count
   const filteredRequestsCount = useMemo(() => {
@@ -484,21 +782,200 @@ function OperatorMapContent() {
               </div>
             )}
 
-            {/* Simulated Repair Preview Notice Banner */}
-            {layers.repairOverlay && (
-              <div className="bg-purple-950/90 backdrop-blur-md border border-purple-500/80 p-2.5 rounded-xl shadow-2xl flex items-center gap-2 text-xs text-purple-200 animate-in fade-in">
-                <span className="material-symbols-outlined text-[16px] text-purple-400 shrink-0">
-                  alt_route
-                </span>
-                <div>
-                  <span className="font-bold font-mono text-[11px]">
-                    [SIMULATED REPAIR PREVIEW — NOT COMMITTED]
-                  </span>
-                  <span className="text-purple-300/90 text-[11px] block">
-                    Displaying synthetic test fixture routes. Map overlay is strictly read-only; no
-                    commit action is available.
+            {/* Repair Route Overlay: Empty State Notice */}
+            {layers.repairOverlay && repairAssignments.length === 0 && (
+              <div
+                className={`p-3 rounded-xl shadow-xl flex items-center gap-3 text-xs ${hudCardClass} animate-in fade-in border-blue-500/40`}
+                data-testid="repair-empty-state-notice"
+              >
+                <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-950/60 border border-blue-300 dark:border-blue-700/50 flex items-center justify-center shrink-0">
+                  <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-lg">
+                    build_circle
                   </span>
                 </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold font-mono text-[11px] uppercase tracking-wider text-blue-700 dark:text-blue-400">
+                      Repair Route Overlay
+                    </span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-300 dark:border-slate-700">
+                      0 Active
+                    </span>
+                  </div>
+                  <p className="text-slate-600 dark:text-slate-300 text-xs mt-0.5">
+                    No active repair routes. Repair assignments will appear here when available.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Repair Route Overlay: Google Maps-Style Route Information Panel */}
+            {layers.repairOverlay && repairAssignments.length > 0 && selectedRepairAssignment && (
+              <div
+                className={`p-3.5 rounded-xl shadow-2xl space-y-2.5 text-xs ${hudCardClass} animate-in fade-in border-blue-500/60 max-w-md w-full`}
+                data-testid="repair-route-panel"
+              >
+                {/* Header: Title, Status, and Selectors */}
+                <div className="flex items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-700/70 pb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-lg">
+                      navigation
+                    </span>
+                    <div>
+                      <span className="font-bold font-mono text-[12px] text-blue-700 dark:text-blue-400">
+                        Repair Route Navigation
+                      </span>
+                      <div className="text-[10px] text-slate-500 font-mono">
+                        Plan: {selectedRepairAssignment.id}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-100 text-blue-800 border border-blue-300 dark:bg-blue-900/60 dark:text-blue-200 dark:border-blue-700">
+                      {selectedRepairAssignment.status}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Multiple Repair Proposals Selector (if > 1) */}
+                {repairAssignments.length > 1 && (
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[10px] uppercase font-bold text-slate-500">
+                      Plan:
+                    </span>
+                    <select
+                      value={selectedRepairAssignmentId}
+                      onChange={(e) => setSelectedRepairAssignmentId(e.target.value)}
+                      className={`flex-1 rounded border px-2 py-1 text-xs font-semibold ${
+                        isLight
+                          ? 'bg-slate-50 border-slate-300 text-slate-800'
+                          : 'bg-slate-800 border-slate-700 text-slate-100'
+                      }`}
+                    >
+                      {repairAssignments.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.id} ({a.routes?.length || 0} route(s))
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Multiple Routes Selector (if > 1) */}
+                {(selectedRepairAssignment.routes?.length ?? 0) > 1 && (
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                    <span className="font-mono text-[10px] uppercase font-bold text-slate-500 shrink-0">
+                      Route:
+                    </span>
+                    {selectedRepairAssignment.routes!.map((r, rIdx) => (
+                      <button
+                        key={`repair-tab-${r.resourceId}-${rIdx}`}
+                        onClick={() => setActiveRepairRouteIndex(rIdx)}
+                        className={`px-2 py-1 rounded text-xs font-mono font-semibold transition-all shrink-0 ${
+                          rIdx === activeRepairRouteIndex
+                            ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400'
+                            : isLight
+                              ? 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300'
+                              : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                        }`}
+                      >
+                        {r.resourceId} (#{rIdx + 1})
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Active Repair Route Telemetry Bar */}
+                {activeRepairRoute && activeRepairRouteMetrics && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/50">
+                      <div>
+                        <div className="text-[10px] text-slate-500 font-mono uppercase">
+                          Unit:{' '}
+                          <span className="font-bold text-blue-700 dark:text-blue-300">
+                            {activeRepairRoute.resourceId}
+                          </span>
+                        </div>
+                        <div className="font-mono text-sm font-bold text-blue-900 dark:text-blue-100">
+                          {formatDistanceKm(activeRepairRouteMetrics.distanceKm)} •{' '}
+                          {formatDurationMinutes(activeRepairRouteMetrics.durationMinutes)}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase bg-white dark:bg-slate-800 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-700 shadow-sm">
+                          {routeMode === 'ROAD' ? 'OSRM Road' : 'Direct / Air'}
+                        </span>
+                        <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                          {activeRepairRoute.stops?.length ?? 0} Stops
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Road Route Unavailable Warning if OSRM failed */}
+                    {routeMode === 'ROAD' &&
+                      activeRepairRouteMetrics.hasUnavailableRoadSegments && (
+                        <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-700/60 text-amber-800 dark:text-amber-200 text-xs space-y-1">
+                          <div className="font-bold flex items-center gap-1.5">
+                            <span className="material-symbols-outlined text-[15px] text-amber-600">
+                              warning
+                            </span>
+                            <span>Road Route Geometry Unavailable</span>
+                          </div>
+                          <p className="text-[11px] leading-tight text-amber-900/90 dark:text-amber-300/90">
+                            OSRM road network routing could not calculate a valid road route for
+                            this repair segment.
+                          </p>
+                          <button
+                            onClick={() => setRouteMode('DIRECT')}
+                            className="mt-1 px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white font-mono text-[11px] font-bold transition-colors shadow-sm"
+                          >
+                            Switch to Direct / Air Mode
+                          </button>
+                        </div>
+                      )}
+
+                    {/* Ordered Stops List */}
+                    {activeRepairStops.length > 0 && (
+                      <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
+                        <span className="font-mono text-[10px] uppercase font-bold text-slate-500">
+                          Ordered Repair Sequence:
+                        </span>
+                        <div className="space-y-1">
+                          {activeRepairStops.map((stop, sIdx) => (
+                            <div
+                              key={`stop-row-${sIdx}-${stop.targetId}`}
+                              className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-white/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/50 text-[11px]"
+                            >
+                              <div className="flex items-center gap-1.5 truncate">
+                                {stop.isStart ? (
+                                  <span className="w-4 h-4 rounded-full bg-emerald-600 text-white font-mono font-bold text-[9px] flex items-center justify-center shrink-0">
+                                    A
+                                  </span>
+                                ) : stop.isEnd ? (
+                                  <span className="w-4 h-4 rounded-full bg-rose-600 text-white font-mono font-bold text-[9px] flex items-center justify-center shrink-0">
+                                    B
+                                  </span>
+                                ) : (
+                                  <span className="w-4 h-4 rounded-full bg-blue-600 text-white font-mono font-bold text-[9px] flex items-center justify-center shrink-0">
+                                    {stop.stopNumber}
+                                  </span>
+                                )}
+                                <span className="font-mono text-slate-800 dark:text-slate-200 truncate">
+                                  {stop.label}
+                                </span>
+                              </div>
+                              {stop.estimatedArrivalMinutes !== undefined && (
+                                <span className="font-mono text-[10px] text-slate-500 shrink-0">
+                                  ~{Math.round(stop.estimatedArrivalMinutes)} min
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -585,6 +1062,46 @@ function OperatorMapContent() {
                 </div>
               )}
 
+              {/* Route Mode Selector (Road Route vs Direct / Air) */}
+              <div
+                className={`flex items-center ${hudCardClass} rounded-lg p-0.5 text-xs shadow-sm`}
+                role="group"
+                aria-label="Route Mode Selector"
+              >
+                <button
+                  type="button"
+                  data-testid="route-mode-road-btn"
+                  onClick={() => handleSwitchToRoadMode()}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all flex items-center gap-1.5 ${
+                    routeMode === 'ROAD'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : isLight
+                        ? 'text-slate-600 hover:text-slate-900'
+                        : 'text-slate-300 hover:text-white'
+                  }`}
+                  title="Road Route Mode: Follows real OSRM road network geometry."
+                >
+                  <span className="material-symbols-outlined text-[14px]">directions_car</span>
+                  <span>Road Route</span>
+                </button>
+                <button
+                  type="button"
+                  data-testid="route-mode-direct-btn"
+                  onClick={() => setRouteMode('DIRECT')}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all flex items-center gap-1.5 ${
+                    routeMode === 'DIRECT'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : isLight
+                        ? 'text-slate-600 hover:text-slate-900'
+                        : 'text-slate-300 hover:text-white'
+                  }`}
+                  title="Direct / Air Mode: Shows straight-line transit vectors between stops."
+                >
+                  <span className="material-symbols-outlined text-[14px]">airplanemode_active</span>
+                  <span>Direct / Air</span>
+                </button>
+              </div>
+
               {/* Tile Style Toggle (Light Standard OSM Default / Dark Tactical Option) */}
               <button
                 type="button"
@@ -610,17 +1127,74 @@ function OperatorMapContent() {
                       ? 'bg-blue-50/95 border-blue-200 text-blue-900 shadow-lg'
                       : 'bg-sky-950/90 border-sky-500/50 text-sky-200 shadow-xl'
                   }`}
+                  data-testid="route-summary-badge"
                 >
-                  <span className="material-symbols-outlined text-[14px]">directions_car</span>
+                  <span className="material-symbols-outlined text-[14px]">
+                    {routeMode === 'DIRECT' ? 'airplanemode_active' : 'directions_car'}
+                  </span>
                   <span>
-                    {routeSummary.routeCount} Route(s) •{' '}
-                    {formatDistanceKm(routeSummary.totalDistanceKm)} •{' '}
-                    {formatDurationMinutes(routeSummary.totalDurationMinutes)} •{' '}
-                    {getRouteSourceLabel(routeSummary.overallSource)}
+                    {activeRouteMetrics
+                      ? `Route (${activeRouteForIncident?.resourceId}) • ${formatDistanceKm(activeRouteMetrics.distanceKm)} • ${formatDurationMinutes(activeRouteMetrics.durationMinutes)} • ${getRouteSourceLabel(activeRouteMetrics.source, routeMode)}`
+                      : `${routeSummary.routeCount} Route(s) • ${formatDistanceKm(routeSummary.totalDistanceKm)} • ${formatDurationMinutes(routeSummary.totalDurationMinutes)} • ${getRouteSourceLabel(routeSummary.overallSource, routeMode)}`}
                   </span>
                 </div>
               )}
             </div>
+
+            {/* Road Route Unavailable Notice Banner with Direct Switch Action */}
+            {routeMode === 'ROAD' && hasUnavailableRoadSegments && (
+              <div
+                data-testid="road-route-unavailable-banner"
+                className="bg-amber-500/10 border border-amber-500/50 text-amber-900 dark:text-amber-100 rounded-xl p-3 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg backdrop-blur-md animate-in fade-in max-w-xl"
+              >
+                <div className="flex items-start sm:items-center gap-2">
+                  <span className="material-symbols-outlined text-amber-600 text-lg flex-shrink-0 mt-0.5 sm:mt-0">
+                    warning
+                  </span>
+                  <div>
+                    <p className="font-semibold text-amber-900 dark:text-amber-100 leading-snug">
+                      Road route unavailable. OSRM could not calculate a valid road route for this
+                      segment. Switch to Direct / Air mode to view a straight-line estimate.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  data-testid="switch-to-direct-air-btn"
+                  onClick={() => setRouteMode('DIRECT')}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-semibold rounded-lg text-xs transition-colors whitespace-nowrap shadow-sm flex items-center gap-1 shrink-0 self-end sm:self-center"
+                >
+                  <span>Switch to Direct / Air Route</span>
+                  <span aria-hidden="true">&rarr;</span>
+                </button>
+              </div>
+            )}
+
+            {/* Direct / Air Mode Active Banner with Switch Back to Road Action */}
+            {routeMode === 'DIRECT' && (
+              <div
+                data-testid="direct-air-active-banner"
+                className="bg-sky-500/10 border border-sky-500/40 text-sky-900 dark:text-sky-100 rounded-xl p-2.5 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-lg backdrop-blur-md animate-in fade-in max-w-xl"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-[10px] tracking-wider uppercase px-1.5 py-0.5 rounded bg-sky-200 dark:bg-sky-900/60 text-sky-800 dark:text-sky-200 shrink-0">
+                    DIRECT / AIR MODE
+                  </span>
+                  <span>
+                    Direct / Air-style straight-line transit vectors shown. Connecting route stops
+                    via straight-line geographic estimates.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  data-testid="switch-to-road-route-btn"
+                  onClick={() => handleSwitchToRoadMode()}
+                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-xs transition-colors whitespace-nowrap shadow-sm shrink-0 self-end sm:self-center"
+                >
+                  Switch to Road Route
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Top Center Dynamic Route Geometry Banner */}
@@ -628,14 +1202,20 @@ function OperatorMapContent() {
             <div className={`${hudCardClass} px-3 py-1.5 rounded-xl flex items-center gap-2`}>
               <span
                 className={`material-symbols-outlined text-sm flex-shrink-0 ${
-                  routeSummary.overallSource === 'OSRM'
-                    ? 'text-blue-600'
-                    : routeSummary.overallSource === 'MIXED'
-                      ? 'text-sky-600'
-                      : 'text-amber-500'
+                  routeMode === 'DIRECT'
+                    ? 'text-sky-500'
+                    : (activeRouteMetrics?.source ?? routeSummary.overallSource) === 'OSRM'
+                      ? 'text-blue-600'
+                      : (activeRouteMetrics?.source ?? routeSummary.overallSource) === 'MIXED'
+                        ? 'text-sky-600'
+                        : 'text-amber-500'
                 }`}
               >
-                {routeSummary.overallSource === 'STRAIGHT_LINE' ? 'info' : 'alt_route'}
+                {routeMode === 'DIRECT'
+                  ? 'airplanemode_active'
+                  : (activeRouteMetrics?.source ?? routeSummary.overallSource) === 'STRAIGHT_LINE'
+                    ? 'info'
+                    : 'alt_route'}
               </span>
               <p
                 className={`text-[11px] leading-tight ${isLight ? 'text-slate-600' : 'text-slate-300'}`}
@@ -643,15 +1223,23 @@ function OperatorMapContent() {
                 <strong
                   className={`font-semibold ${isLight ? 'text-slate-900' : 'text-amber-300'}`}
                 >
-                  {routeSummary.routeCount > 0 && routeSummary.overallSource === 'OSRM'
-                    ? 'OSRM road-following routes active.'
-                    : routeSummary.routeCount > 0 && routeSummary.overallSource === 'MIXED'
-                      ? 'Mixed road + straight-line routes shown.'
-                      : 'Straight-line transit vectors shown.'}
+                  {routeMode === 'DIRECT'
+                    ? 'Direct / Air-style transit vectors shown.'
+                    : activeRouteMetrics?.source === 'OSRM' ||
+                        (routeSummary.routeCount > 0 && routeSummary.overallSource === 'OSRM')
+                      ? 'OSRM road-following routes active.'
+                      : routeSummary.routeCount > 0 && routeSummary.overallSource === 'MIXED'
+                        ? 'Mixed road + straight-line routes shown.'
+                        : 'Straight-line transit vectors shown.'}
                 </strong>{' '}
-                {routeSummary.overallSource === 'STRAIGHT_LINE'
-                  ? 'Watercraft/air legs and routes without OSRM coverage use straight-line estimates.'
-                  : 'Road vehicles follow OpenStreetMap streets; watercraft and air units stay straight-line.'}
+                {routeMode === 'DIRECT'
+                  ? 'Connecting stops via direct straight-line geographic vectors (no road navigation).'
+                  : activeRouteMetrics?.source === 'OSRM' ||
+                      (routeSummary.routeCount > 0 && routeSummary.overallSource === 'OSRM')
+                    ? 'Road vehicles follow OpenStreetMap streets; watercraft and air units stay straight-line.'
+                    : routeSummary.overallSource === 'STRAIGHT_LINE'
+                      ? 'Watercraft/air legs and routes without OSRM coverage use straight-line estimates.'
+                      : 'Road vehicles follow OpenStreetMap streets; watercraft and air units stay straight-line.'}
               </p>
             </div>
           </div>
@@ -736,6 +1324,12 @@ function OperatorMapContent() {
                 <span>Road Route (OSRM)</span>
               </div>
               <div className="flex items-center gap-2">
+                <span className="w-4 h-1.5 rounded-full bg-[#4285F4] ring-1 ring-white/80 inline-block shadow-sm" />
+                <span className="font-medium text-blue-600 dark:text-blue-400">
+                  Repair Route (Google Maps Road)
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
                 <span className="w-4 h-0 border-t-2 border-dashed border-[#0f766e] inline-block" />
                 <span>Straight-Line (Boat/Air/Fallback)</span>
               </div>
@@ -783,11 +1377,13 @@ function OperatorMapContent() {
           {/* REAL LEAFLET MAP WRAPPER */}
           <LeafletMapWrapper
             requests={requests}
-            stagedFleet={STAGED_SECTOR_FLEET}
-            stagedShelters={STAGED_SECTOR_SHELTERS}
+            stagedFleet={combinedFleet}
+            stagedShelters={combinedShelters}
             selectedAssignment={selectedAssignment}
+            selectedRepairAssignment={selectedRepairAssignment}
+            activeRepairRouteIndex={activeRepairRouteIndex}
+            onSelectRepairRoute={setActiveRepairRouteIndex}
             blockedZones={STAGED_SECTOR_BLOCKED_ZONES}
-            repairRoutePolylines={repairRoutePolylines}
             forecastContext={forecastContext}
             layers={layers}
             urgencyFilter={urgencyFilter}
@@ -795,6 +1391,9 @@ function OperatorMapContent() {
             onSelectEntity={setSelectedEntity}
             tileTheme={tileTheme}
             actionTrigger={actionTrigger}
+            routeMode={routeMode}
+            onSwitchRouteMode={setRouteMode}
+            resourceTypeMap={resourceTypeMap}
           />
         </div>
 
@@ -811,6 +1410,13 @@ function OperatorMapContent() {
           <MapInspectorDrawer
             selectedEntity={selectedEntity}
             onClose={() => setSelectedEntity(null)}
+            assignedRoute={activeRouteForIncident}
+            assignedResourceName={assignedResourceName}
+            assignedResourceType={assignedResourceType}
+            routeMetrics={activeRouteMetrics}
+            routeMode={routeMode}
+            onPlanAssignment={handlePlanAssignment}
+            isPlanningAssignment={isPlanningAssignment}
           />
         </aside>
       </div>

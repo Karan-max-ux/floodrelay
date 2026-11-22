@@ -6,6 +6,13 @@ dotenv.config();
 const { Pool } = pg;
 
 export function getDatabaseConfig(): pg.PoolConfig {
+  const isTestEnv = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
+  if (isTestEnv && process.env.TEST_DATABASE_URL) {
+    return {
+      connectionString: process.env.TEST_DATABASE_URL,
+    };
+  }
+
   if (process.env.DATABASE_URL) {
     return {
       connectionString: process.env.DATABASE_URL,

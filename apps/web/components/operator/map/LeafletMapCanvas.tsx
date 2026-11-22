@@ -4,7 +4,12 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { MapContainer, TileLayer, Marker, Polyline, Polygon, Popup, useMap } from 'react-leaflet';
-import type { RescueRequest, BlockedZone, FloodForecastContext } from '@floodrelay/shared';
+import type {
+  RescueRequest,
+  BlockedZone,
+  FloodForecastContext,
+  ResourceType,
+} from '@floodrelay/shared';
 import type { AssignmentRecord } from '@/lib/api/types';
 import {
   TACTICAL_MAP_DEFAULT_CENTRE,
@@ -12,17 +17,21 @@ import {
 } from '@/lib/fixtures/mapReferenceData';
 import { getTileConfig } from './tileConfig';
 import {
+  extractRepairStops,
   formatDistanceKm,
   formatDurationMinutes,
+  getRepairRouteStyle,
   getRouteDisplayMetrics,
   getRouteSegmentsForRendering,
-  getRouteSourceLabel,
+  isNonRoadResource,
+  isValidLatLngTuple,
+  type RouteMode,
 } from './routeDisplay';
 
 export interface StagedAsset {
   id: string;
   name: string;
-  type: 'BOAT' | 'HIGH_WATER_VEHICLE' | 'HELICOPTER';
+  type: ResourceType;
   capacity: number;
   speedKmH: number;
   lat: number;
@@ -64,6 +73,9 @@ interface LeafletMapCanvasProps {
   stagedFleet: StagedAsset[];
   stagedShelters: StagedShelter[];
   selectedAssignment: AssignmentRecord | null;
+  selectedRepairAssignment?: AssignmentRecord | null;
+  activeRepairRouteIndex?: number;
+  onSelectRepairRoute?: (routeIndex: number) => void;
   blockedZones?: BlockedZone[];
   repairRoutePolylines?: Array<{ resourceId: string; latlngs: [number, number][] }>;
   forecastContext?: FloodForecastContext | null;
@@ -73,6 +85,9 @@ interface LeafletMapCanvasProps {
   onSelectEntity: (entity: SelectedMapEntity) => void;
   tileTheme: 'dark' | 'standard';
   actionTrigger?: { type: 'fit' | 'center-critical' | 'zoom-in' | 'zoom-out'; id: number } | null;
+  routeMode?: RouteMode;
+  onSwitchRouteMode?: (mode: RouteMode) => void;
+  resourceTypeMap?: Map<string, string>;
 }
 
 // Marker icon generators
@@ -114,14 +129,17 @@ function getIncidentIcon(urgency: string, peopleCount: number, isSelected: boole
   });
 }
 
-function getCraftIcon(name: string, isSelected: boolean): L.DivIcon {
+function getCraftIcon(name: string, isSelected: boolean, type?: string): L.DivIcon {
   const selectedRing = isSelected
     ? 'ring-4 ring-teal-400 ring-offset-2 ring-offset-slate-900 scale-110'
     : '';
+  const isVehicle = type === 'HIGH_WATER_VEHICLE' || type === 'TRUCK';
+  const isHeli = type === 'HELICOPTER';
+  const icon = isVehicle ? 'local_shipping' : isHeli ? 'flight' : 'directions_boat';
   const html = `
     <div class="flex flex-col items-center cursor-pointer transition-transform duration-150">
       <div class="flex items-center justify-center w-7 h-7 rounded-lg bg-teal-700 border-2 border-teal-300 text-white shadow-xl ${selectedRing}">
-        <span class="material-symbols-outlined text-[16px]">directions_boat</span>
+        <span class="material-symbols-outlined text-[16px]">${icon}</span>
       </div>
       <div class="px-1.5 py-0.2 rounded bg-slate-950/95 border border-teal-500/60 text-[10px] text-teal-300 font-mono font-bold whitespace-nowrap mt-0.5 shadow-md">
         ${name}
@@ -198,15 +216,75 @@ function getRiverStationIcon(risk: string): L.DivIcon {
   });
 }
 
+// Google Maps-style Repair Route Stop Marker Generators
+function getRepairStartIcon(title = 'START'): L.DivIcon {
+  const html = `
+    <div class="relative flex flex-col items-center justify-center cursor-pointer -translate-x-1/2 -translate-y-1/2" data-testid="repair-start-marker">
+      <div class="flex items-center justify-center w-7 h-7 rounded-full bg-emerald-600 text-white font-mono font-bold text-xs shadow-xl border-2 border-white ring-2 ring-emerald-500/70">
+        <span class="material-symbols-outlined text-[15px]">home_repair_service</span>
+      </div>
+      <span class="mt-0.5 text-[8.5px] font-bold font-mono uppercase tracking-wider bg-slate-900/95 text-emerald-300 px-1 py-0.2 rounded shadow whitespace-nowrap border border-emerald-500/40">
+        ${title}
+      </span>
+    </div>
+  `;
+  return L.divIcon({
+    html,
+    className: 'custom-repair-start-marker',
+    iconSize: [28, 42],
+    iconAnchor: [14, 21],
+    popupAnchor: [0, -21],
+  });
+}
+
+function getRepairDestinationIcon(title = 'DEST'): L.DivIcon {
+  const html = `
+    <div class="relative flex flex-col items-center justify-center cursor-pointer -translate-x-1/2 -translate-y-1/2" data-testid="repair-dest-marker">
+      <div class="flex items-center justify-center w-7 h-7 rounded-full bg-rose-600 text-white font-mono font-bold text-xs shadow-xl border-2 border-white ring-2 ring-rose-500/70">
+        <span class="material-symbols-outlined text-[15px]">flag</span>
+      </div>
+      <span class="mt-0.5 text-[8.5px] font-bold font-mono uppercase tracking-wider bg-slate-900/95 text-rose-300 px-1 py-0.2 rounded shadow whitespace-nowrap border border-rose-500/40">
+        ${title}
+      </span>
+    </div>
+  `;
+  return L.divIcon({
+    html,
+    className: 'custom-repair-dest-marker',
+    iconSize: [28, 42],
+    iconAnchor: [14, 21],
+    popupAnchor: [0, -21],
+  });
+}
+
+function getRepairIntermediateIcon(stopNumber: number): L.DivIcon {
+  const html = `
+    <div class="relative flex items-center justify-center cursor-pointer -translate-x-1/2 -translate-y-1/2" data-testid="repair-stop-marker">
+      <div class="flex items-center justify-center w-6 h-6 rounded-full bg-blue-600 text-white font-mono font-bold text-[11px] shadow-lg border-2 border-white ring-2 ring-blue-400/60">
+        ${stopNumber}
+      </div>
+    </div>
+  `;
+  return L.divIcon({
+    html,
+    className: 'custom-repair-stop-marker',
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+    popupAnchor: [0, -12],
+  });
+}
+
 // Controller component for programmatic map viewport movements
 function MapMovementController({
   allCoordinates,
   operationalCoordinates,
+  activeRouteCoordinates,
   selectedEntity,
   actionTrigger,
 }: {
   allCoordinates: [number, number][];
   operationalCoordinates: [number, number][];
+  activeRouteCoordinates?: [number, number][];
   selectedEntity: SelectedMapEntity;
   actionTrigger?: { type: 'fit' | 'center-critical' | 'zoom-in' | 'zoom-out'; id: number } | null;
 }) {
@@ -260,7 +338,10 @@ function MapMovementController({
   }, [actionTrigger, allCoordinates, map]);
 
   useEffect(() => {
-    if (selectedEntity) {
+    if (activeRouteCoordinates && activeRouteCoordinates.length > 1) {
+      const bounds = L.latLngBounds(activeRouteCoordinates.map(([lat, lng]) => [lat, lng]));
+      map.fitBounds(bounds, { padding: [56, 56], maxZoom: 14, animate: true });
+    } else if (selectedEntity) {
       const target = selectedEntity.item;
       if (
         'lat' in target &&
@@ -271,7 +352,7 @@ function MapMovementController({
         map.panTo([target.lat, target.lng], { animate: true });
       }
     }
-  }, [selectedEntity, map]);
+  }, [selectedEntity, activeRouteCoordinates, map]);
 
   return null;
 }
@@ -281,6 +362,9 @@ export default function LeafletMapCanvas({
   stagedFleet,
   stagedShelters,
   selectedAssignment,
+  selectedRepairAssignment,
+  activeRepairRouteIndex = 0,
+  onSelectRepairRoute,
   blockedZones = [],
   repairRoutePolylines = [],
   forecastContext,
@@ -290,6 +374,8 @@ export default function LeafletMapCanvas({
   onSelectEntity,
   tileTheme,
   actionTrigger,
+  routeMode = 'ROAD',
+  resourceTypeMap,
 }: LeafletMapCanvasProps) {
   // Validate and filter incident requests by urgency
   const filteredRequests = useMemo(() => {
@@ -328,16 +414,121 @@ export default function LeafletMapCanvas({
   // Tile layer configuration
   const tileConfig = getTileConfig(tileTheme);
 
+  // Build lookup of resource types from staged fleet or props
+  const effectiveResourceTypeMap = useMemo(() => {
+    const map = new Map<string, string>(resourceTypeMap ?? []);
+    stagedFleet.forEach((f) => map.set(f.id, f.type));
+    return map;
+  }, [resourceTypeMap, stagedFleet]);
+
+  // Track currently selected incident ID to highlight its route
+  const selectedIncidentId = selectedEntity?.type === 'incident' ? selectedEntity.item.id : null;
+
   // Assignment polyline vectors (road-following OSRM segments when available, straight-line fallback/policy)
   const renderedRoutes = useMemo(() => {
     if (!layers.routes || !selectedAssignment?.routes) return [];
 
-    return selectedAssignment.routes.map((route) => ({
-      resourceId: route.resourceId,
-      metrics: getRouteDisplayMetrics(route),
-      segments: getRouteSegmentsForRendering(route, tileTheme),
-    }));
-  }, [layers.routes, selectedAssignment, tileTheme]);
+    return selectedAssignment.routes.map((route) => {
+      const servesSelectedIncident = selectedIncidentId
+        ? (route.servedRequestIds && route.servedRequestIds.includes(selectedIncidentId)) ||
+          (route.stops && route.stops.some((s) => s.targetId === selectedIncidentId))
+        : false;
+
+      const originStop =
+        route.stops?.find((s) => s.type === 'DEPOT' || s.stopNumber === 0) || route.stops?.[0];
+      const originCoord: [number, number] | null =
+        originStop && typeof originStop.lat === 'number' && typeof originStop.lng === 'number'
+          ? [originStop.lat, originStop.lng]
+          : route.geometry?.coordinates &&
+              route.geometry.coordinates.length > 0 &&
+              isValidLatLngTuple(route.geometry.coordinates[0])
+            ? [route.geometry.coordinates[0][0], route.geometry.coordinates[0][1]]
+            : null;
+
+      const matchedCraft = stagedFleet.find((f) => f.id === route.resourceId);
+      const resourceName =
+        matchedCraft?.name ||
+        (route.resourceId === 'res_truck_ncr_1' ? 'Delhi Rescue Truck 1' : route.resourceId);
+      const isNonRoad = isNonRoadResource(
+        route.resourceId,
+        matchedCraft?.type,
+        effectiveResourceTypeMap,
+      );
+
+      return {
+        resourceId: route.resourceId,
+        resourceName,
+        originCoord,
+        isNonRoad,
+        servesSelectedIncident,
+        metrics: getRouteDisplayMetrics(route, routeMode, undefined, effectiveResourceTypeMap),
+        segments: getRouteSegmentsForRendering(
+          route,
+          tileTheme,
+          routeMode,
+          undefined,
+          effectiveResourceTypeMap,
+        ),
+      };
+    });
+  }, [
+    layers.routes,
+    selectedAssignment,
+    tileTheme,
+    routeMode,
+    effectiveResourceTypeMap,
+    stagedFleet,
+    selectedIncidentId,
+  ]);
+
+  const activeRouteCoordinates: [number, number][] = useMemo(() => {
+    if (!selectedIncidentId) return [];
+    const activeRoute = renderedRoutes.find((r) => r.servesSelectedIncident);
+    if (!activeRoute) return [];
+    const coords: [number, number][] = [];
+    if (activeRoute.originCoord) coords.push(activeRoute.originCoord);
+    activeRoute.segments.forEach((seg) => {
+      seg.positions.forEach((pt) => coords.push(pt));
+    });
+    return coords;
+  }, [selectedIncidentId, renderedRoutes]);
+
+  // Real repair routes (hydrated from selectedRepairAssignment with OSRM road geometry or direct mode)
+  const renderedRepairRoutes = useMemo(() => {
+    if (!layers.repairOverlay || !selectedRepairAssignment?.routes) return [];
+
+    return selectedRepairAssignment.routes.map((route, routeIdx) => {
+      const isActiveRoute = routeIdx === activeRepairRouteIndex;
+      const metrics = getRouteDisplayMetrics(route, routeMode, undefined, effectiveResourceTypeMap);
+      const segments = getRouteSegmentsForRendering(
+        route,
+        tileTheme,
+        routeMode,
+        undefined,
+        effectiveResourceTypeMap,
+      );
+      const stops = extractRepairStops(route);
+      const style = getRepairRouteStyle(isActiveRoute, routeMode, tileTheme);
+
+      return {
+        route,
+        routeIdx,
+        resourceId: route.resourceId,
+        isActiveRoute,
+        metrics,
+        segments,
+        stops,
+        style,
+      };
+    });
+  }, [
+    layers.repairOverlay,
+    selectedRepairAssignment,
+    activeRepairRouteIndex,
+    routeMode,
+    tileTheme,
+    effectiveResourceTypeMap,
+  ]);
 
   // Operational coordinates (database incidents + selected assignment route vertices) for initial auto-fit
   const operationalCoordinates: [number, number][] = useMemo(() => {
@@ -378,6 +569,7 @@ export default function LeafletMapCanvas({
         <MapMovementController
           allCoordinates={allCoordinates}
           operationalCoordinates={operationalCoordinates}
+          activeRouteCoordinates={activeRouteCoordinates}
           selectedEntity={selectedEntity}
           actionTrigger={actionTrigger}
         />
@@ -425,7 +617,7 @@ export default function LeafletMapCanvas({
               <Marker
                 key={craft.id}
                 position={[craft.lat, craft.lng]}
-                icon={getCraftIcon(craft.name, isSelected)}
+                icon={getCraftIcon(craft.name, isSelected, craft.type)}
                 eventHandlers={{
                   click: () => onSelectEntity({ type: 'craft', item: craft }),
                 }}
@@ -477,39 +669,77 @@ export default function LeafletMapCanvas({
 
         {/* 4. ASSIGNMENT ROUTE POLYLINES */}
         {layers.routes &&
-          renderedRoutes.map((routeItem) =>
-            routeItem.segments.map((seg) => (
-              <Polyline
-                key={seg.key}
-                positions={seg.positions}
-                pathOptions={{
-                  color: seg.style.color,
-                  weight: seg.style.weight,
-                  opacity: seg.style.opacity,
-                  ...(seg.style.dashArray ? { dashArray: seg.style.dashArray } : {}),
-                }}
-              >
-                <Popup>
-                  <div className="text-xs p-1 space-y-1">
-                    <div className="font-mono font-bold text-slate-900">
-                      Unit: {routeItem.resourceId}
+          renderedRoutes.map((routeItem) => {
+            const hasFocusedIncident = Boolean(selectedIncidentId);
+            const isHighlighted = routeItem.servesSelectedIncident;
+
+            return routeItem.segments.map((seg) => {
+              if (!seg.positions || seg.positions.length < 2) {
+                return null;
+              }
+
+              const polylineOpacity = hasFocusedIncident
+                ? isHighlighted
+                  ? 1.0
+                  : 0.35
+                : seg.style.opacity;
+              const polylineWeight = hasFocusedIncident
+                ? isHighlighted
+                  ? seg.style.weight + 2
+                  : Math.max(2, seg.style.weight - 1)
+                : seg.style.weight;
+
+              return (
+                <Polyline
+                  key={seg.key}
+                  positions={seg.positions}
+                  pathOptions={{
+                    color: isHighlighted
+                      ? tileTheme === 'standard'
+                        ? '#1d4ed8'
+                        : '#60a5fa'
+                      : seg.style.color,
+                    weight: polylineWeight,
+                    opacity: polylineOpacity,
+                    lineCap: 'round',
+                    lineJoin: 'round',
+                    ...(seg.style.dashArray ? { dashArray: seg.style.dashArray } : {}),
+                  }}
+                >
+                  <Popup>
+                    <div className="text-xs p-1 space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
+                          Unit: {routeItem.resourceId}
+                        </span>
+                        {routeItem.servesSelectedIncident && (
+                          <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-300">
+                            Serves Selected Request
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] font-semibold text-blue-700 dark:text-blue-300">
+                        {seg.isNonRoadResource
+                          ? 'Watercraft / Air Transit Vector'
+                          : routeMode === 'DIRECT'
+                            ? 'Direct / Air Straight-Line'
+                            : 'OSRM Road Route'}
+                      </div>
+                      <div className="text-[11px] font-mono text-slate-700 dark:text-slate-300">
+                        {formatDistanceKm(routeItem.metrics.distanceKm)} •{' '}
+                        {formatDurationMinutes(routeItem.metrics.durationMinutes)}
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        {routeItem.metrics.pickupsCount} Pickup(s) •{' '}
+                        {routeItem.metrics.dropoffsCount} Drop-off(s) • {seg.positions.length}{' '}
+                        vertices
+                      </div>
                     </div>
-                    <div className="text-[11px] font-semibold text-blue-700">
-                      {getRouteSourceLabel(routeItem.metrics.source)}
-                    </div>
-                    <div className="text-[11px] font-mono text-slate-700">
-                      {formatDistanceKm(routeItem.metrics.distanceKm)} •{' '}
-                      {formatDurationMinutes(routeItem.metrics.durationMinutes)}
-                    </div>
-                    <div className="text-[10px] text-slate-500">
-                      {routeItem.metrics.pickupsCount} Pickup(s) • {routeItem.metrics.dropoffsCount}{' '}
-                      Drop-off(s) • {routeItem.metrics.vertexCount} vertices
-                    </div>
-                  </div>
-                </Popup>
-              </Polyline>
-            )),
-          )}
+                  </Popup>
+                </Polyline>
+              );
+            });
+          })}
 
         {/* 5. ROAD HAZARDS & FLOOD SURGE ZONES */}
         {layers.blockages &&
@@ -543,20 +773,154 @@ export default function LeafletMapCanvas({
             </Polygon>
           ))}
 
-        {/* 6. REPAIR ROUTE COMPARISON OVERLAY */}
-        {layers.repairOverlay &&
-          repairRoutePolylines.map((route, idx) => (
-            <Polyline
-              key={`repair-${route.resourceId}-${idx}`}
-              positions={route.latlngs}
-              pathOptions={{
-                color: '#c084fc',
-                weight: 3.5,
-                dashArray: '4, 8',
-                opacity: 0.95,
-              }}
-            />
-          ))}
+        {/* 6. GOOGLE MAPS-STYLE REPAIR ROUTE OVERLAY */}
+        {layers.repairOverlay && (
+          <>
+            {/* Real Repair Routes from selectedRepairAssignment */}
+            {renderedRepairRoutes.map((repairRoute) =>
+              repairRoute.segments.map((seg) => {
+                if (!seg.positions || seg.positions.length < 2) return null;
+
+                return (
+                  <React.Fragment key={`repair-segment-${repairRoute.routeIdx}-${seg.key}`}>
+                    {/* Casing (underneath) */}
+                    <Polyline
+                      positions={seg.positions}
+                      pathOptions={{
+                        color: repairRoute.style.casing.color,
+                        weight: repairRoute.style.casing.weight,
+                        opacity: repairRoute.style.casing.opacity,
+                        lineCap: repairRoute.style.casing.lineCap,
+                        lineJoin: repairRoute.style.casing.lineJoin,
+                        interactive: false,
+                        ...(repairRoute.style.casing.dashArray
+                          ? { dashArray: repairRoute.style.casing.dashArray }
+                          : {}),
+                      }}
+                    />
+                    {/* Main Line (on top) */}
+                    <Polyline
+                      positions={seg.positions}
+                      pathOptions={{
+                        color: repairRoute.style.main.color,
+                        weight: repairRoute.style.main.weight,
+                        opacity: repairRoute.style.main.opacity,
+                        lineCap: repairRoute.style.main.lineCap,
+                        lineJoin: repairRoute.style.main.lineJoin,
+                        ...(repairRoute.style.main.dashArray
+                          ? { dashArray: repairRoute.style.main.dashArray }
+                          : {}),
+                      }}
+                      eventHandlers={{
+                        click: () => onSelectRepairRoute?.(repairRoute.routeIdx),
+                      }}
+                    >
+                      <Popup className="custom-leaflet-popup">
+                        <div className="text-xs p-1.5 space-y-1.5 max-w-xs">
+                          <div className="flex items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-700/80 pb-1">
+                            <span className="font-mono font-bold text-blue-700 dark:text-blue-400 flex items-center gap-1">
+                              <span className="material-symbols-outlined text-[14px]">build</span>
+                              Unit: {repairRoute.resourceId}
+                            </span>
+                            <span
+                              className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border ${
+                                repairRoute.isActiveRoute
+                                  ? 'bg-blue-100 text-blue-800 border-blue-400 dark:bg-blue-900/60 dark:text-blue-200'
+                                  : 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300'
+                              }`}
+                            >
+                              {repairRoute.isActiveRoute ? 'Active Repair Route' : 'Repair Route'}
+                            </span>
+                          </div>
+                          <div className="text-[11px] font-semibold text-slate-800 dark:text-slate-200">
+                            {routeMode === 'DIRECT'
+                              ? 'Direct / Air Straight-Line Vector'
+                              : 'Google Maps-Style Road Route (OSRM)'}
+                          </div>
+                          <div className="text-[11px] font-mono text-slate-700 dark:text-slate-300">
+                            {formatDistanceKm(repairRoute.metrics.distanceKm)} •{' '}
+                            {formatDurationMinutes(repairRoute.metrics.durationMinutes)}
+                          </div>
+                          <div className="text-[10px] text-slate-500">
+                            {repairRoute.stops.length} Stops • {seg.positions.length} road vertices
+                          </div>
+                        </div>
+                      </Popup>
+                    </Polyline>
+                  </React.Fragment>
+                );
+              }),
+            )}
+
+            {/* Repair Route Stop Markers (Start, Intermediate, Destination) */}
+            {renderedRepairRoutes.map((repairRoute) => {
+              if (!repairRoute.isActiveRoute && renderedRepairRoutes.length > 1) return null;
+
+              return repairRoute.stops.map((stop) => {
+                const icon = stop.isStart
+                  ? getRepairStartIcon('START')
+                  : stop.isEnd
+                    ? getRepairDestinationIcon('DEST')
+                    : getRepairIntermediateIcon(stop.stopNumber);
+
+                return (
+                  <Marker
+                    key={`repair-stop-${repairRoute.routeIdx}-${stop.stopNumber}-${stop.targetId}`}
+                    position={[stop.lat, stop.lng]}
+                    icon={icon}
+                  >
+                    <Popup className="custom-leaflet-popup">
+                      <div className="text-xs p-1 space-y-1">
+                        <div className="font-bold text-blue-700 dark:text-blue-400 font-mono">
+                          {stop.label}
+                        </div>
+                        <div className="text-[11px] text-slate-700 dark:text-slate-300">
+                          Target: <span className="font-mono font-bold">{stop.targetId}</span>
+                        </div>
+                        {stop.estimatedArrivalMinutes !== undefined && (
+                          <div className="text-[10px] text-slate-500 font-mono">
+                            Est. Arrival: ~{Math.round(stop.estimatedArrivalMinutes)} min
+                          </div>
+                        )}
+                        <div className="text-[10px] text-slate-400 font-mono">
+                          {stop.lat.toFixed(5)}°N, {stop.lng.toFixed(5)}°E
+                        </div>
+                      </div>
+                    </Popup>
+                  </Marker>
+                );
+              });
+            })}
+
+            {/* Legacy repairRoutePolylines fallback: rendered with Google Maps Blue and casing */}
+            {renderedRepairRoutes.length === 0 &&
+              repairRoutePolylines.map((route, idx) => (
+                <React.Fragment key={`legacy-repair-${route.resourceId}-${idx}`}>
+                  <Polyline
+                    positions={route.latlngs}
+                    pathOptions={{
+                      color: tileTheme === 'standard' ? '#ffffff' : '#0f172a',
+                      weight: 8,
+                      opacity: 0.85,
+                      lineCap: 'round',
+                      lineJoin: 'round',
+                      interactive: false,
+                    }}
+                  />
+                  <Polyline
+                    positions={route.latlngs}
+                    pathOptions={{
+                      color: '#4285F4',
+                      weight: 5,
+                      opacity: 1.0,
+                      lineCap: 'round',
+                      lineJoin: 'round',
+                    }}
+                  />
+                </React.Fragment>
+              ))}
+          </>
+        )}
 
         {/* 7. FLOOD FORECAST RIVER REACH CONTEXT */}
         {layers.floodForecast && forecastContext && (

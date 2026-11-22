@@ -152,10 +152,12 @@ export function solveClusterAllocation(
     for (const req of clusterItems) {
       if (!remainingRequests.has(req.id)) continue;
 
-      // Find the best resource that can serve this request with minimum arrival time
+      // Find the best resource that can serve this request with minimum arrival time and mission completion
       let bestResId: string | null = null;
       let earliestArrival = Number.POSITIVE_INFINITY;
+      let bestMissionDuration = Number.POSITIVE_INFINITY;
       let bestEstimate = { distanceKm: 0, durationMinutes: 0 };
+      let bestIsRoadRouted = false;
 
       for (const res of availableResources) {
         const state = routesByResource.get(res.id)!;
@@ -186,14 +188,30 @@ export function solveClusterAllocation(
             }
           }
 
+          const missionDuration = arrival + minShelterToReq;
+          const isRoadVehicle = res.type === 'HIGH_WATER_VEHICLE' || res.type === 'AMBULANCE';
+          const candidateIsRoadRouted = isRoadVehicle && estimate.source === 'OSRM';
+
+          // Prefer road-capable vehicle with valid road network route over non-road vehicle using straight-line overland estimate
+          const isBetter =
+            candidateIsRoadRouted && !bestIsRoadRouted
+              ? true
+              : !candidateIsRoadRouted && bestIsRoadRouted
+                ? false
+                : missionDuration < bestMissionDuration - 0.01 ||
+                  (Math.abs(missionDuration - bestMissionDuration) <= 0.01 &&
+                    arrival < earliestArrival);
+
           if (
             Number.isFinite(minShelterToReq) &&
-            arrival < earliestArrival &&
+            isBetter &&
             arrival + minShelterToReq <= maxShiftMinutes
           ) {
             earliestArrival = arrival;
+            bestMissionDuration = missionDuration;
             bestResId = res.id;
             bestEstimate = estimate;
+            bestIsRoadRouted = candidateIsRoadRouted;
           }
         }
       }
@@ -264,13 +282,24 @@ export function solveClusterAllocation(
               }
             }
 
+            const isRoadVehicle = res.type === 'HIGH_WATER_VEHICLE' || res.type === 'AMBULANCE';
+            const candidateIsRoadRouted = isRoadVehicle && reqEst.source === 'OSRM';
+
+            const isBetter =
+              candidateIsRoadRouted && !bestIsRoadRouted
+                ? true
+                : !candidateIsRoadRouted && bestIsRoadRouted
+                  ? false
+                  : arrival < earliestArrival;
+
             if (
               Number.isFinite(minShelterToReq) &&
-              arrival < earliestArrival &&
+              isBetter &&
               arrival + minShelterToReq <= maxShiftMinutes
             ) {
               earliestArrival = arrival;
               bestResId = res.id;
+              bestIsRoadRouted = candidateIsRoadRouted;
             }
           }
         }
