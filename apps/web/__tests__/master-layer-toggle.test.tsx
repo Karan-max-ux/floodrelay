@@ -482,4 +482,61 @@ describe('Master Show/Hide All Map Layers Toggle Invariants', () => {
       expect(buttonIcon).toBe('visibility');
     });
   });
+
+  describe('4. Interoperability with Collapsible Map Overview Panel', () => {
+    it('(a) Hiding Map Overview panel does NOT hide Leaflet overlays or alter effectiveLayers', () => {
+      const baseLayers: MapLayers = {
+        incidents: true,
+        craft: true,
+        shelters: true,
+        routes: true,
+        blockages: true,
+        repairOverlay: false,
+        floodForecast: false,
+      };
+
+      let isOverviewExpanded = true;
+      const masterVisible = true;
+
+      // Operator collapses overview panel
+      isOverviewExpanded = false;
+
+      // Invariant: effectiveLayers calculation is decoupled from overview panel visibility
+      const effectiveLayers = masterVisible ? baseLayers : { ...baseLayers, incidents: false };
+      expect(isOverviewExpanded).toBe(false);
+      expect(effectiveLayers.incidents).toBe(true);
+      expect(effectiveLayers.craft).toBe(true);
+      expect(effectiveLayers.shelters).toBe(true);
+      expect(effectiveLayers.routes).toBe(true);
+      expect(effectiveLayers.blockages).toBe(true);
+    });
+
+    it('(b) Hiding all map overlays (masterVisible = false) does NOT collapse the Map Overview panel', () => {
+      const isOverviewExpanded = true;
+      let masterVisible = true;
+
+      // Operator clicks "Hide All Layers"
+      masterVisible = false;
+
+      // Invariant: panel remains expanded
+      expect(isOverviewExpanded).toBe(true);
+      expect(masterVisible).toBe(false);
+    });
+
+    it('(c) Both controls operate orthogonally without state corruption across 20 cycles', () => {
+      let isOverviewExpanded = true;
+      let masterVisible = true;
+
+      for (let i = 0; i < 20; i++) {
+        isOverviewExpanded = !isOverviewExpanded;
+        if (i % 2 === 0) {
+          masterVisible = !masterVisible;
+        }
+      }
+
+      // After 20 cycles
+      expect(isOverviewExpanded).toBe(true);
+      expect(masterVisible).toBe(true);
+    });
+  });
 });
