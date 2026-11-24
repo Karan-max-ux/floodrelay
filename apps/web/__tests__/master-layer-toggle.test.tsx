@@ -496,14 +496,15 @@ describe('Master Show/Hide All Map Layers Toggle Invariants', () => {
       };
 
       let isOverviewExpanded = true;
+      expect(isOverviewExpanded).toBe(true);
       const masterVisible = true;
 
       // Operator collapses overview panel
       isOverviewExpanded = false;
+      expect(isOverviewExpanded).toBe(false);
 
       // Invariant: effectiveLayers calculation is decoupled from overview panel visibility
       const effectiveLayers = masterVisible ? baseLayers : { ...baseLayers, incidents: false };
-      expect(isOverviewExpanded).toBe(false);
       expect(effectiveLayers.incidents).toBe(true);
       expect(effectiveLayers.craft).toBe(true);
       expect(effectiveLayers.shelters).toBe(true);
@@ -514,6 +515,7 @@ describe('Master Show/Hide All Map Layers Toggle Invariants', () => {
     it('(b) Hiding all map overlays (masterVisible = false) does NOT collapse the Map Overview panel', () => {
       const isOverviewExpanded = true;
       let masterVisible = true;
+      expect(masterVisible).toBe(true);
 
       // Operator clicks "Hide All Layers"
       masterVisible = false;
