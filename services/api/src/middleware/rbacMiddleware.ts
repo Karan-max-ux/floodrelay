@@ -5,6 +5,7 @@ export type OperationalAction =
   | 'VIEW_EVENTS'
   | 'VIEW_AUDIT'
   | 'VIEW_FORECAST'
+  | 'MANAGE_RESOURCES'
   | 'MANAGE_RESOURCE_STATUS'
   | 'MANAGE_BLOCKED_ZONES'
   | 'REQUEST_REPAIR'
@@ -28,6 +29,7 @@ export const ROLE_PERMISSIONS: Record<OperatorRole, ReadonlySet<OperationalActio
     'VIEW_EVENTS',
     'VIEW_AUDIT',
     'VIEW_FORECAST',
+    'MANAGE_RESOURCES',
     'MANAGE_RESOURCE_STATUS',
     'MANAGE_BLOCKED_ZONES',
     'REQUEST_REPAIR',

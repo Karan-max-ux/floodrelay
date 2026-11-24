@@ -56,6 +56,11 @@ export interface DbResource {
   source: 'SIMULATED' | 'REAL';
   created_at: Date;
   updated_at: Date;
+  model_id?: string | null;
+  notes?: string | null;
+  version?: number;
+  created_by?: string | null;
+  updated_by?: string | null;
 }
 
 export interface DbShelter {

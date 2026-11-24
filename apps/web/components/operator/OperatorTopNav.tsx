@@ -14,6 +14,7 @@ export interface NavItem {
 
 export const OPERATOR_NAV_ITEMS: NavItem[] = [
   { label: 'Overview', href: '/operator', icon: 'dashboard', exact: true },
+  { label: 'Fleet', href: '/operator/fleet', icon: 'directions_boat', exact: false },
   { label: 'Requests', href: '/operator/requests', icon: 'emergency', exact: false },
   { label: 'Live Map', href: '/operator/map', icon: 'map', exact: false },
   { label: 'Assignments', href: '/operator/assignments', icon: 'assignment', exact: false },

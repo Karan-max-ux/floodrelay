@@ -8,17 +8,23 @@ import {
   ListOperationalEventsFilterSchema,
   ListResourcesFilterSchema,
   UpdateResourceStatusSchema,
+  RegisterResourceSchema,
+  UpdateResourceDetailsSchema,
   CreateRoadZoneSchema,
   RequestRepairSchema,
 } from '../validation/operationsSchema.js';
 import { dbToBlockedZone } from '../db/schema.js';
+import { APPROVED_VEHICLE_CATALOG, getVehicleCatalogModel } from '@floodrelay/shared';
+import { ServiceAreaService } from '../services/serviceAreaService.js';
 
 export function createOperationsRouter(
   repo: PostgisRepository,
   eventService: OperationalEventService,
   repairService: RepairOrchestrationService,
+  serviceAreaService?: ServiceAreaService,
 ): Router {
   const router = Router();
+  const areaService = serviceAreaService ?? new ServiceAreaService(repo);
 
   // GET /operations/events - List operational events (RBAC: VIEW_EVENTS)
   router.get(
@@ -134,6 +140,23 @@ export function createOperationsRouter(
     },
   );
 
+  // GET /operations/vehicle-models - List approved vehicle catalog options (RBAC: VIEW_EVENTS)
+  router.get(
+    '/vehicle-models',
+    requirePermission('VIEW_EVENTS'),
+    async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        res.status(200).json({
+          success: true,
+          count: APPROVED_VEHICLE_CATALOG.length,
+          data: APPROVED_VEHICLE_CATALOG,
+        });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
   // GET /operations/resources - List operational resources (RBAC: VIEW_EVENTS)
   router.get(
     '/resources',
@@ -158,6 +181,430 @@ export function createOperationsRouter(
           success: true,
           count: resources.length,
           data: resources,
+        });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  // POST /operations/resources - Register new rescue vehicle (RBAC: MANAGE_RESOURCES)
+  router.post(
+    '/resources',
+    requirePermission('MANAGE_RESOURCES'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const parsed = RegisterResourceSchema.safeParse(req.body);
+        if (!parsed.success) {
+          res.status(400).json({
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Invalid vehicle registration payload',
+              details: parsed.error.format(),
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        const model = getVehicleCatalogModel(parsed.data.modelId);
+        if (!model) {
+          res.status(400).json({
+            error: {
+              code: 'INVALID_VEHICLE_MODEL',
+              message: `Unknown or unapproved vehicle model: "${parsed.data.modelId}"`,
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        const vehicleName = parsed.data.name?.trim() || model.name;
+        const capacity = parsed.data.capacity ?? model.defaultCapacity;
+        const speedKmH = parsed.data.speedKmH ?? model.defaultSpeedKmH;
+
+        if (capacity < model.minCapacity || capacity > model.maxCapacity) {
+          res.status(400).json({
+            error: {
+              code: 'CAPACITY_OUT_OF_RANGE',
+              message: `Capacity ${capacity} is outside the allowed range for model "${model.name}" (${model.minCapacity} to ${model.maxCapacity} passengers)`,
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        if (speedKmH < model.minSpeedKmH || speedKmH > model.maxSpeedKmH) {
+          res.status(400).json({
+            error: {
+              code: 'SPEED_OUT_OF_RANGE',
+              message: `Speed ${speedKmH} km/h is outside the allowed range for model "${model.name}" (${model.minSpeedKmH} to ${model.maxSpeedKmH} km/h)`,
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        // Validate coordinates against Delhi NCR service area policy
+        try {
+          await areaService.assertWithinServiceArea(parsed.data.lat, parsed.data.lng);
+        } catch (locErr: unknown) {
+          const errWithStatus = locErr as {
+            statusCode?: number;
+            code?: string;
+            message?: string;
+            details?: unknown;
+          };
+          if (errWithStatus.statusCode && errWithStatus.code) {
+            res.status(errWithStatus.statusCode).json({
+              error: {
+                code: errWithStatus.code,
+                message: errWithStatus.message,
+                details: errWithStatus.details,
+                timestamp: new Date().toISOString(),
+              },
+            });
+            return;
+          }
+          throw locErr;
+        }
+
+        // Determine Resource ID
+        let resourceId: string;
+        if (parsed.data.id) {
+          const customId = parsed.data.id.trim();
+          const existing = await repo.getResourceById(customId);
+          if (existing) {
+            res.status(409).json({
+              error: {
+                code: 'DUPLICATE_RESOURCE_ID',
+                message: `A resource with ID "${customId}" already exists. Resource IDs must be globally unique.`,
+                timestamp: new Date().toISOString(),
+              },
+            });
+            return;
+          }
+          resourceId = customId;
+        } else {
+          // Automatic collision-resistant ID generation
+          let generatedId = `res-${crypto.randomBytes(4).toString('hex')}`;
+          let attempts = 0;
+          while (await repo.getResourceById(generatedId)) {
+            generatedId = `res-${crypto.randomBytes(4).toString('hex')}`;
+            attempts++;
+            if (attempts > 5) break;
+          }
+          resourceId = generatedId;
+        }
+
+        const operatorId = req.operator?.username ?? req.operator?.id ?? 'OPERATOR';
+
+        // Transactional create-only insertion and audit event
+        const createdResource = await repo.withTransaction(async (txRepo) => {
+          const resRow = await txRepo.createResource(
+            {
+              id: resourceId,
+              name: vehicleName,
+              type: model.type,
+              capacity,
+              speedKmH,
+              lat: parsed.data.lat,
+              lng: parsed.data.lng,
+              status: parsed.data.status,
+              depotId: parsed.data.depotId || undefined,
+              source: 'REAL',
+              modelId: model.id,
+              notes: parsed.data.notes || undefined,
+            },
+            'REAL',
+            operatorId,
+          );
+
+          await txRepo.insertAuditEvent({
+            entityType: 'RESOURCE',
+            entityId: resourceId,
+            eventType: 'RESOURCE_REGISTERED',
+            actor: operatorId,
+            payload: {
+              resourceId,
+              name: vehicleName,
+              type: model.type,
+              modelId: model.id,
+              capacity,
+              speedKmH,
+              lat: parsed.data.lat,
+              lng: parsed.data.lng,
+              status: parsed.data.status,
+              source: 'REAL',
+              depotId: parsed.data.depotId || null,
+              notes: parsed.data.notes || null,
+            },
+          });
+
+          return resRow;
+        });
+
+        res.status(201).json({
+          success: true,
+          data: {
+            resource: createdResource,
+          },
+        });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  // GET /operations/resources/:id - Get specific resource (RBAC: VIEW_EVENTS)
+  router.get(
+    '/resources/:id',
+    requirePermission('VIEW_EVENTS'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const rawId = req.params.id;
+        const id = Array.isArray(rawId) ? rawId[0] : rawId;
+        if (!id) {
+          res.status(400).json({
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Resource ID parameter is required',
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        const resource = await repo.getResourceById(id);
+        if (!resource) {
+          res.status(404).json({
+            error: {
+              code: 'NOT_FOUND',
+              message: `Rescue resource with id "${id}" not found`,
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        res.status(200).json({
+          success: true,
+          data: resource,
+        });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  // PATCH /operations/resources/:id - Edit permitted vehicle details (RBAC: MANAGE_RESOURCES)
+  router.patch(
+    '/resources/:id',
+    requirePermission('MANAGE_RESOURCES'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const rawId = req.params.id;
+        const id = Array.isArray(rawId) ? rawId[0] : rawId;
+        if (!id) {
+          res.status(400).json({
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Resource ID parameter is required',
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        const parsed = UpdateResourceDetailsSchema.safeParse(req.body);
+        if (!parsed.success) {
+          res.status(400).json({
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Invalid vehicle update payload',
+              details: parsed.error.format(),
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        // Validate coordinates if provided
+        if (parsed.data.lat !== undefined && parsed.data.lng !== undefined) {
+          try {
+            await areaService.assertWithinServiceArea(parsed.data.lat, parsed.data.lng);
+          } catch (locErr: unknown) {
+            const errWithStatus = locErr as {
+              statusCode?: number;
+              code?: string;
+              message?: string;
+              details?: unknown;
+            };
+            if (errWithStatus.statusCode && errWithStatus.code) {
+              res.status(errWithStatus.statusCode).json({
+                error: {
+                  code: errWithStatus.code,
+                  message: errWithStatus.message,
+                  details: errWithStatus.details,
+                  timestamp: new Date().toISOString(),
+                },
+              });
+              return;
+            }
+            throw locErr;
+          }
+        }
+
+        let model = undefined;
+        if (parsed.data.modelId) {
+          model = getVehicleCatalogModel(parsed.data.modelId);
+          if (!model) {
+            res.status(400).json({
+              error: {
+                code: 'INVALID_VEHICLE_MODEL',
+                message: `Unknown or unapproved vehicle model: "${parsed.data.modelId}"`,
+                timestamp: new Date().toISOString(),
+              },
+            });
+            return;
+          }
+        }
+
+        const operatorId = req.operator?.username ?? req.operator?.id ?? 'OPERATOR';
+
+        let updatedResource;
+        try {
+          updatedResource = await repo.withTransaction(async (txRepo, client) => {
+            // Lock row with SELECT FOR UPDATE
+            const lockResult = await client.query<{
+              id: string;
+              name: string;
+              type: string;
+              capacity: number;
+              speed_km_h: number;
+              source: string;
+              status: string;
+              version: number;
+            }>(
+              'SELECT id, name, type, capacity, speed_km_h, source, status, version FROM resources WHERE id = $1 FOR UPDATE;',
+              [id],
+            );
+            const lockedRow = lockResult.rows[0];
+            if (!lockedRow) {
+              const err = new Error(`Rescue resource with id "${id}" not found`);
+              (err as unknown as { code: string; statusCode: number }).code = 'NOT_FOUND';
+              (err as unknown as { code: string; statusCode: number }).statusCode = 404;
+              throw err;
+            }
+
+            if (lockedRow.source === 'SIMULATED') {
+              const err = new Error(
+                `Cannot modify details of simulated resource "${id}". Editing is restricted to authentic operational resources.`,
+              );
+              (err as unknown as { code: string; statusCode: number }).code =
+                'SIMULATED_RESOURCE_MUTATION_BLOCKED';
+              (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+              throw err;
+            }
+
+            if (
+              parsed.data.expectedVersion !== undefined &&
+              lockedRow.version !== parsed.data.expectedVersion
+            ) {
+              const err = new Error(
+                `Resource "${id}" was modified by another operator (expected version ${parsed.data.expectedVersion}, current version ${lockedRow.version}). Please refresh and try again.`,
+              );
+              (err as unknown as { code: string; statusCode: number }).code =
+                'CONCURRENCY_CONFLICT';
+              (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+              throw err;
+            }
+
+            // Active assignment check: Reject edits altering operational parameters if assigned to an active committed plan
+            const activeAssignments = await txRepo.getActiveCommittedAssignmentsForResource(id);
+            if (activeAssignments.length > 0) {
+              const altersConstraints =
+                (parsed.data.capacity !== undefined &&
+                  parsed.data.capacity !== lockedRow.capacity) ||
+                (parsed.data.speedKmH !== undefined &&
+                  parsed.data.speedKmH !== lockedRow.speed_km_h) ||
+                (parsed.data.lat !== undefined && parsed.data.lng !== undefined);
+
+              if (altersConstraints) {
+                const activePlan = activeAssignments[0]!;
+                const err = new Error(
+                  `Cannot modify capacity, speed, or location of resource "${id}" while it is assigned to an active committed rescue plan (Assignment ID "${activePlan.id}", status ${activePlan.status}). Reassign or complete the plan first.`,
+                );
+                (err as unknown as { code: string; statusCode: number }).code =
+                  'RESOURCE_ACTIVE_IN_COMMITTED_PLAN';
+                (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+                throw err;
+              }
+            }
+
+            const updated = await txRepo.updateResourceDetails(
+              id,
+              {
+                name: parsed.data.name,
+                type: model?.type,
+                modelId: parsed.data.modelId,
+                capacity: parsed.data.capacity,
+                speedKmH: parsed.data.speedKmH,
+                lat: parsed.data.lat,
+                lng: parsed.data.lng,
+                depotId: parsed.data.depotId,
+                notes: parsed.data.notes,
+                expectedVersion: parsed.data.expectedVersion,
+              },
+              operatorId,
+            );
+
+            if (!updated) {
+              const err = new Error(
+                `Failed to update resource "${id}". Concurrency conflict detected.`,
+              );
+              (err as unknown as { code: string; statusCode: number }).code =
+                'CONCURRENCY_CONFLICT';
+              (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+              throw err;
+            }
+
+            await txRepo.insertAuditEvent({
+              entityType: 'RESOURCE',
+              entityId: id,
+              eventType: 'RESOURCE_DETAILS_UPDATED',
+              actor: operatorId,
+              payload: {
+                resourceId: id,
+                changes: parsed.data,
+                previousVersion: lockedRow.version,
+                newVersion: updated.version,
+              },
+            });
+
+            return updated;
+          });
+        } catch (domainErr: unknown) {
+          const code = (domainErr as { code?: string }).code;
+          if (code) {
+            const statusCode = (domainErr as { statusCode?: number }).statusCode || 409;
+            res.status(statusCode).json({
+              error: {
+                code,
+                message: (domainErr as Error).message,
+                timestamp: new Date().toISOString(),
+              },
+            });
+            return;
+          }
+          throw domainErr;
+        }
+
+        res.status(200).json({
+          success: true,
+          data: {
+            resource: updatedResource,
+          },
         });
       } catch (err) {
         next(err);

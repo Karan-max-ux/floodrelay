@@ -580,21 +580,7 @@ export class PostgisRepository {
     return row;
   }
 
-  async getResourceById(id: string): Promise<RescueResource | null> {
-    const sql = `
-      SELECT
-        id, name, type, capacity, speed_km_h as "speedKmH",
-        ST_Y(location::geometry) as lat,
-        ST_X(location::geometry) as lng,
-        status, depot_id as "depotId",
-        source
-      FROM resources
-      WHERE id = $1;
-    `;
-    const result = await this.client.query(sql, [id]);
-    const row = result.rows[0];
-    if (!row) return null;
-
+  private rowToRescueResource(row: pg.QueryResultRow): RescueResource {
     return {
       id: row.id,
       name: row.name,
@@ -606,12 +592,106 @@ export class PostgisRepository {
       status: row.status,
       depotId: row.depotId ?? undefined,
       source: (row.source as 'SIMULATED' | 'REAL') ?? undefined,
+      modelId: row.modelId ?? undefined,
+      notes: row.notes ?? undefined,
+      version: row.version !== undefined && row.version !== null ? Number(row.version) : undefined,
+      createdBy: row.createdBy ?? undefined,
+      updatedBy: row.updatedBy ?? undefined,
+      createdAt:
+        row.createdAt instanceof Date
+          ? row.createdAt.toISOString()
+          : typeof row.createdAt === 'string'
+            ? row.createdAt
+            : undefined,
+      updatedAt:
+        row.updatedAt instanceof Date
+          ? row.updatedAt.toISOString()
+          : typeof row.updatedAt === 'string'
+            ? row.updatedAt
+            : undefined,
     };
+  }
+
+  /**
+   * Create a new resource strictly without upsert (no ON CONFLICT DO UPDATE).
+   * Enforces global uniqueness across both REAL and SIMULATED resources.
+   */
+  async createResource(
+    res: RescueResource,
+    source: 'SIMULATED' | 'REAL' = 'REAL',
+    createdBy?: string,
+    shiftMaxDurationMin = 480,
+  ): Promise<RescueResource> {
+    const sql = `
+      INSERT INTO resources (
+        id, name, type, capacity, speed_km_h, location, status,
+        depot_id, shift_max_duration_min, source, model_id, notes,
+        version, created_by, updated_by, created_at, updated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5,
+        ST_SetSRID(ST_MakePoint($6, $7), 4326)::geography,
+        $8, $9, $10, $11, $12, $13,
+        1, $14, $14, NOW(), NOW()
+      )
+      RETURNING
+        id, name, type, capacity, speed_km_h as "speedKmH",
+        ST_Y(location::geometry) as lat,
+        ST_X(location::geometry) as lng,
+        status, depot_id as "depotId", source,
+        model_id as "modelId", notes, version,
+        created_by as "createdBy", updated_by as "updatedBy",
+        created_at as "createdAt", updated_at as "updatedAt";
+    `;
+
+    const result = await this.client.query(sql, [
+      res.id,
+      res.name,
+      res.type,
+      res.capacity,
+      res.speedKmH,
+      res.lng,
+      res.lat,
+      res.status,
+      res.depotId ?? null,
+      shiftMaxDurationMin,
+      source,
+      res.modelId ?? null,
+      res.notes ?? null,
+      createdBy ?? null,
+    ]);
+
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error(`Failed to create rescue resource "${res.id}"`);
+    }
+    return this.rowToRescueResource(row);
+  }
+
+  async getResourceById(id: string): Promise<RescueResource | null> {
+    const sql = `
+      SELECT
+        id, name, type, capacity, speed_km_h as "speedKmH",
+        ST_Y(location::geometry) as lat,
+        ST_X(location::geometry) as lng,
+        status, depot_id as "depotId",
+        source, model_id as "modelId", notes, version,
+        created_by as "createdBy", updated_by as "updatedBy",
+        created_at as "createdAt", updated_at as "updatedAt"
+      FROM resources
+      WHERE id = $1;
+    `;
+    const result = await this.client.query(sql, [id]);
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return this.rowToRescueResource(row);
   }
 
   async listResources(filter?: {
     status?: ResourceStatus;
     type?: ResourceType;
+    source?: 'SIMULATED' | 'REAL';
+    search?: string;
   }): Promise<RescueResource[]> {
     const conditions: string[] = [];
     const values: unknown[] = [];
@@ -624,6 +704,14 @@ export class PostgisRepository {
       values.push(filter.type);
       conditions.push(`type = $${values.length}`);
     }
+    if (filter?.source) {
+      values.push(filter.source);
+      conditions.push(`source = $${values.length}`);
+    }
+    if (filter?.search && filter.search.trim() !== '') {
+      values.push(`%${filter.search.trim()}%`);
+      conditions.push(`(id ILIKE $${values.length} OR name ILIKE $${values.length})`);
+    }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -633,54 +721,159 @@ export class PostgisRepository {
         ST_Y(location::geometry) as lat,
         ST_X(location::geometry) as lng,
         status, depot_id as "depotId",
-        source
+        source, model_id as "modelId", notes, version,
+        created_by as "createdBy", updated_by as "updatedBy",
+        created_at as "createdAt", updated_at as "updatedAt"
       FROM resources
       ${whereClause}
       ORDER BY id ASC;
     `;
 
     const result = await this.client.query(sql, values);
-    return result.rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      type: row.type,
-      capacity: Number(row.capacity),
-      speedKmH: Number(row.speedKmH),
-      lat: Number(row.lat),
-      lng: Number(row.lng),
-      status: row.status,
-      depotId: row.depotId ?? undefined,
-      source: (row.source as 'SIMULATED' | 'REAL') ?? undefined,
+    return result.rows.map((row) => this.rowToRescueResource(row));
+  }
+
+  /**
+   * Updates permitted details of a REAL rescue resource with concurrency protection.
+   * Rejects mutating SIMULATED resources.
+   */
+  async updateResourceDetails(
+    id: string,
+    updates: {
+      name?: string;
+      type?: ResourceType;
+      modelId?: string | null;
+      capacity?: number;
+      speedKmH?: number;
+      lat?: number;
+      lng?: number;
+      depotId?: string | null;
+      notes?: string | null;
+      expectedVersion?: number;
+    },
+    updatedBy?: string,
+  ): Promise<RescueResource | null> {
+    const setClauses: string[] = ['updated_at = NOW()', 'version = version + 1'];
+    const values: unknown[] = [id];
+
+    if (updatedBy) {
+      values.push(updatedBy);
+      setClauses.push(`updated_by = $${values.length}`);
+    }
+
+    if (updates.name !== undefined) {
+      values.push(updates.name);
+      setClauses.push(`name = $${values.length}`);
+    }
+
+    if (updates.type !== undefined) {
+      values.push(updates.type);
+      setClauses.push(`type = $${values.length}`);
+    }
+
+    if (updates.modelId !== undefined) {
+      values.push(updates.modelId);
+      setClauses.push(`model_id = $${values.length}`);
+    }
+
+    if (updates.capacity !== undefined) {
+      values.push(updates.capacity);
+      setClauses.push(`capacity = $${values.length}`);
+    }
+
+    if (updates.speedKmH !== undefined) {
+      values.push(updates.speedKmH);
+      setClauses.push(`speed_km_h = $${values.length}`);
+    }
+
+    if (updates.lat !== undefined && updates.lng !== undefined) {
+      values.push(updates.lng);
+      const lngIdx = values.length;
+      values.push(updates.lat);
+      const latIdx = values.length;
+      setClauses.push(
+        `location = ST_SetSRID(ST_MakePoint($${lngIdx}, $${latIdx}), 4326)::geography`,
+      );
+    }
+
+    if (updates.depotId !== undefined) {
+      values.push(updates.depotId);
+      setClauses.push(`depot_id = $${values.length}`);
+    }
+
+    if (updates.notes !== undefined) {
+      values.push(updates.notes);
+      setClauses.push(`notes = $${values.length}`);
+    }
+
+    let versionCondition = '';
+    if (updates.expectedVersion !== undefined) {
+      values.push(updates.expectedVersion);
+      versionCondition = ` AND version = $${values.length}`;
+    }
+
+    const sql = `
+      UPDATE resources
+      SET ${setClauses.join(', ')}
+      WHERE id = $1 AND source = 'REAL'${versionCondition}
+      RETURNING
+        id, name, type, capacity, speed_km_h as "speedKmH",
+        ST_Y(location::geometry) as lat,
+        ST_X(location::geometry) as lng,
+        status, depot_id as "depotId", source,
+        model_id as "modelId", notes, version,
+        created_by as "createdBy", updated_by as "updatedBy",
+        created_at as "createdAt", updated_at as "updatedAt";
+    `;
+
+    const result = await this.client.query(sql, values);
+    const row = result.rows[0];
+    if (!row) return null;
+    return this.rowToRescueResource(row);
+  }
+
+  /**
+   * Retrieves active committed/dispatched rescue assignments involving this resource.
+   */
+  async getActiveCommittedAssignmentsForResource(
+    resourceId: string,
+  ): Promise<Array<{ id: string; status: string; stopCount: number; frozenCount: number }>> {
+    const sql = `
+      SELECT a.id, a.status,
+             COUNT(s.id)::int as "stopCount",
+             COUNT(s.id) FILTER (WHERE s.is_frozen = TRUE)::int as "frozenCount"
+      FROM assignments a
+      JOIN assignment_stops s ON s.assignment_id = a.id
+      WHERE s.resource_id = $1 AND a.status IN ('COMMITTED', 'DISPATCHED')
+      GROUP BY a.id, a.status;
+    `;
+    const result = await this.client.query(sql, [resourceId]);
+    return result.rows.map((r) => ({
+      id: r.id,
+      status: r.status,
+      stopCount: Number(r.stopCount),
+      frozenCount: Number(r.frozenCount),
     }));
   }
 
   async updateResourceStatus(id: string, status: ResourceStatus): Promise<RescueResource | null> {
     const sql = `
       UPDATE resources
-      SET status = $2, updated_at = NOW()
+      SET status = $2, updated_at = NOW(), version = version + 1
       WHERE id = $1 AND source = 'REAL'
       RETURNING
         id, name, type, capacity, speed_km_h as "speedKmH",
         ST_Y(location::geometry) as lat,
         ST_X(location::geometry) as lng,
         status, depot_id as "depotId",
-        source;
+        source, model_id as "modelId", notes, version,
+        created_by as "createdBy", updated_by as "updatedBy",
+        created_at as "createdAt", updated_at as "updatedAt";
     `;
     const result = await this.client.query(sql, [id, status]);
     const row = result.rows[0];
     if (!row) return null;
-    return {
-      id: row.id,
-      name: row.name,
-      type: row.type,
-      capacity: Number(row.capacity),
-      speedKmH: Number(row.speedKmH),
-      lat: Number(row.lat),
-      lng: Number(row.lng),
-      status: row.status,
-      depotId: row.depotId ?? undefined,
-      source: (row.source as 'SIMULATED' | 'REAL') ?? undefined,
-    };
+    return this.rowToRescueResource(row);
   }
 
   // ==========================================
