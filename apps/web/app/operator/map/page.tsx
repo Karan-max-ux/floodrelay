@@ -307,6 +307,55 @@ function OperatorMapContent() {
     repairOverlay: false,
     floodForecast: false,
   });
+
+  // Master layer visibility state: controls simultaneous overlay show/hide while preserving individual layer preferences
+  const [masterVisible, setMasterVisible] = useState<boolean>(true);
+
+  // Overlays are considered visible when masterVisible is true and at least one individual layer is enabled
+  const hasAnyLayerEnabled = useMemo(() => Object.values(layers).some(Boolean), [layers]);
+  const masterOverlaysVisible = masterVisible && hasAnyLayerEnabled;
+
+  // Effective layer map passed to Leaflet canvas and contextual overlay cards
+  const effectiveLayers = useMemo<MapLayers>(() => {
+    if (!masterOverlaysVisible) {
+      return {
+        incidents: false,
+        craft: false,
+        shelters: false,
+        routes: false,
+        blockages: false,
+        repairOverlay: false,
+        floodForecast: false,
+      };
+    }
+    return layers;
+  }, [masterOverlaysVisible, layers]);
+
+  // Master toggle handler: switches between "Hide All Layers" and "Show All Layers"
+  const toggleAllLayers = useCallback(() => {
+    if (masterOverlaysVisible) {
+      setMasterVisible(false);
+    } else {
+      setMasterVisible(true);
+      // If all individual layers happen to be false, restore standard default active layers
+      setLayers((prev) => {
+        const hasAny = Object.values(prev).some(Boolean);
+        if (!hasAny) {
+          return {
+            incidents: true,
+            craft: true,
+            shelters: true,
+            routes: true,
+            blockages: true,
+            repairOverlay: false,
+            floodForecast: false,
+          };
+        }
+        return prev;
+      });
+    }
+  }, [masterOverlaysVisible]);
+
   const [urgencyFilter, setUrgencyFilter] = useState<'ALL' | UrgencyLevel>('ALL');
   // Light Google-like Standard OSM is the default basemap; Dark Tactical remains selectable.
   const [tileTheme, setTileTheme] = useState<'dark' | 'standard'>('standard');
@@ -541,169 +590,208 @@ function OperatorMapContent() {
         >
           {/* Top-left Floating Layer & Filter Controls */}
           <div className="absolute top-3 left-3 z-20 flex flex-col gap-2 max-w-2xl">
-            {/* Layer Checkbox Group */}
+            {/* Layer Checkbox Group & Master Visibility Toggle */}
             <div
-              className={`${hudCardClass} p-2 rounded-xl flex items-center gap-2 flex-wrap text-xs`}
+              className={`${hudCardClass} p-2.5 rounded-xl flex flex-col gap-2 text-xs`}
+              data-testid="map-layer-control-panel"
             >
-              {/* Incidents Layer */}
-              <label
-                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
-                  isLight
-                    ? 'bg-red-50 border-red-200 text-red-900 hover:bg-red-100/70'
-                    : 'bg-red-950/40 border-red-500/40 text-slate-100 hover:bg-red-900/40'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={layers.incidents}
-                  onChange={() => toggleLayer('incidents')}
-                  className="rounded text-red-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-red-400 cursor-pointer"
-                />
-                <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-                <span className="font-medium">Distress Incidents</span>
-                <span className="ml-0.5 px-1.5 py-0.2 rounded bg-red-600 text-white font-mono text-[10px] font-bold">
-                  {filteredRequestsCount}
-                </span>
-              </label>
-
-              {/* Craft Layer (Reference) */}
-              <label
-                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
-                  isLight
-                    ? 'bg-teal-50 border-teal-200 text-teal-900 hover:bg-teal-100/70'
-                    : 'bg-teal-950/40 border-teal-500/40 text-slate-100 hover:bg-teal-900/40'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={layers.craft}
-                  onChange={() => toggleLayer('craft')}
-                  className="rounded text-teal-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-teal-500 cursor-pointer"
-                />
-                <span className="material-symbols-outlined text-[14px] text-teal-600">
-                  directions_boat
-                </span>
-                <span className="font-medium">Reference Fleet</span>
-                <span className="ml-0.5 px-1.5 py-0.2 rounded bg-teal-700 text-white font-mono text-[10px] font-bold">
-                  {STAGED_SECTOR_FLEET.length}
-                </span>
-              </label>
-
-              {/* Shelters Layer (Reference) */}
-              <label
-                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
-                  isLight
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900 hover:bg-emerald-100/70'
-                    : 'bg-emerald-950/40 border-emerald-500/40 text-slate-100 hover:bg-emerald-900/40'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={layers.shelters}
-                  onChange={() => toggleLayer('shelters')}
-                  className="rounded text-emerald-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-emerald-500 cursor-pointer"
-                />
-                <span className="material-symbols-outlined text-[14px] text-emerald-600">
-                  night_shelter
-                </span>
-                <span className="font-medium">Relief Shelters</span>
-                <span className="ml-0.5 px-1.5 py-0.2 rounded bg-emerald-700 text-white font-mono text-[10px] font-bold">
-                  {STAGED_SECTOR_SHELTERS.length}
-                </span>
-              </label>
-
-              {/* Assignment Routes Layer */}
-              <label
-                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
-                  isLight
-                    ? 'bg-blue-50 border-blue-200 text-blue-900 hover:bg-blue-100/70'
-                    : 'bg-sky-950/40 border-sky-500/40 text-slate-100 hover:bg-sky-900/40'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={layers.routes}
-                  onChange={() => toggleLayer('routes')}
-                  className="rounded text-blue-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-blue-500 cursor-pointer"
-                />
-                <span className="material-symbols-outlined text-[14px] text-blue-600">route</span>
-                <span className="font-medium">Routes</span>
-              </label>
-
-              {/* Road Hazard Blockages Layer (Reference) */}
-              <label
-                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
-                  isLight
-                    ? 'bg-amber-50 border-amber-200 text-amber-900 hover:bg-amber-100/70'
-                    : 'bg-rose-950/40 border-rose-500/40 text-slate-100 hover:bg-rose-900/40'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={layers.blockages}
-                  onChange={() => toggleLayer('blockages')}
-                  className="rounded text-rose-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-rose-500 cursor-pointer"
-                />
-                <span className="material-symbols-outlined text-[14px] text-rose-600">traffic</span>
-                <span className="font-medium">Hazard Zones</span>
-                <span className="ml-0.5 px-1.5 py-0.2 rounded bg-rose-700 text-white font-mono text-[10px] font-bold">
-                  {STAGED_SECTOR_BLOCKED_ZONES.length}
-                </span>
-              </label>
-
-              {/* Repair Comparison Overlay */}
-              <label
-                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
-                  isLight
-                    ? 'bg-purple-50 border-purple-200 text-purple-900 hover:bg-purple-100/70'
-                    : 'bg-purple-950/40 border-purple-500/40 text-slate-100 hover:bg-purple-900/40'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={layers.repairOverlay}
-                  onChange={() => toggleLayer('repairOverlay')}
-                  className="rounded text-purple-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-purple-500 cursor-pointer"
-                />
-                <span className="material-symbols-outlined text-[14px] text-purple-600">
-                  alt_route
-                </span>
-                <span className="font-medium">Repair Overlay</span>
-              </label>
-
-              {/* Flood Forecast Context Layer (Phase 6) */}
-              <label
-                className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-cyan-950/40 border border-cyan-500/40 text-slate-100 cursor-pointer hover:bg-cyan-900/40 transition-colors"
-                data-testid="layer-toggle-forecast"
-              >
-                <input
-                  type="checkbox"
-                  checked={layers.floodForecast}
-                  onChange={() => toggleLayer('floodForecast')}
-                  className="rounded text-cyan-400 focus:ring-0 w-3.5 h-3.5 bg-transparent border-cyan-400 cursor-pointer"
-                />
-                <span className="material-symbols-outlined text-[14px] text-cyan-400">waves</span>
-                <span className="font-medium">Flood Forecast</span>
-                {forecastContext && (
-                  <span
-                    className={`ml-0.5 px-1.5 py-0.2 rounded text-white font-mono text-[10px] font-bold ${
-                      forecastContext.freshness === 'UNAVAILABLE'
-                        ? 'bg-slate-700 text-slate-300'
-                        : forecastContext.freshness === 'OFFLINE_FIXTURE'
-                          ? 'bg-amber-800 text-amber-200'
-                          : 'bg-cyan-800 text-white'
-                    }`}
-                  >
-                    {forecastContext.freshness === 'UNAVAILABLE'
-                      ? 'UNAVAILABLE'
-                      : `${forecastContext.currentDischargeM3S} m³/s`}
+              {/* Master Layer Visibility Header / Toggle Button */}
+              <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-slate-200/80 dark:border-slate-700/60">
+                <div className="flex items-center gap-1.5 font-bold font-mono text-[11px] uppercase tracking-wide text-slate-600 dark:text-slate-400">
+                  <span className="material-symbols-outlined text-[16px] text-blue-600 dark:text-blue-400">
+                    layers
                   </span>
-                )}
-              </label>
+                  <span>Map Overlays</span>
+                </div>
+                <button
+                  type="button"
+                  data-testid="master-layer-toggle-btn"
+                  onClick={toggleAllLayers}
+                  aria-label={masterOverlaysVisible ? 'Hide All Layers' : 'Show All Layers'}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-semibold text-xs transition-all shadow-sm ${
+                    masterOverlaysVisible
+                      ? isLight
+                        ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600'
+                      : 'bg-blue-600 hover:bg-blue-700 text-white border border-blue-500 shadow-blue-500/20'
+                  }`}
+                  title={
+                    masterOverlaysVisible
+                      ? 'Hide all map overlays while preserving layer preferences'
+                      : 'Show all previously enabled map overlays'
+                  }
+                >
+                  <span className="material-symbols-outlined text-[15px]">
+                    {masterOverlaysVisible ? 'visibility_off' : 'visibility'}
+                  </span>
+                  <span>{masterOverlaysVisible ? 'Hide All Layers' : 'Show All Layers'}</span>
+                </button>
+              </div>
+
+              {/* Individual Layer Checkboxes */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Incidents Layer */}
+                <label
+                  className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
+                    isLight
+                      ? 'bg-red-50 border-red-200 text-red-900 hover:bg-red-100/70'
+                      : 'bg-red-950/40 border-red-500/40 text-slate-100 hover:bg-red-900/40'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={layers.incidents}
+                    onChange={() => toggleLayer('incidents')}
+                    className="rounded text-red-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-red-400 cursor-pointer"
+                  />
+                  <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                  <span className="font-medium">Distress Incidents</span>
+                  <span className="ml-0.5 px-1.5 py-0.2 rounded bg-red-600 text-white font-mono text-[10px] font-bold">
+                    {filteredRequestsCount}
+                  </span>
+                </label>
+
+                {/* Craft Layer (Reference) */}
+                <label
+                  className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
+                    isLight
+                      ? 'bg-teal-50 border-teal-200 text-teal-900 hover:bg-teal-100/70'
+                      : 'bg-teal-950/40 border-teal-500/40 text-slate-100 hover:bg-teal-900/40'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={layers.craft}
+                    onChange={() => toggleLayer('craft')}
+                    className="rounded text-teal-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-teal-500 cursor-pointer"
+                  />
+                  <span className="material-symbols-outlined text-[14px] text-teal-600">
+                    directions_boat
+                  </span>
+                  <span className="font-medium">Reference Fleet</span>
+                  <span className="ml-0.5 px-1.5 py-0.2 rounded bg-teal-700 text-white font-mono text-[10px] font-bold">
+                    {STAGED_SECTOR_FLEET.length}
+                  </span>
+                </label>
+
+                {/* Shelters Layer (Reference) */}
+                <label
+                  className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
+                    isLight
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-900 hover:bg-emerald-100/70'
+                      : 'bg-emerald-950/40 border-emerald-500/40 text-slate-100 hover:bg-emerald-900/40'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={layers.shelters}
+                    onChange={() => toggleLayer('shelters')}
+                    className="rounded text-emerald-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-emerald-500 cursor-pointer"
+                  />
+                  <span className="material-symbols-outlined text-[14px] text-emerald-600">
+                    night_shelter
+                  </span>
+                  <span className="font-medium">Relief Shelters</span>
+                  <span className="ml-0.5 px-1.5 py-0.2 rounded bg-emerald-700 text-white font-mono text-[10px] font-bold">
+                    {STAGED_SECTOR_SHELTERS.length}
+                  </span>
+                </label>
+
+                {/* Assignment Routes Layer */}
+                <label
+                  className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
+                    isLight
+                      ? 'bg-blue-50 border-blue-200 text-blue-900 hover:bg-blue-100/70'
+                      : 'bg-sky-950/40 border-sky-500/40 text-slate-100 hover:bg-sky-900/40'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={layers.routes}
+                    onChange={() => toggleLayer('routes')}
+                    className="rounded text-blue-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-blue-500 cursor-pointer"
+                  />
+                  <span className="material-symbols-outlined text-[14px] text-blue-600">route</span>
+                  <span className="font-medium">Routes</span>
+                </label>
+
+                {/* Road Hazard Blockages Layer (Reference) */}
+                <label
+                  className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
+                    isLight
+                      ? 'bg-amber-50 border-amber-200 text-amber-900 hover:bg-amber-100/70'
+                      : 'bg-rose-950/40 border-rose-500/40 text-slate-100 hover:bg-rose-900/40'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={layers.blockages}
+                    onChange={() => toggleLayer('blockages')}
+                    className="rounded text-rose-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-rose-500 cursor-pointer"
+                  />
+                  <span className="material-symbols-outlined text-[14px] text-rose-600">
+                    traffic
+                  </span>
+                  <span className="font-medium">Hazard Zones</span>
+                  <span className="ml-0.5 px-1.5 py-0.2 rounded bg-rose-700 text-white font-mono text-[10px] font-bold">
+                    {STAGED_SECTOR_BLOCKED_ZONES.length}
+                  </span>
+                </label>
+
+                {/* Repair Comparison Overlay */}
+                <label
+                  className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
+                    isLight
+                      ? 'bg-purple-50 border-purple-200 text-purple-900 hover:bg-purple-100/70'
+                      : 'bg-purple-950/40 border-purple-500/40 text-slate-100 hover:bg-purple-900/40'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={layers.repairOverlay}
+                    onChange={() => toggleLayer('repairOverlay')}
+                    className="rounded text-purple-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-purple-500 cursor-pointer"
+                  />
+                  <span className="material-symbols-outlined text-[14px] text-purple-600">
+                    alt_route
+                  </span>
+                  <span className="font-medium">Repair Overlay</span>
+                </label>
+
+                {/* Flood Forecast Context Layer (Phase 6) */}
+                <label
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-cyan-950/40 border border-cyan-500/40 text-slate-100 cursor-pointer hover:bg-cyan-900/40 transition-colors"
+                  data-testid="layer-toggle-forecast"
+                >
+                  <input
+                    type="checkbox"
+                    checked={layers.floodForecast}
+                    onChange={() => toggleLayer('floodForecast')}
+                    className="rounded text-cyan-400 focus:ring-0 w-3.5 h-3.5 bg-transparent border-cyan-400 cursor-pointer"
+                  />
+                  <span className="material-symbols-outlined text-[14px] text-cyan-400">waves</span>
+                  <span className="font-medium">Flood Forecast</span>
+                  {forecastContext && (
+                    <span
+                      className={`ml-0.5 px-1.5 py-0.2 rounded text-white font-mono text-[10px] font-bold ${
+                        forecastContext.freshness === 'UNAVAILABLE'
+                          ? 'bg-slate-700 text-slate-300'
+                          : forecastContext.freshness === 'OFFLINE_FIXTURE'
+                            ? 'bg-amber-800 text-amber-200'
+                            : 'bg-cyan-800 text-white'
+                      }`}
+                    >
+                      {forecastContext.freshness === 'UNAVAILABLE'
+                        ? 'UNAVAILABLE'
+                        : `${forecastContext.currentDischargeM3S} m³/s`}
+                    </span>
+                  )}
+                </label>
+              </div>
             </div>
 
             {/* Flood Forecast Information Floating Card */}
-            {layers.floodForecast && (
+            {effectiveLayers.floodForecast && (
               <div
                 className="bg-slate-900/95 backdrop-blur-md border border-cyan-500/60 p-3 rounded-xl shadow-2xl space-y-2 text-xs text-slate-200 animate-in fade-in"
                 data-testid="forecast-info-card"
@@ -783,7 +871,7 @@ function OperatorMapContent() {
             )}
 
             {/* Repair Route Overlay: Empty State Notice */}
-            {layers.repairOverlay && repairAssignments.length === 0 && (
+            {effectiveLayers.repairOverlay && repairAssignments.length === 0 && (
               <div
                 className={`p-3 rounded-xl shadow-xl flex items-center gap-3 text-xs ${hudCardClass} animate-in fade-in border-blue-500/40`}
                 data-testid="repair-empty-state-notice"
@@ -810,174 +898,176 @@ function OperatorMapContent() {
             )}
 
             {/* Repair Route Overlay: Google Maps-Style Route Information Panel */}
-            {layers.repairOverlay && repairAssignments.length > 0 && selectedRepairAssignment && (
-              <div
-                className={`p-3.5 rounded-xl shadow-2xl space-y-2.5 text-xs ${hudCardClass} animate-in fade-in border-blue-500/60 max-w-md w-full`}
-                data-testid="repair-route-panel"
-              >
-                {/* Header: Title, Status, and Selectors */}
-                <div className="flex items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-700/70 pb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-lg">
-                      navigation
-                    </span>
-                    <div>
-                      <span className="font-bold font-mono text-[12px] text-blue-700 dark:text-blue-400">
-                        Repair Route Navigation
+            {effectiveLayers.repairOverlay &&
+              repairAssignments.length > 0 &&
+              selectedRepairAssignment && (
+                <div
+                  className={`p-3.5 rounded-xl shadow-2xl space-y-2.5 text-xs ${hudCardClass} animate-in fade-in border-blue-500/60 max-w-md w-full`}
+                  data-testid="repair-route-panel"
+                >
+                  {/* Header: Title, Status, and Selectors */}
+                  <div className="flex items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-700/70 pb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="material-symbols-outlined text-blue-600 dark:text-blue-400 text-lg">
+                        navigation
                       </span>
-                      <div className="text-[10px] text-slate-500 font-mono">
-                        Plan: {selectedRepairAssignment.id}
+                      <div>
+                        <span className="font-bold font-mono text-[12px] text-blue-700 dark:text-blue-400">
+                          Repair Route Navigation
+                        </span>
+                        <div className="text-[10px] text-slate-500 font-mono">
+                          Plan: {selectedRepairAssignment.id}
+                        </div>
                       </div>
                     </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-100 text-blue-800 border border-blue-300 dark:bg-blue-900/60 dark:text-blue-200 dark:border-blue-700">
+                        {selectedRepairAssignment.status}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-100 text-blue-800 border border-blue-300 dark:bg-blue-900/60 dark:text-blue-200 dark:border-blue-700">
-                      {selectedRepairAssignment.status}
-                    </span>
-                  </div>
-                </div>
 
-                {/* Multiple Repair Proposals Selector (if > 1) */}
-                {repairAssignments.length > 1 && (
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-[10px] uppercase font-bold text-slate-500">
-                      Plan:
-                    </span>
-                    <select
-                      value={selectedRepairAssignmentId}
-                      onChange={(e) => setSelectedRepairAssignmentId(e.target.value)}
-                      className={`flex-1 rounded border px-2 py-1 text-xs font-semibold ${
-                        isLight
-                          ? 'bg-slate-50 border-slate-300 text-slate-800'
-                          : 'bg-slate-800 border-slate-700 text-slate-100'
-                      }`}
-                    >
-                      {repairAssignments.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.id} ({a.routes?.length || 0} route(s))
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* Multiple Routes Selector (if > 1) */}
-                {(selectedRepairAssignment.routes?.length ?? 0) > 1 && (
-                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                    <span className="font-mono text-[10px] uppercase font-bold text-slate-500 shrink-0">
-                      Route:
-                    </span>
-                    {selectedRepairAssignment.routes!.map((r, rIdx) => (
-                      <button
-                        key={`repair-tab-${r.resourceId}-${rIdx}`}
-                        onClick={() => setActiveRepairRouteIndex(rIdx)}
-                        className={`px-2 py-1 rounded text-xs font-mono font-semibold transition-all shrink-0 ${
-                          rIdx === activeRepairRouteIndex
-                            ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400'
-                            : isLight
-                              ? 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300'
-                              : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                  {/* Multiple Repair Proposals Selector (if > 1) */}
+                  {repairAssignments.length > 1 && (
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[10px] uppercase font-bold text-slate-500">
+                        Plan:
+                      </span>
+                      <select
+                        value={selectedRepairAssignmentId}
+                        onChange={(e) => setSelectedRepairAssignmentId(e.target.value)}
+                        className={`flex-1 rounded border px-2 py-1 text-xs font-semibold ${
+                          isLight
+                            ? 'bg-slate-50 border-slate-300 text-slate-800'
+                            : 'bg-slate-800 border-slate-700 text-slate-100'
                         }`}
                       >
-                        {r.resourceId} (#{rIdx + 1})
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* Active Repair Route Telemetry Bar */}
-                {activeRepairRoute && activeRepairRouteMetrics && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/50">
-                      <div>
-                        <div className="text-[10px] text-slate-500 font-mono uppercase">
-                          Unit:{' '}
-                          <span className="font-bold text-blue-700 dark:text-blue-300">
-                            {activeRepairRoute.resourceId}
-                          </span>
-                        </div>
-                        <div className="font-mono text-sm font-bold text-blue-900 dark:text-blue-100">
-                          {formatDistanceKm(activeRepairRouteMetrics.distanceKm)} •{' '}
-                          {formatDurationMinutes(activeRepairRouteMetrics.durationMinutes)}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase bg-white dark:bg-slate-800 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-700 shadow-sm">
-                          {routeMode === 'ROAD' ? 'OSRM Road' : 'Direct / Air'}
-                        </span>
-                        <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                          {activeRepairRoute.stops?.length ?? 0} Stops
-                        </div>
-                      </div>
+                        {repairAssignments.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.id} ({a.routes?.length || 0} route(s))
+                          </option>
+                        ))}
+                      </select>
                     </div>
+                  )}
 
-                    {/* Road Route Unavailable Warning if OSRM failed */}
-                    {routeMode === 'ROAD' &&
-                      activeRepairRouteMetrics.hasUnavailableRoadSegments && (
-                        <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-700/60 text-amber-800 dark:text-amber-200 text-xs space-y-1">
-                          <div className="font-bold flex items-center gap-1.5">
-                            <span className="material-symbols-outlined text-[15px] text-amber-600">
-                              warning
+                  {/* Multiple Routes Selector (if > 1) */}
+                  {(selectedRepairAssignment.routes?.length ?? 0) > 1 && (
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                      <span className="font-mono text-[10px] uppercase font-bold text-slate-500 shrink-0">
+                        Route:
+                      </span>
+                      {selectedRepairAssignment.routes!.map((r, rIdx) => (
+                        <button
+                          key={`repair-tab-${r.resourceId}-${rIdx}`}
+                          onClick={() => setActiveRepairRouteIndex(rIdx)}
+                          className={`px-2 py-1 rounded text-xs font-mono font-semibold transition-all shrink-0 ${
+                            rIdx === activeRepairRouteIndex
+                              ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400'
+                              : isLight
+                                ? 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300'
+                                : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                          }`}
+                        >
+                          {r.resourceId} (#{rIdx + 1})
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Active Repair Route Telemetry Bar */}
+                  {activeRepairRoute && activeRepairRouteMetrics && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/50">
+                        <div>
+                          <div className="text-[10px] text-slate-500 font-mono uppercase">
+                            Unit:{' '}
+                            <span className="font-bold text-blue-700 dark:text-blue-300">
+                              {activeRepairRoute.resourceId}
                             </span>
-                            <span>Road Route Geometry Unavailable</span>
                           </div>
-                          <p className="text-[11px] leading-tight text-amber-900/90 dark:text-amber-300/90">
-                            OSRM road network routing could not calculate a valid road route for
-                            this repair segment.
-                          </p>
-                          <button
-                            onClick={() => setRouteMode('DIRECT')}
-                            className="mt-1 px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white font-mono text-[11px] font-bold transition-colors shadow-sm"
-                          >
-                            Switch to Direct / Air Mode
-                          </button>
+                          <div className="font-mono text-sm font-bold text-blue-900 dark:text-blue-100">
+                            {formatDistanceKm(activeRepairRouteMetrics.distanceKm)} •{' '}
+                            {formatDurationMinutes(activeRepairRouteMetrics.durationMinutes)}
+                          </div>
                         </div>
-                      )}
+                        <div className="text-right">
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase bg-white dark:bg-slate-800 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-700 shadow-sm">
+                            {routeMode === 'ROAD' ? 'OSRM Road' : 'Direct / Air'}
+                          </span>
+                          <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                            {activeRepairRoute.stops?.length ?? 0} Stops
+                          </div>
+                        </div>
+                      </div>
 
-                    {/* Ordered Stops List */}
-                    {activeRepairStops.length > 0 && (
-                      <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
-                        <span className="font-mono text-[10px] uppercase font-bold text-slate-500">
-                          Ordered Repair Sequence:
-                        </span>
-                        <div className="space-y-1">
-                          {activeRepairStops.map((stop, sIdx) => (
-                            <div
-                              key={`stop-row-${sIdx}-${stop.targetId}`}
-                              className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-white/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/50 text-[11px]"
+                      {/* Road Route Unavailable Warning if OSRM failed */}
+                      {routeMode === 'ROAD' &&
+                        activeRepairRouteMetrics.hasUnavailableRoadSegments && (
+                          <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-700/60 text-amber-800 dark:text-amber-200 text-xs space-y-1">
+                            <div className="font-bold flex items-center gap-1.5">
+                              <span className="material-symbols-outlined text-[15px] text-amber-600">
+                                warning
+                              </span>
+                              <span>Road Route Geometry Unavailable</span>
+                            </div>
+                            <p className="text-[11px] leading-tight text-amber-900/90 dark:text-amber-300/90">
+                              OSRM road network routing could not calculate a valid road route for
+                              this repair segment.
+                            </p>
+                            <button
+                              onClick={() => setRouteMode('DIRECT')}
+                              className="mt-1 px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white font-mono text-[11px] font-bold transition-colors shadow-sm"
                             >
-                              <div className="flex items-center gap-1.5 truncate">
-                                {stop.isStart ? (
-                                  <span className="w-4 h-4 rounded-full bg-emerald-600 text-white font-mono font-bold text-[9px] flex items-center justify-center shrink-0">
-                                    A
+                              Switch to Direct / Air Mode
+                            </button>
+                          </div>
+                        )}
+
+                      {/* Ordered Stops List */}
+                      {activeRepairStops.length > 0 && (
+                        <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
+                          <span className="font-mono text-[10px] uppercase font-bold text-slate-500">
+                            Ordered Repair Sequence:
+                          </span>
+                          <div className="space-y-1">
+                            {activeRepairStops.map((stop, sIdx) => (
+                              <div
+                                key={`stop-row-${sIdx}-${stop.targetId}`}
+                                className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-white/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/50 text-[11px]"
+                              >
+                                <div className="flex items-center gap-1.5 truncate">
+                                  {stop.isStart ? (
+                                    <span className="w-4 h-4 rounded-full bg-emerald-600 text-white font-mono font-bold text-[9px] flex items-center justify-center shrink-0">
+                                      A
+                                    </span>
+                                  ) : stop.isEnd ? (
+                                    <span className="w-4 h-4 rounded-full bg-rose-600 text-white font-mono font-bold text-[9px] flex items-center justify-center shrink-0">
+                                      B
+                                    </span>
+                                  ) : (
+                                    <span className="w-4 h-4 rounded-full bg-blue-600 text-white font-mono font-bold text-[9px] flex items-center justify-center shrink-0">
+                                      {stop.stopNumber}
+                                    </span>
+                                  )}
+                                  <span className="font-mono text-slate-800 dark:text-slate-200 truncate">
+                                    {stop.label}
                                   </span>
-                                ) : stop.isEnd ? (
-                                  <span className="w-4 h-4 rounded-full bg-rose-600 text-white font-mono font-bold text-[9px] flex items-center justify-center shrink-0">
-                                    B
-                                  </span>
-                                ) : (
-                                  <span className="w-4 h-4 rounded-full bg-blue-600 text-white font-mono font-bold text-[9px] flex items-center justify-center shrink-0">
-                                    {stop.stopNumber}
+                                </div>
+                                {stop.estimatedArrivalMinutes !== undefined && (
+                                  <span className="font-mono text-[10px] text-slate-500 shrink-0">
+                                    ~{Math.round(stop.estimatedArrivalMinutes)} min
                                   </span>
                                 )}
-                                <span className="font-mono text-slate-800 dark:text-slate-200 truncate">
-                                  {stop.label}
-                                </span>
                               </div>
-                              {stop.estimatedArrivalMinutes !== undefined && (
-                                <span className="font-mono text-[10px] text-slate-500 shrink-0">
-                                  ~{Math.round(stop.estimatedArrivalMinutes)} min
-                                </span>
-                              )}
-                            </div>
-                          ))}
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
             {/* Filter Dropdowns, Assignment Plan Selector, Route Telemetry & Tile Theme */}
             <div className="flex items-center gap-2 flex-wrap">
@@ -1385,7 +1475,7 @@ function OperatorMapContent() {
             onSelectRepairRoute={setActiveRepairRouteIndex}
             blockedZones={STAGED_SECTOR_BLOCKED_ZONES}
             forecastContext={forecastContext}
-            layers={layers}
+            layers={effectiveLayers}
             urgencyFilter={urgencyFilter}
             selectedEntity={selectedEntity}
             onSelectEntity={setSelectedEntity}
