@@ -307,6 +307,8 @@ function OperatorMapContent() {
     repairOverlay: false,
     floodForecast: false,
   });
+  // Master collapsible Map Overview panel state (expanded by default)
+  const [isOverviewExpanded, setIsOverviewExpanded] = useState<boolean>(true);
   const [urgencyFilter, setUrgencyFilter] = useState<'ALL' | UrgencyLevel>('ALL');
   // Light Google-like Standard OSM is the default basemap; Dark Tactical remains selectable.
   const [tileTheme, setTileTheme] = useState<'dark' | 'standard'>('standard');
@@ -541,166 +543,225 @@ function OperatorMapContent() {
         >
           {/* Top-left Floating Layer & Filter Controls */}
           <div className="absolute top-3 left-3 z-20 flex flex-col gap-2 max-w-2xl">
-            {/* Layer Checkbox Group */}
-            <div
-              className={`${hudCardClass} p-2 rounded-xl flex items-center gap-2 flex-wrap text-xs`}
-            >
-              {/* Incidents Layer */}
-              <label
-                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
-                  isLight
-                    ? 'bg-red-50 border-red-200 text-red-900 hover:bg-red-100/70'
-                    : 'bg-red-950/40 border-red-500/40 text-slate-100 hover:bg-red-900/40'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={layers.incidents}
-                  onChange={() => toggleLayer('incidents')}
-                  className="rounded text-red-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-red-400 cursor-pointer"
-                />
-                <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-                <span className="font-medium">Distress Incidents</span>
-                <span className="ml-0.5 px-1.5 py-0.2 rounded bg-red-600 text-white font-mono text-[10px] font-bold">
-                  {filteredRequestsCount}
-                </span>
-              </label>
+            {/* Collapsed State: Compact Toggle Button to Show Map Overview */}
+            {!isOverviewExpanded && (
+              <div>
+                <button
+                  type="button"
+                  data-testid="show-map-overview-btn"
+                  onClick={() => setIsOverviewExpanded(true)}
+                  aria-expanded={false}
+                  aria-controls="map-overlays-panel"
+                  className={`${hudCardClass} inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold text-xs shadow-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer`}
+                  title="Show Map Overview panel"
+                >
+                  <span className="material-symbols-outlined text-[16px] text-blue-600 dark:text-blue-400">
+                    visibility
+                  </span>
+                  <span>Show Map Overview</span>
+                </button>
+              </div>
+            )}
 
-              {/* Craft Layer (Reference) */}
-              <label
-                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
-                  isLight
-                    ? 'bg-teal-50 border-teal-200 text-teal-900 hover:bg-teal-100/70'
-                    : 'bg-teal-950/40 border-teal-500/40 text-slate-100 hover:bg-teal-900/40'
-                }`}
+            {/* Expanded State: Full MAP OVERLAYS Panel */}
+            {isOverviewExpanded && (
+              <div
+                id="map-overlays-panel"
+                data-testid="map-overlays-panel"
+                className={`${hudCardClass} p-2.5 rounded-xl flex flex-col gap-2 text-xs transition-all duration-200 ease-in-out shadow-lg`}
               >
-                <input
-                  type="checkbox"
-                  checked={layers.craft}
-                  onChange={() => toggleLayer('craft')}
-                  className="rounded text-teal-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-teal-500 cursor-pointer"
-                />
-                <span className="material-symbols-outlined text-[14px] text-teal-600">
-                  directions_boat
-                </span>
-                <span className="font-medium">Reference Fleet</span>
-                <span className="ml-0.5 px-1.5 py-0.2 rounded bg-teal-700 text-white font-mono text-[10px] font-bold">
-                  {STAGED_SECTOR_FLEET.length}
-                </span>
-              </label>
+                {/* Panel Header with Title and Hide Button */}
+                <div className="flex items-center justify-between gap-3 pb-1.5 border-b border-slate-200/80 dark:border-slate-700/60">
+                  <div className="flex items-center gap-1.5 font-bold font-mono text-[11px] uppercase tracking-wide text-slate-700 dark:text-slate-300">
+                    <span className="material-symbols-outlined text-[16px] text-blue-600 dark:text-blue-400">
+                      layers
+                    </span>
+                    <span>MAP OVERLAYS</span>
+                  </div>
+                  <button
+                    type="button"
+                    data-testid="hide-map-overview-btn"
+                    onClick={() => setIsOverviewExpanded(false)}
+                    aria-expanded={true}
+                    aria-controls="map-overlays-panel"
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-semibold text-xs transition-colors cursor-pointer ${
+                      isLight
+                        ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600'
+                    }`}
+                    title="Hide Map Overview panel"
+                  >
+                    <span className="material-symbols-outlined text-[15px]">visibility_off</span>
+                    <span>Hide Map Overview</span>
+                  </button>
+                </div>
 
-              {/* Shelters Layer (Reference) */}
-              <label
-                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
-                  isLight
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900 hover:bg-emerald-100/70'
-                    : 'bg-emerald-950/40 border-emerald-500/40 text-slate-100 hover:bg-emerald-900/40'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={layers.shelters}
-                  onChange={() => toggleLayer('shelters')}
-                  className="rounded text-emerald-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-emerald-500 cursor-pointer"
-                />
-                <span className="material-symbols-outlined text-[14px] text-emerald-600">
-                  night_shelter
-                </span>
-                <span className="font-medium">Relief Shelters</span>
-                <span className="ml-0.5 px-1.5 py-0.2 rounded bg-emerald-700 text-white font-mono text-[10px] font-bold">
-                  {STAGED_SECTOR_SHELTERS.length}
-                </span>
-              </label>
-
-              {/* Assignment Routes Layer */}
-              <label
-                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
-                  isLight
-                    ? 'bg-blue-50 border-blue-200 text-blue-900 hover:bg-blue-100/70'
-                    : 'bg-sky-950/40 border-sky-500/40 text-slate-100 hover:bg-sky-900/40'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={layers.routes}
-                  onChange={() => toggleLayer('routes')}
-                  className="rounded text-blue-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-blue-500 cursor-pointer"
-                />
-                <span className="material-symbols-outlined text-[14px] text-blue-600">route</span>
-                <span className="font-medium">Routes</span>
-              </label>
-
-              {/* Road Hazard Blockages Layer (Reference) */}
-              <label
-                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
-                  isLight
-                    ? 'bg-amber-50 border-amber-200 text-amber-900 hover:bg-amber-100/70'
-                    : 'bg-rose-950/40 border-rose-500/40 text-slate-100 hover:bg-rose-900/40'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={layers.blockages}
-                  onChange={() => toggleLayer('blockages')}
-                  className="rounded text-rose-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-rose-500 cursor-pointer"
-                />
-                <span className="material-symbols-outlined text-[14px] text-rose-600">traffic</span>
-                <span className="font-medium">Hazard Zones</span>
-                <span className="ml-0.5 px-1.5 py-0.2 rounded bg-rose-700 text-white font-mono text-[10px] font-bold">
-                  {STAGED_SECTOR_BLOCKED_ZONES.length}
-                </span>
-              </label>
-
-              {/* Repair Comparison Overlay */}
-              <label
-                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
-                  isLight
-                    ? 'bg-purple-50 border-purple-200 text-purple-900 hover:bg-purple-100/70'
-                    : 'bg-purple-950/40 border-purple-500/40 text-slate-100 hover:bg-purple-900/40'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={layers.repairOverlay}
-                  onChange={() => toggleLayer('repairOverlay')}
-                  className="rounded text-purple-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-purple-500 cursor-pointer"
-                />
-                <span className="material-symbols-outlined text-[14px] text-purple-600">
-                  alt_route
-                </span>
-                <span className="font-medium">Repair Overlay</span>
-              </label>
-
-              {/* Flood Forecast Context Layer (Phase 6) */}
-              <label
-                className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-cyan-950/40 border border-cyan-500/40 text-slate-100 cursor-pointer hover:bg-cyan-900/40 transition-colors"
-                data-testid="layer-toggle-forecast"
-              >
-                <input
-                  type="checkbox"
-                  checked={layers.floodForecast}
-                  onChange={() => toggleLayer('floodForecast')}
-                  className="rounded text-cyan-400 focus:ring-0 w-3.5 h-3.5 bg-transparent border-cyan-400 cursor-pointer"
-                />
-                <span className="material-symbols-outlined text-[14px] text-cyan-400">waves</span>
-                <span className="font-medium">Flood Forecast</span>
-                {forecastContext && (
-                  <span
-                    className={`ml-0.5 px-1.5 py-0.2 rounded text-white font-mono text-[10px] font-bold ${
-                      forecastContext.freshness === 'UNAVAILABLE'
-                        ? 'bg-slate-700 text-slate-300'
-                        : forecastContext.freshness === 'OFFLINE_FIXTURE'
-                          ? 'bg-amber-800 text-amber-200'
-                          : 'bg-cyan-800 text-white'
+                {/* Individual Layer Checkbox Group */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Incidents Layer */}
+                  <label
+                    className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
+                      isLight
+                        ? 'bg-red-50 border-red-200 text-red-900 hover:bg-red-100/70'
+                        : 'bg-red-950/40 border-red-500/40 text-slate-100 hover:bg-red-900/40'
                     }`}
                   >
-                    {forecastContext.freshness === 'UNAVAILABLE'
-                      ? 'UNAVAILABLE'
-                      : `${forecastContext.currentDischargeM3S} m³/s`}
-                  </span>
-                )}
-              </label>
-            </div>
+                    <input
+                      type="checkbox"
+                      checked={layers.incidents}
+                      onChange={() => toggleLayer('incidents')}
+                      className="rounded text-red-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-red-400 cursor-pointer"
+                    />
+                    <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                    <span className="font-medium">Distress Incidents</span>
+                    <span className="ml-0.5 px-1.5 py-0.2 rounded bg-red-600 text-white font-mono text-[10px] font-bold">
+                      {filteredRequestsCount}
+                    </span>
+                  </label>
+
+                  {/* Craft Layer (Reference) */}
+                  <label
+                    className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
+                      isLight
+                        ? 'bg-teal-50 border-teal-200 text-teal-900 hover:bg-teal-100/70'
+                        : 'bg-teal-950/40 border-teal-500/40 text-slate-100 hover:bg-teal-900/40'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={layers.craft}
+                      onChange={() => toggleLayer('craft')}
+                      className="rounded text-teal-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-teal-500 cursor-pointer"
+                    />
+                    <span className="material-symbols-outlined text-[14px] text-teal-600">
+                      directions_boat
+                    </span>
+                    <span className="font-medium">Reference Fleet</span>
+                    <span className="ml-0.5 px-1.5 py-0.2 rounded bg-teal-700 text-white font-mono text-[10px] font-bold">
+                      {STAGED_SECTOR_FLEET.length}
+                    </span>
+                  </label>
+
+                  {/* Shelters Layer (Reference) */}
+                  <label
+                    className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
+                      isLight
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-900 hover:bg-emerald-100/70'
+                        : 'bg-emerald-950/40 border-emerald-500/40 text-slate-100 hover:bg-emerald-900/40'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={layers.shelters}
+                      onChange={() => toggleLayer('shelters')}
+                      className="rounded text-emerald-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-emerald-500 cursor-pointer"
+                    />
+                    <span className="material-symbols-outlined text-[14px] text-emerald-600">
+                      night_shelter
+                    </span>
+                    <span className="font-medium">Relief Shelters</span>
+                    <span className="ml-0.5 px-1.5 py-0.2 rounded bg-emerald-700 text-white font-mono text-[10px] font-bold">
+                      {STAGED_SECTOR_SHELTERS.length}
+                    </span>
+                  </label>
+
+                  {/* Assignment Routes Layer */}
+                  <label
+                    className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
+                      isLight
+                        ? 'bg-blue-50 border-blue-200 text-blue-900 hover:bg-blue-100/70'
+                        : 'bg-sky-950/40 border-sky-500/40 text-slate-100 hover:bg-sky-900/40'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={layers.routes}
+                      onChange={() => toggleLayer('routes')}
+                      className="rounded text-blue-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-blue-500 cursor-pointer"
+                    />
+                    <span className="material-symbols-outlined text-[14px] text-blue-600">
+                      route
+                    </span>
+                    <span className="font-medium">Routes</span>
+                  </label>
+
+                  {/* Road Hazard Blockages Layer (Reference) */}
+                  <label
+                    className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
+                      isLight
+                        ? 'bg-amber-50 border-amber-200 text-amber-900 hover:bg-amber-100/70'
+                        : 'bg-rose-950/40 border-rose-500/40 text-slate-100 hover:bg-rose-900/40'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={layers.blockages}
+                      onChange={() => toggleLayer('blockages')}
+                      className="rounded text-rose-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-rose-500 cursor-pointer"
+                    />
+                    <span className="material-symbols-outlined text-[14px] text-rose-600">
+                      traffic
+                    </span>
+                    <span className="font-medium">Hazard Zones</span>
+                    <span className="ml-0.5 px-1.5 py-0.2 rounded bg-rose-700 text-white font-mono text-[10px] font-bold">
+                      {STAGED_SECTOR_BLOCKED_ZONES.length}
+                    </span>
+                  </label>
+
+                  {/* Repair Comparison Overlay */}
+                  <label
+                    className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors ${
+                      isLight
+                        ? 'bg-purple-50 border-purple-200 text-purple-900 hover:bg-purple-100/70'
+                        : 'bg-purple-950/40 border-purple-500/40 text-slate-100 hover:bg-purple-900/40'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={layers.repairOverlay}
+                      onChange={() => toggleLayer('repairOverlay')}
+                      className="rounded text-purple-600 focus:ring-0 w-3.5 h-3.5 bg-transparent border-purple-500 cursor-pointer"
+                    />
+                    <span className="material-symbols-outlined text-[14px] text-purple-600">
+                      alt_route
+                    </span>
+                    <span className="font-medium">Repair Overlay</span>
+                  </label>
+
+                  {/* Flood Forecast Context Layer (Phase 6) */}
+                  <label
+                    className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-cyan-950/40 border border-cyan-500/40 text-slate-100 cursor-pointer hover:bg-cyan-900/40 transition-colors"
+                    data-testid="layer-toggle-forecast"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={layers.floodForecast}
+                      onChange={() => toggleLayer('floodForecast')}
+                      className="rounded text-cyan-400 focus:ring-0 w-3.5 h-3.5 bg-transparent border-cyan-400 cursor-pointer"
+                    />
+                    <span className="material-symbols-outlined text-[14px] text-cyan-400">
+                      waves
+                    </span>
+                    <span className="font-medium">Flood Forecast</span>
+                    {forecastContext && (
+                      <span
+                        className={`ml-0.5 px-1.5 py-0.2 rounded text-white font-mono text-[10px] font-bold ${
+                          forecastContext.freshness === 'UNAVAILABLE'
+                            ? 'bg-slate-700 text-slate-300'
+                            : forecastContext.freshness === 'OFFLINE_FIXTURE'
+                              ? 'bg-amber-800 text-amber-200'
+                              : 'bg-cyan-800 text-white'
+                        }`}
+                      >
+                        {forecastContext.freshness === 'UNAVAILABLE'
+                          ? 'UNAVAILABLE'
+                          : `${forecastContext.currentDischargeM3S} m³/s`}
+                      </span>
+                    )}
+                  </label>
+                </div>
+              </div>
+            )}
 
             {/* Flood Forecast Information Floating Card */}
             {layers.floodForecast && (
