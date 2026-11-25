@@ -123,6 +123,16 @@ spec.components.schemas.RescueResourceResponse = {
     },
     depotId: { type: 'string', example: 'shelter-north-1', nullable: true },
     source: { type: 'string', enum: ['SIMULATED', 'REAL'], example: 'REAL', nullable: true },
+    modelId: { type: 'string', example: 'boat-irb-standard', nullable: true },
+    notes: { type: 'string', example: 'Yamuna sector 4 patrol', nullable: true },
+    version: { type: 'integer', example: 1 },
+    verificationStatus: {
+      type: 'string',
+      enum: ['UNVERIFIED', 'VERIFIED', 'REJECTED'],
+      example: 'VERIFIED',
+    },
+    verifiedAt: { type: 'string', format: 'date-time', nullable: true },
+    verifiedBy: { type: 'string', example: 'admin_officer', nullable: true },
   },
 };
 
@@ -1087,6 +1097,72 @@ spec.paths['/operations/resources/{id}/status'] = {
   },
 };
 
+spec.paths['/operations/resources/{id}/verify'] = {
+  post: {
+    summary: 'Verify newly registered rescue vehicle',
+    description:
+      'Performs physical readiness verification on a newly registered REAL rescue vehicle, marking it dispatch-eligible. Requires MANAGE_RESOURCES permission.',
+    parameters: [
+      {
+        name: 'id',
+        in: 'path',
+        required: true,
+        schema: { type: 'string' },
+      },
+    ],
+    requestBody: {
+      required: false,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            properties: {
+              notes: { type: 'string', description: 'Inspection or verification notes' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      '200': {
+        description: 'Resource verified successfully and marked dispatch-eligible',
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                success: { type: 'boolean', example: true },
+                data: {
+                  type: 'object',
+                  properties: {
+                    resource: { $ref: '#/components/schemas/RescueResourceResponse' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      '404': {
+        description: 'Resource not found',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/ErrorResponse' },
+          },
+        },
+      },
+      '409': {
+        description: 'Simulated resource mutation blocked',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/ErrorResponse' },
+          },
+        },
+      },
+    },
+  },
+};
+
 spec.paths['/operations/road-zones'] = {
   post: {
     summary: 'Record operator-managed hazard or road closure',
@@ -1257,6 +1333,7 @@ const protectedRoutes: Array<{ path: string; method: string }> = [
   { path: '/operations/resources/{id}', method: 'get' },
   { path: '/operations/resources/{id}', method: 'patch' },
   { path: '/operations/resources/{id}/status', method: 'patch' },
+  { path: '/operations/resources/{id}/verify', method: 'post' },
   { path: '/operations/road-zones', method: 'post' },
   { path: '/operations/road-zones/{id}', method: 'delete' },
   { path: '/operations/repair', method: 'post' },

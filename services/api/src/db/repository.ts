@@ -595,6 +595,16 @@ export class PostgisRepository {
       modelId: row.modelId ?? undefined,
       notes: row.notes ?? undefined,
       version: row.version !== undefined && row.version !== null ? Number(row.version) : undefined,
+      verificationStatus: (row.verificationStatus ??
+        row.verification_status ??
+        'VERIFIED') as VerificationStatus,
+      verifiedAt:
+        row.verifiedAt instanceof Date
+          ? row.verifiedAt.toISOString()
+          : typeof row.verifiedAt === 'string'
+            ? row.verifiedAt
+            : undefined,
+      verifiedBy: (row.verifiedBy ?? row.verified_by ?? undefined) as string | undefined,
       createdBy: row.createdBy ?? undefined,
       updatedBy: row.updatedBy ?? undefined,
       createdAt:
@@ -615,6 +625,7 @@ export class PostgisRepository {
   /**
    * Create a new resource strictly without upsert (no ON CONFLICT DO UPDATE).
    * Enforces global uniqueness across both REAL and SIMULATED resources.
+   * New REAL resources are initialized with verification_status = 'UNVERIFIED'.
    */
   async createResource(
     res: RescueResource,
@@ -622,16 +633,17 @@ export class PostgisRepository {
     createdBy?: string,
     shiftMaxDurationMin = 480,
   ): Promise<RescueResource> {
+    const initialVerificationStatus = source === 'REAL' ? 'UNVERIFIED' : 'VERIFIED';
     const sql = `
       INSERT INTO resources (
         id, name, type, capacity, speed_km_h, location, status,
         depot_id, shift_max_duration_min, source, model_id, notes,
-        version, created_by, updated_by, created_at, updated_at
+        version, verification_status, created_by, updated_by, created_at, updated_at
       ) VALUES (
         $1, $2, $3, $4, $5,
         ST_SetSRID(ST_MakePoint($6, $7), 4326)::geography,
         $8, $9, $10, $11, $12, $13,
-        1, $14, $14, NOW(), NOW()
+        1, $14, $15, $15, NOW(), NOW()
       )
       RETURNING
         id, name, type, capacity, speed_km_h as "speedKmH",
@@ -639,6 +651,8 @@ export class PostgisRepository {
         ST_X(location::geometry) as lng,
         status, depot_id as "depotId", source,
         model_id as "modelId", notes, version,
+        verification_status as "verificationStatus",
+        verified_at as "verifiedAt", verified_by as "verifiedBy",
         created_by as "createdBy", updated_by as "updatedBy",
         created_at as "createdAt", updated_at as "updatedAt";
     `;
@@ -657,6 +671,7 @@ export class PostgisRepository {
       source,
       res.modelId ?? null,
       res.notes ?? null,
+      initialVerificationStatus,
       createdBy ?? null,
     ]);
 
@@ -675,6 +690,8 @@ export class PostgisRepository {
         ST_X(location::geometry) as lng,
         status, depot_id as "depotId",
         source, model_id as "modelId", notes, version,
+        verification_status as "verificationStatus",
+        verified_at as "verifiedAt", verified_by as "verifiedBy",
         created_by as "createdBy", updated_by as "updatedBy",
         created_at as "createdAt", updated_at as "updatedAt"
       FROM resources
@@ -722,6 +739,8 @@ export class PostgisRepository {
         ST_X(location::geometry) as lng,
         status, depot_id as "depotId",
         source, model_id as "modelId", notes, version,
+        verification_status as "verificationStatus",
+        verified_at as "verifiedAt", verified_by as "verifiedBy",
         created_by as "createdBy", updated_by as "updatedBy",
         created_at as "createdAt", updated_at as "updatedAt"
       FROM resources
@@ -822,6 +841,8 @@ export class PostgisRepository {
         ST_X(location::geometry) as lng,
         status, depot_id as "depotId", source,
         model_id as "modelId", notes, version,
+        verification_status as "verificationStatus",
+        verified_at as "verifiedAt", verified_by as "verifiedBy",
         created_by as "createdBy", updated_by as "updatedBy",
         created_at as "createdAt", updated_at as "updatedAt";
     `;
@@ -856,6 +877,40 @@ export class PostgisRepository {
     }));
   }
 
+  /**
+   * Verifies a registered REAL rescue vehicle, marking it dispatch-eligible.
+   */
+  async verifyResource(
+    id: string,
+    operatorId: string,
+    notes?: string,
+  ): Promise<RescueResource | null> {
+    const sql = `
+      UPDATE resources
+      SET verification_status = 'VERIFIED',
+          verified_at = NOW(),
+          verified_by = $2,
+          notes = COALESCE($3, notes),
+          updated_at = NOW(),
+          version = version + 1
+      WHERE id = $1 AND source = 'REAL'
+      RETURNING
+        id, name, type, capacity, speed_km_h as "speedKmH",
+        ST_Y(location::geometry) as lat,
+        ST_X(location::geometry) as lng,
+        status, depot_id as "depotId", source,
+        model_id as "modelId", notes, version,
+        verification_status as "verificationStatus",
+        verified_at as "verifiedAt", verified_by as "verifiedBy",
+        created_by as "createdBy", updated_by as "updatedBy",
+        created_at as "createdAt", updated_at as "updatedAt";
+    `;
+    const result = await this.client.query(sql, [id, operatorId, notes ?? null]);
+    const row = result.rows[0];
+    if (!row) return null;
+    return this.rowToRescueResource(row);
+  }
+
   async updateResourceStatus(id: string, status: ResourceStatus): Promise<RescueResource | null> {
     const sql = `
       UPDATE resources
@@ -867,6 +922,8 @@ export class PostgisRepository {
         ST_X(location::geometry) as lng,
         status, depot_id as "depotId",
         source, model_id as "modelId", notes, version,
+        verification_status as "verificationStatus",
+        verified_at as "verifiedAt", verified_by as "verifiedBy",
         created_by as "createdBy", updated_by as "updatedBy",
         created_at as "createdAt", updated_at as "updatedAt";
     `;

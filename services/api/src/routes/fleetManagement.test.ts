@@ -162,6 +162,7 @@ class MockFleetQueryable implements Queryable {
             source: r.source,
             status: r.status,
             version: r.version || 1,
+            verification_status: r.verification_status || 'VERIFIED',
           } as unknown as R,
         ],
         command: 'SELECT',
@@ -192,6 +193,9 @@ class MockFleetQueryable implements Queryable {
             modelId: r.model_id,
             notes: r.notes,
             version: r.version || 1,
+            verificationStatus: r.verification_status || 'VERIFIED',
+            verifiedAt: r.verified_at ? r.verified_at.toISOString() : undefined,
+            verifiedBy: r.verified_by,
             createdBy: r.created_by,
             updatedBy: r.updated_by,
           } as unknown as R,
@@ -238,6 +242,8 @@ class MockFleetQueryable implements Queryable {
         (err as unknown as { code: string }).code = '23505';
         throw err;
       }
+      const initialVerification =
+        (vals[13] as string) || (vals[10] === 'REAL' ? 'UNVERIFIED' : 'VERIFIED');
       const newRes: DbResource = {
         id,
         name: vals[1] as string,
@@ -252,8 +258,11 @@ class MockFleetQueryable implements Queryable {
         model_id: (vals[11] as string) || null,
         notes: (vals[12] as string) || null,
         version: 1,
-        created_by: (vals[13] as string) || null,
-        updated_by: (vals[13] as string) || null,
+        verification_status: initialVerification as DbResource['verification_status'],
+        verified_at: initialVerification === 'VERIFIED' ? new Date() : null,
+        verified_by: initialVerification === 'VERIFIED' ? 'system' : null,
+        created_by: (vals[14] as string) || null,
+        updated_by: (vals[14] as string) || null,
         created_at: new Date(),
         updated_at: new Date(),
       };
@@ -274,6 +283,9 @@ class MockFleetQueryable implements Queryable {
             modelId: newRes.model_id,
             notes: newRes.notes,
             version: newRes.version,
+            verificationStatus: newRes.verification_status,
+            verifiedAt: newRes.verified_at ? newRes.verified_at.toISOString() : undefined,
+            verifiedBy: newRes.verified_by ?? undefined,
           } as unknown as R,
         ],
         command: 'INSERT',
@@ -281,6 +293,48 @@ class MockFleetQueryable implements Queryable {
         oid: 0,
         fields: [],
       };
+    }
+
+    // Verify resource
+    if (sql.includes("SET verification_status = 'VERIFIED'")) {
+      const id = vals[0] as string;
+      const operatorId = vals[1] as string;
+      const notes = (vals[2] as string) || null;
+      const r = this.resources.get(id);
+      if (r) {
+        r.verification_status = 'VERIFIED';
+        r.verified_at = new Date();
+        r.verified_by = operatorId;
+        if (notes) r.notes = notes;
+        r.version = (r.version || 1) + 1;
+        return {
+          rows: [
+            {
+              id: r.id,
+              name: r.name,
+              type: r.type,
+              capacity: r.capacity,
+              speedKmH: r.speed_km_h,
+              lat: 28.668,
+              lng: 77.232,
+              status: r.status,
+              depotId: r.depot_id,
+              source: r.source,
+              modelId: r.model_id,
+              notes: r.notes,
+              version: r.version,
+              verificationStatus: r.verification_status,
+              verifiedAt: r.verified_at.toISOString(),
+              verifiedBy: r.verified_by,
+            } as unknown as R,
+          ],
+          command: 'UPDATE',
+          rowCount: 1,
+          oid: 0,
+          fields: [],
+        };
+      }
+      return { rows: [], command: 'UPDATE', rowCount: 0, oid: 0, fields: [] };
     }
 
     // Update resource details
@@ -411,6 +465,7 @@ describe('Rescue Fleet Management Portal API & Security Invariants', () => {
       model_id: 'boat-irb-standard',
       notes: 'Active duty unit',
       version: 1,
+      verification_status: 'VERIFIED',
       created_by: 'admin_user',
       updated_by: 'admin_user',
       created_at: new Date(),
@@ -431,6 +486,7 @@ describe('Rescue Fleet Management Portal API & Security Invariants', () => {
       model_id: 'boat-irb-standard',
       notes: 'Benchmark asset',
       version: 1,
+      verification_status: 'VERIFIED',
       created_by: 'system',
       updated_by: 'system',
       created_at: new Date(),
@@ -794,6 +850,156 @@ describe('Rescue Fleet Management Portal API & Security Invariants', () => {
 
       expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('SIMULATED_RESOURCE_MUTATION_BLOCKED');
+    });
+
+    it('rejects setting status to AVAILABLE when vehicle has active committed assignments with 409', async () => {
+      mockQueryable.committedAssignments.set('plan-committed-avail-1', {
+        id: 'plan-committed-avail-1',
+        status: 'COMMITTED',
+        resourceId: 'res-boat-real',
+      });
+
+      const res = await request(app)
+        .patch('/operations/resources/res-boat-real/status')
+        .set('Authorization', `Bearer ${dispatcherToken}`)
+        .send({
+          status: 'AVAILABLE',
+          reason: 'Attempting invalid status transition while assigned',
+        });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('RESOURCE_ACTIVE_IN_COMMITTED_PLAN');
+    });
+  });
+
+  describe('Vehicle Verification & Dispatch Eligibility Guards (Defect B & C)', () => {
+    it('initializes newly registered vehicle with verificationStatus UNVERIFIED', async () => {
+      const res = await request(app)
+        .post('/operations/resources')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          modelId: 'boat-irb-standard',
+          name: 'Newly Registered Unverified Boat',
+          id: 'res-unverified-1',
+          lat: 28.65,
+          lng: 77.22,
+          capacity: 6,
+          speedKmH: 22,
+          status: 'OFFLINE',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.resource.verificationStatus).toBe('UNVERIFIED');
+    });
+
+    it('rejects unverified vehicle from transitioning to AVAILABLE with 409 RESOURCE_NOT_VERIFIED', async () => {
+      // Register new unverified vehicle
+      await request(app)
+        .post('/operations/resources')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          modelId: 'boat-irb-standard',
+          name: 'Unverified Test Boat',
+          id: 'res-unverified-2',
+          lat: 28.65,
+          lng: 77.22,
+          capacity: 6,
+          speedKmH: 22,
+          status: 'OFFLINE',
+        });
+
+      // Attempt to directly mark it AVAILABLE without verification
+      const statusRes = await request(app)
+        .patch('/operations/resources/res-unverified-2/status')
+        .set('Authorization', `Bearer ${dispatcherToken}`)
+        .send({
+          status: 'AVAILABLE',
+          reason: 'Bypassing verification check',
+        });
+
+      expect(statusRes.status).toBe(409);
+      expect(statusRes.body.error.code).toBe('RESOURCE_NOT_VERIFIED');
+      expect(statusRes.body.error.message).toContain('has not been verified');
+    });
+
+    it('rejects unauthenticated and unauthorized requests to verify a vehicle', async () => {
+      const unauthRes = await request(app)
+        .post('/operations/resources/res-unverified-1/verify')
+        .send({});
+      expect(unauthRes.status).toBe(401);
+
+      const dispRes = await request(app)
+        .post('/operations/resources/res-unverified-1/verify')
+        .set('Authorization', `Bearer ${dispatcherToken}`)
+        .send({});
+      expect(dispRes.status).toBe(403);
+
+      const opRes = await request(app)
+        .post('/operations/resources/res-unverified-1/verify')
+        .set('Authorization', `Bearer ${operatorToken}`)
+        .send({});
+      expect(opRes.status).toBe(403);
+    });
+
+    it('rejects verifying a SIMULATED resource with 409 SIMULATED_RESOURCE_MUTATION_BLOCKED', async () => {
+      const res = await request(app)
+        .post('/operations/resources/res-boat-sim/verify')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ notes: 'Should fail on simulated fixture' });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('SIMULATED_RESOURCE_MUTATION_BLOCKED');
+    });
+
+    it('allows ADMIN to verify an unverified vehicle, making it eligible for AVAILABLE status', async () => {
+      // 1. Register unverified vehicle
+      const regRes = await request(app)
+        .post('/operations/resources')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          modelId: 'boat-irb-standard',
+          name: 'Boat Alpha 99',
+          id: 'res-alpha-99',
+          lat: 28.65,
+          lng: 77.22,
+          capacity: 6,
+          speedKmH: 22,
+          status: 'OFFLINE',
+        });
+      expect(regRes.status).toBe(201);
+      expect(regRes.body.data.resource.verificationStatus).toBe('UNVERIFIED');
+
+      // 2. Complete verification step as ADMIN
+      const verifyRes = await request(app)
+        .post('/operations/resources/res-alpha-99/verify')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ notes: 'Physical inspection completed. Outboard motor and lifejackets verified.' });
+
+      expect(verifyRes.status).toBe(200);
+      expect(verifyRes.body.success).toBe(true);
+      expect(verifyRes.body.data.resource.verificationStatus).toBe('VERIFIED');
+      expect(verifyRes.body.data.resource.verifiedBy).toBe('admin_user');
+      expect(verifyRes.body.data.resource.version).toBe(2);
+
+      // Verify audit event was logged
+      const auditLog = mockQueryable.auditEvents.find(
+        (e) => e.entity_id === 'res-alpha-99' && e.event_type === 'RESOURCE_VERIFIED',
+      );
+      expect(auditLog).toBeDefined();
+      expect(auditLog?.actor).toBe('admin_user');
+
+      // 3. Now transition to AVAILABLE succeeds!
+      const availRes = await request(app)
+        .patch('/operations/resources/res-alpha-99/status')
+        .set('Authorization', `Bearer ${dispatcherToken}`)
+        .send({
+          status: 'AVAILABLE',
+          reason: 'Pre-deployment check verified; activating for rescue dispatch',
+        });
+
+      expect(availRes.status).toBe(200);
+      expect(availRes.body.data.resource.status).toBe('AVAILABLE');
+      expect(availRes.body.data.event.type).toBe('RESOURCE_AVAILABLE');
     });
   });
 });

@@ -507,6 +507,22 @@ export class FloodRelayApiClient {
     return res.data;
   }
 
+  async verifyResource(
+    id: string,
+    notes?: string,
+    signal?: AbortSignal,
+  ): Promise<{ resource: RescueResource }> {
+    const res = await this.request<{ resource: RescueResource }>(
+      `/operations/resources/${encodeURIComponent(id)}/verify`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ notes }),
+        signal,
+      },
+    );
+    return res.data;
+  }
+
   async createRoadZone(
     input: CreateRoadZoneInput,
     signal?: AbortSignal,

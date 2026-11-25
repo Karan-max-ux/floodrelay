@@ -2,6 +2,7 @@ import React from 'react';
 import { renderToString } from 'react-dom/server';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import FleetManagementPage from '../app/operator/fleet/page';
+import { RescueFleetManagementView } from '../components/operator/RescueFleetManagementView';
 import { APPROVED_VEHICLE_CATALOG } from '@floodrelay/shared';
 
 // Mock OperatorAuthContext
@@ -106,6 +107,17 @@ vi.mock('@/lib/api/client', () => ({
         },
       },
     }),
+    verifyResource: vi.fn().mockResolvedValue({
+      success: true,
+      data: {
+        resource: {
+          id: 'res-delhi-boat-01',
+          verificationStatus: 'VERIFIED',
+          verifiedAt: new Date().toISOString(),
+          verifiedBy: 'eoc_admin',
+        },
+      },
+    }),
   },
 }));
 
@@ -202,6 +214,41 @@ describe('Rescue Fleet Management Portal Component Tests', () => {
       const html = renderToString(<FleetManagementPage />);
       // Should show read-only note or disabled state for registration tab
       expect(html).toContain('Rescue Fleet Management');
+    });
+
+    it('renders Verification column and status badges in the Fleet Roster', () => {
+      const mockResources = [
+        {
+          id: 'res-delhi-boat-01',
+          name: 'Yamuna Patrol 1',
+          type: 'BOAT' as const,
+          capacity: 8,
+          speedKmH: 25,
+          lat: 28.668,
+          lng: 77.232,
+          status: 'AVAILABLE' as const,
+          source: 'REAL' as const,
+          verificationStatus: 'VERIFIED' as const,
+          version: 1,
+        },
+        {
+          id: 'res-new-unverified',
+          name: 'Delhi Rapid Craft',
+          type: 'BOAT' as const,
+          capacity: 6,
+          speedKmH: 25,
+          lat: 28.668,
+          lng: 77.232,
+          status: 'OFFLINE' as const,
+          source: 'REAL' as const,
+          verificationStatus: 'UNVERIFIED' as const,
+          version: 1,
+        },
+      ];
+      const html = renderToString(<RescueFleetManagementView initialResources={mockResources} />);
+      expect(html).toContain('Verification');
+      expect(html).toContain('VERIFIED');
+      expect(html).toContain('UNVERIFIED');
     });
   });
 });

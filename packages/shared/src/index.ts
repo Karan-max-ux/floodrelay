@@ -52,6 +52,9 @@ export interface RescueResource {
   modelId?: string;
   notes?: string;
   version?: number;
+  verificationStatus?: VerificationStatus;
+  verifiedAt?: string;
+  verifiedBy?: string;
   createdBy?: string;
   updatedBy?: string;
   createdAt?: string;

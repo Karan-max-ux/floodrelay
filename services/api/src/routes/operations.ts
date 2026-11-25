@@ -612,6 +612,111 @@ export function createOperationsRouter(
     },
   );
 
+  // POST /operations/resources/:id/verify - Verify newly registered vehicle (RBAC: MANAGE_RESOURCES)
+  router.post(
+    '/resources/:id/verify',
+    requirePermission('MANAGE_RESOURCES'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const rawId = req.params.id;
+        const id = Array.isArray(rawId) ? rawId[0] : rawId;
+        if (!id) {
+          res.status(400).json({
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Resource ID parameter is required',
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        const notes = typeof req.body?.notes === 'string' ? req.body.notes : undefined;
+        const operatorId = req.operator?.username ?? req.operator?.id ?? 'OPERATOR';
+
+        const existingResource = await repo.getResourceById(id);
+        if (!existingResource) {
+          res.status(404).json({
+            error: {
+              code: 'NOT_FOUND',
+              message: `Rescue resource with id "${id}" not found`,
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        if (existingResource.source === 'SIMULATED') {
+          res.status(409).json({
+            error: {
+              code: 'SIMULATED_RESOURCE_MUTATION_BLOCKED',
+              message: `Cannot verify simulated resource "${id}". Verification is restricted to authentic operational resources.`,
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        const verifiedResource = await repo.withTransaction(async (txRepo, client) => {
+          const lockResult = await client.query<{ id: string; source: string; version: number }>(
+            'SELECT id, source, version FROM resources WHERE id = $1 FOR UPDATE;',
+            [id],
+          );
+          const lockedRow = lockResult.rows[0];
+          if (!lockedRow) {
+            const err = new Error(`Rescue resource with id "${id}" not found`);
+            (err as unknown as { code: string; statusCode: number }).code = 'NOT_FOUND';
+            (err as unknown as { code: string; statusCode: number }).statusCode = 404;
+            throw err;
+          }
+
+          if (lockedRow.source === 'SIMULATED') {
+            const err = new Error(
+              `Cannot verify simulated resource "${id}". Verification is restricted to authentic operational resources.`,
+            );
+            (err as unknown as { code: string; statusCode: number }).code =
+              'SIMULATED_RESOURCE_MUTATION_BLOCKED';
+            (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+            throw err;
+          }
+
+          const updated = await txRepo.verifyResource(id, operatorId, notes);
+          if (!updated) {
+            const err = new Error(`Failed to verify resource "${id}"`);
+            (err as unknown as { code: string; statusCode: number }).code = 'INTERNAL_ERROR';
+            (err as unknown as { code: string; statusCode: number }).statusCode = 500;
+            throw err;
+          }
+
+          await txRepo.insertAuditEvent({
+            entityType: 'RESOURCE',
+            entityId: id,
+            eventType: 'RESOURCE_VERIFIED',
+            actor: operatorId,
+            payload: {
+              resourceId: id,
+              verifiedBy: operatorId,
+              notes,
+              previousStatus: existingResource.status,
+              verificationStatus: 'VERIFIED',
+            },
+          });
+
+          return updated;
+        });
+
+        res.status(200).json({
+          success: true,
+          data: {
+            resource: verifiedResource,
+          },
+        });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
   // PATCH /operations/resources/:id/status - Update resource status (RBAC: MANAGE_RESOURCE_STATUS)
   router.patch(
     '/resources/:id/status',
@@ -683,8 +788,13 @@ export function createOperationsRouter(
         try {
           result = await repo.withTransaction(async (txRepo, client) => {
             // Lock row and enforce transactional provenance check to prevent TOCTOU races
-            const lockResult = await client.query<{ id: string; status: string; source: string }>(
-              'SELECT id, status, source FROM resources WHERE id = $1 FOR UPDATE;',
+            const lockResult = await client.query<{
+              id: string;
+              status: string;
+              source: string;
+              verification_status: string;
+            }>(
+              'SELECT id, status, source, verification_status FROM resources WHERE id = $1 FOR UPDATE;',
               [id],
             );
             const lockedRow = lockResult.rows[0];
@@ -703,6 +813,33 @@ export function createOperationsRouter(
                 'SIMULATED_RESOURCE_MUTATION_BLOCKED';
               (err as unknown as { code: string; statusCode: number }).statusCode = 409;
               throw err;
+            }
+
+            // Defect B Guard: Verification required before becoming dispatch-eligible (AVAILABLE)
+            const isVerified = (lockedRow.verification_status ?? 'VERIFIED') === 'VERIFIED';
+            if (newStatus === 'AVAILABLE' && !isVerified) {
+              const err = new Error(
+                `Cannot set resource "${id}" to AVAILABLE: vehicle has not been verified by an operator. Verification is required before a vehicle can become dispatch-eligible.`,
+              );
+              (err as unknown as { code: string; statusCode: number }).code =
+                'RESOURCE_NOT_VERIFIED';
+              (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+              throw err;
+            }
+
+            // Defect C Guard: Active committed assignment protection on status change to AVAILABLE
+            if (newStatus === 'AVAILABLE') {
+              const activeAssignments = await txRepo.getActiveCommittedAssignmentsForResource(id);
+              if (activeAssignments.length > 0) {
+                const activePlan = activeAssignments[0]!;
+                const err = new Error(
+                  `Cannot set resource "${id}" to AVAILABLE while it is assigned to an active committed rescue plan (Assignment ID "${activePlan.id}", status ${activePlan.status}). Reassign or complete the plan first.`,
+                );
+                (err as unknown as { code: string; statusCode: number }).code =
+                  'RESOURCE_ACTIVE_IN_COMMITTED_PLAN';
+                (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+                throw err;
+              }
             }
 
             const updatedResource = await txRepo.updateResourceStatus(id, newStatus);

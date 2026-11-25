@@ -1490,6 +1490,102 @@
         ]
       }
     },
+    "/operations/resources/{id}/verify": {
+      "post": {
+        "summary": "Verify newly registered rescue vehicle",
+        "description": "Performs physical readiness verification on a newly registered REAL rescue vehicle, marking it dispatch-eligible. Requires MANAGE_RESOURCES permission.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "notes": {
+                    "type": "string",
+                    "description": "Inspection or verification notes"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Resource verified successfully and marked dispatch-eligible",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "resource": {
+                          "$ref": "#/components/schemas/RescueResourceResponse"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Operator authentication required or session expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Simulated resource mutation blocked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "CookieAuth": []
+          }
+        ]
+      }
+    },
     "/operations/road-zones": {
       "post": {
         "summary": "Record operator-managed hazard or road closure",
@@ -3446,6 +3542,35 @@
             "type": "string",
             "enum": ["SIMULATED", "REAL"],
             "example": "REAL",
+            "nullable": true
+          },
+          "modelId": {
+            "type": "string",
+            "example": "boat-irb-standard",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "example": "Yamuna sector 4 patrol",
+            "nullable": true
+          },
+          "version": {
+            "type": "integer",
+            "example": 1
+          },
+          "verificationStatus": {
+            "type": "string",
+            "enum": ["UNVERIFIED", "VERIFIED", "REJECTED"],
+            "example": "VERIFIED"
+          },
+          "verifiedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "verifiedBy": {
+            "type": "string",
+            "example": "admin_officer",
             "nullable": true
           }
         }

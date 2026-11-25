@@ -59,6 +59,9 @@ export interface DbResource {
   model_id?: string | null;
   notes?: string | null;
   version?: number;
+  verification_status?: VerificationStatus;
+  verified_at?: Date | null;
+  verified_by?: string | null;
   created_by?: string | null;
   updated_by?: string | null;
 }
@@ -318,6 +321,16 @@ export function dbToRescueResource(row: DbResource): RescueResource {
     status: row.status,
     depotId: row.depot_id ?? undefined,
     source: (row.source as 'SIMULATED' | 'REAL') ?? undefined,
+    modelId: row.model_id ?? undefined,
+    notes: row.notes ?? undefined,
+    version: row.version ?? undefined,
+    verificationStatus: row.verification_status ?? undefined,
+    verifiedAt: row.verified_at ? row.verified_at.toISOString() : undefined,
+    verifiedBy: row.verified_by ?? undefined,
+    createdBy: row.created_by ?? undefined,
+    updatedBy: row.updated_by ?? undefined,
+    createdAt: row.created_at ? row.created_at.toISOString() : undefined,
+    updatedAt: row.updated_at ? row.updated_at.toISOString() : undefined,
   };
 }
 
