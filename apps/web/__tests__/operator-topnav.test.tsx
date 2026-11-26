@@ -59,7 +59,7 @@ describe('Phase 1 & 2: Operator Top Navigation & Full-Width Workspace Layout', (
   });
 
   describe('1. Route Configuration & Item Invariants', () => {
-    it('defines exactly the 6 required operational command routes', () => {
+    it('defines exactly the 7 required operational command routes', () => {
       const routes = OPERATOR_NAV_ITEMS.map((item) => ({
         label: item.label,
         href: item.href,
@@ -67,6 +67,7 @@ describe('Phase 1 & 2: Operator Top Navigation & Full-Width Workspace Layout', (
 
       expect(routes).toEqual([
         { label: 'Overview', href: '/operator' },
+        { label: 'Fleet', href: '/operator/fleet' },
         { label: 'Requests', href: '/operator/requests' },
         { label: 'Live Map', href: '/operator/map' },
         { label: 'Assignments', href: '/operator/assignments' },
@@ -79,9 +80,16 @@ describe('Phase 1 & 2: Operator Top Navigation & Full-Width Workspace Layout', (
   describe('2. Active Route Highlighting (isItemActive)', () => {
     it('highlights Overview only on exact /operator path', () => {
       expect(isItemActive('/operator', '/operator', true)).toBe(true);
+      expect(isItemActive('/operator/fleet', '/operator', true)).toBe(false);
       expect(isItemActive('/operator/requests', '/operator', true)).toBe(false);
       expect(isItemActive('/operator/map', '/operator', true)).toBe(false);
       expect(isItemActive('/operator/assignments', '/operator', true)).toBe(false);
+    });
+
+    it('highlights Fleet on /operator/fleet and sub-paths', () => {
+      expect(isItemActive('/operator/fleet', '/operator/fleet', false)).toBe(true);
+      expect(isItemActive('/operator/fleet/res-1', '/operator/fleet', false)).toBe(true);
+      expect(isItemActive('/operator', '/operator/fleet', false)).toBe(false);
     });
 
     it('highlights Requests on /operator/requests and sub-paths', () => {

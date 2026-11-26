@@ -123,6 +123,16 @@ spec.components.schemas.RescueResourceResponse = {
     },
     depotId: { type: 'string', example: 'shelter-north-1', nullable: true },
     source: { type: 'string', enum: ['SIMULATED', 'REAL'], example: 'REAL', nullable: true },
+    modelId: { type: 'string', example: 'boat-irb-standard', nullable: true },
+    notes: { type: 'string', example: 'Yamuna sector 4 patrol', nullable: true },
+    version: { type: 'integer', example: 1 },
+    verificationStatus: {
+      type: 'string',
+      enum: ['UNVERIFIED', 'VERIFIED', 'REJECTED'],
+      example: 'VERIFIED',
+    },
+    verifiedAt: { type: 'string', format: 'date-time', nullable: true },
+    verifiedBy: { type: 'string', example: 'admin_officer', nullable: true },
   },
 };
 
@@ -233,6 +243,122 @@ spec.components.schemas.ListResourcesResponse = {
       type: 'array',
       items: { $ref: '#/components/schemas/RescueResourceResponse' },
     },
+  },
+};
+
+spec.components.schemas.SingleResourceResponse = {
+  type: 'object',
+  required: ['success', 'data'],
+  properties: {
+    success: { type: 'boolean', example: true },
+    data: { $ref: '#/components/schemas/RescueResourceResponse' },
+  },
+};
+
+spec.components.schemas.VehicleCatalogModel = {
+  type: 'object',
+  required: [
+    'id',
+    'name',
+    'category',
+    'type',
+    'defaultCapacity',
+    'defaultSpeedKmH',
+    'minCapacity',
+    'maxCapacity',
+    'minSpeedKmH',
+    'maxSpeedKmH',
+    'description',
+  ],
+  properties: {
+    id: { type: 'string', example: 'boat-irb-standard' },
+    name: { type: 'string', example: 'Inflatable Rescue Boat (IRB)' },
+    category: { type: 'string', example: 'Rescue Boat' },
+    type: {
+      type: 'string',
+      enum: ['BOAT', 'HIGH_WATER_VEHICLE', 'AMBULANCE', 'HELICOPTER'],
+      example: 'BOAT',
+    },
+    defaultCapacity: { type: 'integer', example: 8 },
+    defaultSpeedKmH: { type: 'number', example: 25.0 },
+    minCapacity: { type: 'integer', example: 2 },
+    maxCapacity: { type: 'integer', example: 12 },
+    minSpeedKmH: { type: 'number', example: 5.0 },
+    maxSpeedKmH: { type: 'number', example: 45.0 },
+    description: { type: 'string' },
+  },
+};
+
+spec.components.schemas.VehicleModelListResponse = {
+  type: 'object',
+  required: ['success', 'count', 'data'],
+  properties: {
+    success: { type: 'boolean', example: true },
+    count: { type: 'integer', example: 8 },
+    data: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/VehicleCatalogModel' },
+    },
+  },
+};
+
+spec.components.schemas.Shelter = {
+  type: 'object',
+  required: ['id', 'name', 'lat', 'lng', 'capacity'],
+  properties: {
+    id: { type: 'string', example: 'shelter_north' },
+    name: { type: 'string', example: 'North Sector Relief Camp' },
+    lat: { type: 'number', example: 28.668 },
+    lng: { type: 'number', example: 77.232 },
+    capacity: { type: 'integer', example: 120 },
+    currentOccupancy: { type: 'integer', example: 0 },
+    source: { type: 'string', enum: ['SIMULATED', 'REAL'], example: 'REAL' },
+  },
+};
+
+spec.components.schemas.ShelterListResponse = {
+  type: 'object',
+  required: ['success', 'count', 'data'],
+  properties: {
+    success: { type: 'boolean', example: true },
+    count: { type: 'integer', example: 4 },
+    data: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/Shelter' },
+    },
+  },
+};
+
+spec.components.schemas.RegisterResourceInput = {
+  type: 'object',
+  required: ['modelId', 'lat', 'lng'],
+  properties: {
+    modelId: { type: 'string', example: 'boat-irb-standard' },
+    name: { type: 'string', example: 'Rescue Boat Unit 1', maxLength: 128 },
+    id: { type: 'string', example: 'res-custom-001', maxLength: 64 },
+    capacity: { type: 'integer', minimum: 1, maximum: 100 },
+    speedKmH: { type: 'number', minimum: 1, maximum: 300 },
+    lat: { type: 'number', minimum: -90, maximum: 90, example: 28.6139 },
+    lng: { type: 'number', minimum: -180, maximum: 180, example: 77.209 },
+    depotId: { type: 'string', nullable: true },
+    status: { type: 'string', enum: ['OFFLINE', 'MAINTENANCE'], default: 'OFFLINE' },
+    notes: { type: 'string', maxLength: 500, nullable: true },
+  },
+};
+
+spec.components.schemas.UpdateResourceDetailsInput = {
+  type: 'object',
+  required: ['expectedVersion'],
+  properties: {
+    name: { type: 'string', maxLength: 128 },
+    modelId: { type: 'string' },
+    capacity: { type: 'integer', minimum: 1, maximum: 1000 },
+    speedKmH: { type: 'number', minimum: 1, maximum: 300 },
+    lat: { type: 'number', minimum: -90, maximum: 90 },
+    lng: { type: 'number', minimum: -180, maximum: 180 },
+    depotId: { type: 'string', nullable: true },
+    notes: { type: 'string', maxLength: 500, nullable: true },
+    expectedVersion: { type: 'integer', minimum: 1 },
   },
 };
 
@@ -728,11 +854,56 @@ spec.paths['/operations/events/{id}/affected-scope'] = {
   },
 };
 
+spec.paths['/operations/vehicle-models'] = {
+  get: {
+    summary: 'List approved vehicle catalog models',
+    description:
+      'Retrieves the list of approved vehicle catalog models with recommended capacity, speed limits, and categories.',
+    responses: {
+      '200': {
+        description: 'Catalog models retrieved successfully',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/VehicleModelListResponse' },
+          },
+        },
+      },
+    },
+  },
+};
+
+spec.paths['/operations/shelters'] = {
+  get: {
+    summary: 'List authoritative relief shelters and depots',
+    description:
+      'Retrieves list of authoritative staging depots and shelters with capacity, occupancy, and geographic coordinates.',
+    parameters: [
+      {
+        name: 'activeOnly',
+        in: 'query',
+        required: false,
+        schema: { type: 'boolean', default: true },
+        description: 'Filter for active shelters only',
+      },
+    ],
+    responses: {
+      '200': {
+        description: 'Authoritative shelters retrieved successfully',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/ShelterListResponse' },
+          },
+        },
+      },
+    },
+  },
+};
+
 spec.paths['/operations/resources'] = {
   get: {
     summary: 'List operational rescue resources',
     description:
-      'Retrieves list of registered rescue resources with optional status and type filters. Accessible to all authenticated operator roles.',
+      'Retrieves list of registered rescue resources with optional status, type, and source filters. Accessible to all authenticated operator roles.',
     parameters: [
       {
         name: 'status',
@@ -754,6 +925,25 @@ spec.paths['/operations/resources'] = {
         },
         description: 'Filter resources by vehicle type',
       },
+      {
+        name: 'source',
+        in: 'query',
+        required: false,
+        schema: {
+          type: 'string',
+          enum: ['SIMULATED', 'REAL'],
+        },
+        description: 'Filter resources by source provenance',
+      },
+      {
+        name: 'search',
+        in: 'query',
+        required: false,
+        schema: {
+          type: 'string',
+        },
+        description: 'Search resources by name or ID',
+      },
     ],
     responses: {
       '200': {
@@ -766,6 +956,142 @@ spec.paths['/operations/resources'] = {
       },
       '400': {
         description: 'Validation failure on filter query parameters',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/ErrorResponse' },
+          },
+        },
+      },
+    },
+  },
+  post: {
+    summary: 'Register new rescue vehicle',
+    description:
+      'Registers a new operational rescue vehicle from the approved catalog. Requires MANAGE_RESOURCES permission (ADMIN).',
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/RegisterResourceInput' },
+        },
+      },
+    },
+    responses: {
+      '201': {
+        description: 'Vehicle registered successfully',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/SingleResourceResponse' },
+          },
+        },
+      },
+      '400': {
+        description: 'Validation failure or out-of-range parameters',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/ErrorResponse' },
+          },
+        },
+      },
+      '409': {
+        description: 'Duplicate resource ID conflict',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/ErrorResponse' },
+          },
+        },
+      },
+      '422': {
+        description: 'Vehicle location outside Delhi NCR service area',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/ErrorResponse' },
+          },
+        },
+      },
+    },
+  },
+};
+
+spec.paths['/operations/resources/{id}'] = {
+  get: {
+    summary: 'Retrieve single rescue vehicle details',
+    description: 'Retrieves complete metadata for a specific registered vehicle.',
+    parameters: [
+      {
+        name: 'id',
+        in: 'path',
+        required: true,
+        schema: { type: 'string' },
+      },
+    ],
+    responses: {
+      '200': {
+        description: 'Vehicle details retrieved successfully',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/RescueResourceResponse' },
+          },
+        },
+      },
+      '404': {
+        description: 'Vehicle not found',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/ErrorResponse' },
+          },
+        },
+      },
+    },
+  },
+  patch: {
+    summary: 'Edit permitted vehicle information',
+    description:
+      'Updates editable attributes of a registered REAL rescue vehicle. Requires MANAGE_RESOURCES permission (ADMIN).',
+    parameters: [
+      {
+        name: 'id',
+        in: 'path',
+        required: true,
+        schema: { type: 'string' },
+      },
+    ],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/UpdateResourceDetailsInput' },
+        },
+      },
+    },
+    responses: {
+      '200': {
+        description: 'Vehicle updated successfully',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/SingleResourceResponse' },
+          },
+        },
+      },
+      '400': {
+        description: 'Validation failure',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/ErrorResponse' },
+          },
+        },
+      },
+      '404': {
+        description: 'Vehicle not found',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/ErrorResponse' },
+          },
+        },
+      },
+      '409': {
+        description:
+          'Conflict: simulated resource mutation blocked, concurrency conflict, or active assignment protection',
         content: {
           'application/json': {
             schema: { $ref: '#/components/schemas/ErrorResponse' },
@@ -816,6 +1142,72 @@ spec.paths['/operations/resources/{id}/status'] = {
       },
       '404': {
         description: 'Resource not found',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/ErrorResponse' },
+          },
+        },
+      },
+    },
+  },
+};
+
+spec.paths['/operations/resources/{id}/verify'] = {
+  post: {
+    summary: 'Verify newly registered rescue vehicle',
+    description:
+      'Performs physical readiness verification on a newly registered REAL rescue vehicle, marking it dispatch-eligible. Requires MANAGE_RESOURCES permission.',
+    parameters: [
+      {
+        name: 'id',
+        in: 'path',
+        required: true,
+        schema: { type: 'string' },
+      },
+    ],
+    requestBody: {
+      required: false,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            properties: {
+              notes: { type: 'string', description: 'Inspection or verification notes' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      '200': {
+        description: 'Resource verified successfully and marked dispatch-eligible',
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                success: { type: 'boolean', example: true },
+                data: {
+                  type: 'object',
+                  properties: {
+                    resource: { $ref: '#/components/schemas/RescueResourceResponse' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      '404': {
+        description: 'Resource not found',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/ErrorResponse' },
+          },
+        },
+      },
+      '409': {
+        description: 'Simulated resource mutation blocked',
         content: {
           'application/json': {
             schema: { $ref: '#/components/schemas/ErrorResponse' },
@@ -990,8 +1382,14 @@ const protectedRoutes: Array<{ path: string; method: string }> = [
   { path: '/operations/events', method: 'get' },
   { path: '/operations/events/{id}', method: 'get' },
   { path: '/operations/events/{id}/affected-scope', method: 'get' },
+  { path: '/operations/vehicle-models', method: 'get' },
+  { path: '/operations/shelters', method: 'get' },
   { path: '/operations/resources', method: 'get' },
+  { path: '/operations/resources', method: 'post' },
+  { path: '/operations/resources/{id}', method: 'get' },
+  { path: '/operations/resources/{id}', method: 'patch' },
   { path: '/operations/resources/{id}/status', method: 'patch' },
+  { path: '/operations/resources/{id}/verify', method: 'post' },
   { path: '/operations/road-zones', method: 'post' },
   { path: '/operations/road-zones/{id}', method: 'delete' },
   { path: '/operations/repair', method: 'post' },

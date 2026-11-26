@@ -28,6 +28,12 @@ import type {
   ListResourcesFilter,
   AuditEventRecord,
   RescueResource,
+  VehicleCatalogModel,
+  Shelter,
+  RegisterResourceInput,
+  RegisterResourceResult,
+  UpdateResourceDetailsInput,
+  UpdateResourceDetailsResult,
   UpdateResourceStatusInput,
   UpdateResourceStatusResult,
   CreateRoadZoneInput,
@@ -414,6 +420,22 @@ export class FloodRelayApiClient {
     return scope;
   }
 
+  async listVehicleModels(signal?: AbortSignal): Promise<VehicleCatalogModel[]> {
+    const res = await this.request<VehicleCatalogModel[]>('/operations/vehicle-models', {
+      method: 'GET',
+      signal,
+    });
+    return res.data;
+  }
+
+  async listShelters(signal?: AbortSignal): Promise<Shelter[]> {
+    const res = await this.request<Shelter[]>('/operations/shelters', {
+      method: 'GET',
+      signal,
+    });
+    return res.data;
+  }
+
   async listResources(
     filter?: ListResourcesFilter,
     signal?: AbortSignal,
@@ -425,11 +447,56 @@ export class FloodRelayApiClient {
     if (filter?.type) {
       params.set('type', filter.type);
     }
+    if (filter?.source) {
+      params.set('source', filter.source);
+    }
+    if (filter?.search) {
+      params.set('search', filter.search);
+    }
     const query = params.toString() ? `?${params.toString()}` : '';
     const res = await this.request<RescueResource[]>(`/operations/resources${query}`, {
       method: 'GET',
       signal,
     });
+    return res.data;
+  }
+
+  async getResource(id: string, signal?: AbortSignal): Promise<RescueResource> {
+    const res = await this.request<RescueResource>(
+      `/operations/resources/${encodeURIComponent(id)}`,
+      {
+        method: 'GET',
+        signal,
+      },
+    );
+    return res.data;
+  }
+
+  async registerResource(
+    input: RegisterResourceInput,
+    signal?: AbortSignal,
+  ): Promise<RegisterResourceResult> {
+    const res = await this.request<RegisterResourceResult>('/operations/resources', {
+      method: 'POST',
+      body: JSON.stringify(input),
+      signal,
+    });
+    return res.data;
+  }
+
+  async updateResourceDetails(
+    id: string,
+    input: UpdateResourceDetailsInput,
+    signal?: AbortSignal,
+  ): Promise<UpdateResourceDetailsResult> {
+    const res = await this.request<UpdateResourceDetailsResult>(
+      `/operations/resources/${encodeURIComponent(id)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+        signal,
+      },
+    );
     return res.data;
   }
 
@@ -443,6 +510,22 @@ export class FloodRelayApiClient {
       {
         method: 'PATCH',
         body: JSON.stringify(input),
+        signal,
+      },
+    );
+    return res.data;
+  }
+
+  async verifyResource(
+    id: string,
+    notes?: string,
+    signal?: AbortSignal,
+  ): Promise<{ resource: RescueResource }> {
+    const res = await this.request<{ resource: RescueResource }>(
+      `/operations/resources/${encodeURIComponent(id)}/verify`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ notes }),
         signal,
       },
     );

@@ -106,6 +106,12 @@ describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
       try {
         await client.query('DROP TRIGGER IF EXISTS trg_test_fail_audit ON audit_events;');
         await client.query('DROP FUNCTION IF EXISTS fn_test_fail_audit();');
+        await client.query('DELETE FROM assignment_stops;');
+        await client.query('DELETE FROM assignments;');
+        await client.query('DELETE FROM audit_events;');
+        await client.query('DELETE FROM requests;');
+        await client.query('DELETE FROM resources;');
+        await client.query('DELETE FROM shelters;');
       } finally {
         client.release();
       }
@@ -4077,6 +4083,250 @@ describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
         code: 'OUTSIDE_SERVICE_AREA',
         statusCode: 422,
       });
+    });
+  });
+
+  describe('Rescue Fleet Management — PostGIS Integration Tests', () => {
+    it('creates a new vehicle with PostGIS geography, model catalog details, version=1, and audit metadata', async () => {
+      const created = await repo.createResource(
+        {
+          id: 'res-delhi-boat-101',
+          name: 'Yamuna Rescue Vessel Alpha',
+          type: 'BOAT',
+          capacity: 8,
+          speedKmH: 25,
+          lat: 28.6685,
+          lng: 77.2325,
+          status: 'OFFLINE',
+          modelId: 'boat-irb-standard',
+          notes: 'Stationed at Kashmere Gate depot for Yamuna monitoring',
+        },
+        'REAL',
+        'eoc_commander',
+      );
+
+      expect(created.id).toBe('res-delhi-boat-101');
+      expect(created.name).toBe('Yamuna Rescue Vessel Alpha');
+      expect(created.type).toBe('BOAT');
+      expect(created.capacity).toBe(8);
+      expect(created.speedKmH).toBe(25);
+      expect(created.status).toBe('OFFLINE');
+      expect(created.source).toBe('REAL');
+      expect(created.modelId).toBe('boat-irb-standard');
+      expect(created.notes).toBe('Stationed at Kashmere Gate depot for Yamuna monitoring');
+      expect(created.version).toBe(1);
+      expect(created.createdBy).toBe('eoc_commander');
+      expect(created.updatedBy).toBe('eoc_commander');
+      expect(created.lat).toBeCloseTo(28.6685, 4);
+      expect(created.lng).toBeCloseTo(77.2325, 4);
+
+      // Verify persistence via getResourceById
+      const fetched = await repo.getResourceById('res-delhi-boat-101');
+      expect(fetched).not.toBeNull();
+      expect(fetched?.modelId).toBe('boat-irb-standard');
+      expect(fetched?.version).toBe(1);
+      expect(fetched?.notes).toContain('Kashmere Gate');
+    });
+
+    it('enforces create-only semantics and throws duplicate key violation on ID conflict (no upsert)', async () => {
+      await repo.createResource(
+        {
+          id: 'res-conflict-test',
+          name: 'First Unit',
+          type: 'BOAT',
+          capacity: 6,
+          speedKmH: 20,
+          lat: 28.65,
+          lng: 77.22,
+          status: 'OFFLINE',
+        },
+        'REAL',
+      );
+
+      // Attempting to create again with same ID must throw unique constraint violation (code 23505)
+      await expect(
+        repo.createResource(
+          {
+            id: 'res-conflict-test',
+            name: 'Overwriting Unit',
+            type: 'HIGH_WATER_VEHICLE',
+            capacity: 12,
+            speedKmH: 40,
+            lat: 28.65,
+            lng: 77.22,
+            status: 'OFFLINE',
+          },
+          'REAL',
+        ),
+      ).rejects.toMatchObject({
+        code: '23505',
+      });
+    });
+
+    it('updates vehicle details with optimistic locking and increments version', async () => {
+      await repo.createResource(
+        {
+          id: 'res-opt-lock-test',
+          name: 'Initial Name',
+          type: 'HIGH_WATER_VEHICLE',
+          capacity: 10,
+          speedKmH: 35,
+          lat: 28.63,
+          lng: 77.21,
+          status: 'OFFLINE',
+          version: 1,
+        },
+        'REAL',
+        'operator_admin',
+      );
+
+      // Successful update with matching expectedVersion = 1
+      const updated = await repo.updateResourceDetails(
+        'res-opt-lock-test',
+        {
+          name: 'Updated Tactical Truck',
+          capacity: 14,
+          speedKmH: 45,
+          notes: 'Upgraded suspension',
+          expectedVersion: 1,
+        },
+        'operator_admin_2',
+      );
+
+      expect(updated).not.toBeNull();
+      expect(updated?.name).toBe('Updated Tactical Truck');
+      expect(updated?.capacity).toBe(14);
+      expect(updated?.speedKmH).toBe(45);
+      expect(updated?.version).toBe(2);
+      expect(updated?.updatedBy).toBe('operator_admin_2');
+      expect(updated?.notes).toBe('Upgraded suspension');
+
+      // Update with stale expectedVersion = 1 must return null (concurrency conflict)
+      const conflictUpdate = await repo.updateResourceDetails(
+        'res-opt-lock-test',
+        {
+          name: 'Stale Update',
+          expectedVersion: 1,
+        },
+        'operator_admin_3',
+      );
+      expect(conflictUpdate).toBeNull();
+    });
+
+    it('filters resources by source, type, status, and search query', async () => {
+      await repo.createResource(
+        {
+          id: 'res-delhi-boat-01',
+          name: 'Yamuna Swift',
+          type: 'BOAT',
+          capacity: 8,
+          speedKmH: 25,
+          lat: 28.66,
+          lng: 77.23,
+          status: 'AVAILABLE',
+        },
+        'REAL',
+      );
+
+      await repo.createResource(
+        {
+          id: 'res-sim-truck-01',
+          name: 'Simulation 4x4',
+          type: 'HIGH_WATER_VEHICLE',
+          capacity: 12,
+          speedKmH: 40,
+          lat: 28.62,
+          lng: 77.2,
+          status: 'MAINTENANCE',
+        },
+        'SIMULATED',
+      );
+
+      // Search by partial name
+      const searchRes = await repo.listResources({ search: 'Swift' });
+      expect(searchRes.length).toBe(1);
+      expect(searchRes[0]?.id).toBe('res-delhi-boat-01');
+
+      // Filter by source
+      const realOnly = await repo.listResources({ source: 'REAL' });
+      expect(realOnly.every((r) => r.source === 'REAL')).toBe(true);
+
+      const simOnly = await repo.listResources({ source: 'SIMULATED' });
+      expect(simOnly.every((r) => r.source === 'SIMULATED')).toBe(true);
+
+      // Filter by type
+      const boats = await repo.listResources({ type: 'BOAT' });
+      expect(boats.length).toBe(1);
+      expect(boats[0]?.type).toBe('BOAT');
+    });
+
+    it('queries active committed assignments for a resource and returns assignment stops', async () => {
+      await repo.createResource(
+        {
+          id: 'res-assigned-boat',
+          name: 'Committed Rescue Boat',
+          type: 'BOAT',
+          capacity: 8,
+          speedKmH: 25,
+          lat: 28.65,
+          lng: 77.22,
+          status: 'AVAILABLE',
+        },
+        'REAL',
+      );
+
+      await repo.insertRequest({
+        id: 'req-fleet-test-1',
+        lat: 28.65,
+        lng: 77.22,
+        peopleCount: 3,
+        urgency: 'HIGH',
+        status: 'ASSIGNED',
+        source: 'REPORTED',
+        medicalNeeds: false,
+        createdAt: new Date().toISOString(),
+      });
+
+      await repo.insertAssignmentWithStops(
+        {
+          id: 'assign-fleet-active-1',
+          scenario_id: 'live-operations',
+          status: 'COMMITTED',
+          metrics: null,
+          unserved: [],
+          committed_at: new Date(),
+          committed_by: 'eoc_dispatcher',
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: 'stop-fleet-1',
+            assignment_id: 'assign-fleet-active-1',
+            resource_id: 'res-assigned-boat',
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: 'req-fleet-test-1',
+            location: 'POINT(77.22 28.65)',
+            passengers_picked_up: 3,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: true,
+            created_at: new Date(),
+          },
+        ],
+      );
+
+      const active = await repo.getActiveCommittedAssignmentsForResource('res-assigned-boat');
+      expect(active.length).toBe(1);
+      expect(active[0]?.id).toBe('assign-fleet-active-1');
+      expect(active[0]?.status).toBe('COMMITTED');
+      expect(active[0]?.stopCount).toBe(1);
+      expect(active[0]?.frozenCount).toBe(1);
+
+      // For unassigned resource, should return empty array
+      const noneActive = await repo.getActiveCommittedAssignmentsForResource('res-unassigned');
+      expect(noneActive).toEqual([]);
     });
   });
 });

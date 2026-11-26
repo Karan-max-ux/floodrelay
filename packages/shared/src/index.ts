@@ -49,6 +49,184 @@ export interface RescueResource {
   status: ResourceStatus;
   depotId?: string;
   source?: 'SIMULATED' | 'REAL';
+  modelId?: string;
+  notes?: string;
+  version?: number;
+  verificationStatus?: VerificationStatus;
+  verifiedAt?: string;
+  verifiedBy?: string;
+  createdBy?: string;
+  updatedBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export type VehicleCategory =
+  'Rescue Boat' | 'High-Water Rescue Vehicle' | 'Ambulance' | 'Rescue Helicopter';
+
+export interface VehicleCatalogModel {
+  id: string;
+  name: string;
+  category: VehicleCategory;
+  type: ResourceType;
+  defaultCapacity: number;
+  defaultSpeedKmH: number;
+  minCapacity: number;
+  maxCapacity: number;
+  minSpeedKmH: number;
+  maxSpeedKmH: number;
+  description: string;
+}
+
+export const APPROVED_VEHICLE_CATALOG: readonly VehicleCatalogModel[] = [
+  {
+    id: 'boat-irb-standard',
+    name: 'Inflatable Rescue Boat (IRB)',
+    category: 'Rescue Boat',
+    type: 'BOAT',
+    defaultCapacity: 8,
+    defaultSpeedKmH: 25,
+    minCapacity: 2,
+    maxCapacity: 12,
+    minSpeedKmH: 5,
+    maxSpeedKmH: 45,
+    description:
+      'Shallow-draft motorized inflatable rescue craft optimized for flooded residential sectors and submerged streets.',
+  },
+  {
+    id: 'boat-flood-rescue-craft',
+    name: 'Rigid Flood Rescue Craft (FRC)',
+    category: 'Rescue Boat',
+    type: 'BOAT',
+    defaultCapacity: 12,
+    defaultSpeedKmH: 30,
+    minCapacity: 4,
+    maxCapacity: 20,
+    minSpeedKmH: 10,
+    maxSpeedKmH: 50,
+    description:
+      'Reinforced rigid hull flood rescue craft designed for turbulent river margins, debris corridors, and larger evacuee groups.',
+  },
+  {
+    id: 'high-water-truck-heavy',
+    name: 'High-Clearance Rescue Truck (4x4/6x6)',
+    category: 'High-Water Rescue Vehicle',
+    type: 'HIGH_WATER_VEHICLE',
+    defaultCapacity: 16,
+    defaultSpeedKmH: 40,
+    minCapacity: 4,
+    maxCapacity: 30,
+    minSpeedKmH: 10,
+    maxSpeedKmH: 80,
+    description:
+      'Heavy tactical high-water vehicle with elevated snorkel intake capable of wading through up to 1.2m standing floodwater.',
+  },
+  {
+    id: 'high-water-carrier-light',
+    name: 'Light High-Water Utility Carrier',
+    category: 'High-Water Rescue Vehicle',
+    type: 'HIGH_WATER_VEHICLE',
+    defaultCapacity: 8,
+    defaultSpeedKmH: 45,
+    minCapacity: 2,
+    maxCapacity: 12,
+    minSpeedKmH: 10,
+    maxSpeedKmH: 90,
+    description:
+      'Agile medium-clearance response utility transport suitable for narrow roads and peripheral suburban rescue routes.',
+  },
+  {
+    id: 'ambulance-als-advanced',
+    name: 'Advanced Life Support (ALS) Ambulance',
+    category: 'Ambulance',
+    type: 'AMBULANCE',
+    defaultCapacity: 4,
+    defaultSpeedKmH: 50,
+    minCapacity: 1,
+    maxCapacity: 6,
+    minSpeedKmH: 15,
+    maxSpeedKmH: 100,
+    description:
+      'Emergency medical response unit equipped with patient monitoring, oxygenation, and specialized paramedic life-support systems.',
+  },
+  {
+    id: 'ambulance-bls-standard',
+    name: 'Basic Life Support (BLS) Ambulance',
+    category: 'Ambulance',
+    type: 'AMBULANCE',
+    defaultCapacity: 4,
+    defaultSpeedKmH: 50,
+    minCapacity: 1,
+    maxCapacity: 8,
+    minSpeedKmH: 15,
+    maxSpeedKmH: 100,
+    description:
+      'Standard emergency medical transport for non-critical triage transfers to regional staging hospitals and relief shelters.',
+  },
+  {
+    id: 'helicopter-medium-rescue',
+    name: 'Medium Aviation Rescue Helicopter',
+    category: 'Rescue Helicopter',
+    type: 'HELICOPTER',
+    defaultCapacity: 12,
+    defaultSpeedKmH: 180,
+    minCapacity: 2,
+    maxCapacity: 20,
+    minSpeedKmH: 60,
+    maxSpeedKmH: 260,
+    description:
+      'Twin-engine hoist-capable aviation resource for rapid extraction from isolated rooftops, embankments, and stranded flood islands.',
+  },
+  {
+    id: 'helicopter-light-utility',
+    name: 'Light Aviation Recon & Extract Helicopter',
+    category: 'Rescue Helicopter',
+    type: 'HELICOPTER',
+    defaultCapacity: 4,
+    defaultSpeedKmH: 200,
+    minCapacity: 1,
+    maxCapacity: 6,
+    minSpeedKmH: 80,
+    maxSpeedKmH: 280,
+    description:
+      'Rapid response aviation craft for critical reconnaissance, aerial assessment, and single-patient emergency aerial extraction.',
+  },
+];
+
+export function getVehicleCatalogModel(modelId: string): VehicleCatalogModel | undefined {
+  return APPROVED_VEHICLE_CATALOG.find((m) => m.id === modelId);
+}
+
+export function isValidCatalogModel(modelId: string): boolean {
+  return APPROVED_VEHICLE_CATALOG.some((m) => m.id === modelId);
+}
+
+export interface ModelConstraintValidationResult {
+  valid: boolean;
+  code?: 'CAPACITY_OUT_OF_RANGE' | 'SPEED_OUT_OF_RANGE';
+  message?: string;
+}
+
+export function validateModelConstraints(
+  model: VehicleCatalogModel,
+  capacity: number,
+  speedKmH: number,
+): ModelConstraintValidationResult {
+  if (capacity < model.minCapacity || capacity > model.maxCapacity) {
+    return {
+      valid: false,
+      code: 'CAPACITY_OUT_OF_RANGE',
+      message: `Capacity ${capacity} is outside the allowed range for model "${model.name}" (${model.minCapacity} to ${model.maxCapacity} passengers)`,
+    };
+  }
+  if (speedKmH < model.minSpeedKmH || speedKmH > model.maxSpeedKmH) {
+    return {
+      valid: false,
+      code: 'SPEED_OUT_OF_RANGE',
+      message: `Speed ${speedKmH} km/h is outside the allowed range for model "${model.name}" (${model.minSpeedKmH} to ${model.maxSpeedKmH} km/h)`,
+    };
+  }
+  return { valid: true };
 }
 
 // Safe Shelters and Depots

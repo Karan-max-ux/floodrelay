@@ -27,6 +27,7 @@ import type {
   BlockedZone,
   HazardLevel,
   SolverPlan,
+  VehicleCatalogModel,
 } from '@floodrelay/shared';
 
 export type {
@@ -37,6 +38,7 @@ export type {
   RescueResource,
   ResourceType,
   ResourceStatus,
+  VehicleCatalogModel,
   Shelter,
   RouteStop,
   ResourceRoute,
@@ -203,6 +205,41 @@ export interface ListAuditEventsFilter {
 export interface ListResourcesFilter {
   status?: ResourceStatus;
   type?: ResourceType;
+  source?: 'SIMULATED' | 'REAL';
+  search?: string;
+}
+
+export interface RegisterResourceInput {
+  modelId: string;
+  name?: string;
+  id?: string;
+  capacity?: number;
+  speedKmH?: number;
+  lat: number;
+  lng: number;
+  depotId?: string | null;
+  status?: 'OFFLINE' | 'MAINTENANCE';
+  notes?: string | null;
+}
+
+export interface RegisterResourceResult {
+  resource: RescueResource;
+}
+
+export interface UpdateResourceDetailsInput {
+  name?: string;
+  modelId?: string;
+  capacity?: number;
+  speedKmH?: number;
+  lat?: number;
+  lng?: number;
+  depotId?: string | null;
+  notes?: string | null;
+  expectedVersion: number;
+}
+
+export interface UpdateResourceDetailsResult {
+  resource: RescueResource;
 }
 
 export interface AuditEventRecord {

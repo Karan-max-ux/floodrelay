@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import type { RescueResource, ResourceStatus } from '@floodrelay/shared';
 import { apiClient } from '@/lib/api/client';
 import { useOperatorAuth } from '@/lib/auth/OperatorAuthContext';
@@ -183,6 +184,14 @@ export function ResourceStatusPanel({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Link
+            href="/operator/fleet"
+            className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 transition-colors flex items-center gap-1"
+            data-testid="manage-fleet-link"
+          >
+            <span className="material-symbols-outlined text-sm">open_in_new</span>
+            <span>Manage Fleet</span>
+          </Link>
           {canManageStatus && (
             <button
               className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-primary/40 text-primary hover:bg-primary/10 transition-colors flex items-center gap-1"
