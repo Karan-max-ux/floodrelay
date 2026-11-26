@@ -91,7 +91,7 @@ export const UpdateResourceDetailsSchema = z
       .number()
       .int()
       .min(1, 'Capacity must be at least 1 passenger')
-      .max(100, 'Capacity cannot exceed 100 passengers')
+      .max(1000, 'Capacity cannot exceed 1000 passengers')
       .optional(),
     speedKmH: z.coerce
       .number()
@@ -102,7 +102,10 @@ export const UpdateResourceDetailsSchema = z
     lng: z.coerce.number().min(-180).max(180).optional(),
     depotId: z.string().trim().max(64).nullable().optional(),
     notes: z.string().trim().max(500, 'Notes cannot exceed 500 characters').nullable().optional(),
-    expectedVersion: z.coerce.number().int().min(1).optional(),
+    expectedVersion: z.coerce
+      .number()
+      .int('expectedVersion must be a positive integer')
+      .min(1, 'expectedVersion must be a positive integer'),
   })
   .refine(
     (data) =>

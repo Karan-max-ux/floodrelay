@@ -29,6 +29,7 @@ import type {
   AuditEventRecord,
   RescueResource,
   VehicleCatalogModel,
+  Shelter,
   RegisterResourceInput,
   RegisterResourceResult,
   UpdateResourceDetailsInput,
@@ -421,6 +422,14 @@ export class FloodRelayApiClient {
 
   async listVehicleModels(signal?: AbortSignal): Promise<VehicleCatalogModel[]> {
     const res = await this.request<VehicleCatalogModel[]>('/operations/vehicle-models', {
+      method: 'GET',
+      signal,
+    });
+    return res.data;
+  }
+
+  async listShelters(signal?: AbortSignal): Promise<Shelter[]> {
+    const res = await this.request<Shelter[]>('/operations/shelters', {
       method: 'GET',
       signal,
     });

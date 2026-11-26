@@ -302,6 +302,33 @@ spec.components.schemas.VehicleModelListResponse = {
   },
 };
 
+spec.components.schemas.Shelter = {
+  type: 'object',
+  required: ['id', 'name', 'lat', 'lng', 'capacity'],
+  properties: {
+    id: { type: 'string', example: 'shelter_north' },
+    name: { type: 'string', example: 'North Sector Relief Camp' },
+    lat: { type: 'number', example: 28.668 },
+    lng: { type: 'number', example: 77.232 },
+    capacity: { type: 'integer', example: 120 },
+    currentOccupancy: { type: 'integer', example: 0 },
+    source: { type: 'string', enum: ['SIMULATED', 'REAL'], example: 'REAL' },
+  },
+};
+
+spec.components.schemas.ShelterListResponse = {
+  type: 'object',
+  required: ['success', 'count', 'data'],
+  properties: {
+    success: { type: 'boolean', example: true },
+    count: { type: 'integer', example: 4 },
+    data: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/Shelter' },
+    },
+  },
+};
+
 spec.components.schemas.RegisterResourceInput = {
   type: 'object',
   required: ['modelId', 'lat', 'lng'],
@@ -321,10 +348,11 @@ spec.components.schemas.RegisterResourceInput = {
 
 spec.components.schemas.UpdateResourceDetailsInput = {
   type: 'object',
+  required: ['expectedVersion'],
   properties: {
     name: { type: 'string', maxLength: 128 },
     modelId: { type: 'string' },
-    capacity: { type: 'integer', minimum: 1, maximum: 100 },
+    capacity: { type: 'integer', minimum: 1, maximum: 1000 },
     speedKmH: { type: 'number', minimum: 1, maximum: 300 },
     lat: { type: 'number', minimum: -90, maximum: 90 },
     lng: { type: 'number', minimum: -180, maximum: 180 },
@@ -844,6 +872,33 @@ spec.paths['/operations/vehicle-models'] = {
   },
 };
 
+spec.paths['/operations/shelters'] = {
+  get: {
+    summary: 'List authoritative relief shelters and depots',
+    description:
+      'Retrieves list of authoritative staging depots and shelters with capacity, occupancy, and geographic coordinates.',
+    parameters: [
+      {
+        name: 'activeOnly',
+        in: 'query',
+        required: false,
+        schema: { type: 'boolean', default: true },
+        description: 'Filter for active shelters only',
+      },
+    ],
+    responses: {
+      '200': {
+        description: 'Authoritative shelters retrieved successfully',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/ShelterListResponse' },
+          },
+        },
+      },
+    },
+  },
+};
+
 spec.paths['/operations/resources'] = {
   get: {
     summary: 'List operational rescue resources',
@@ -1328,6 +1383,7 @@ const protectedRoutes: Array<{ path: string; method: string }> = [
   { path: '/operations/events/{id}', method: 'get' },
   { path: '/operations/events/{id}/affected-scope', method: 'get' },
   { path: '/operations/vehicle-models', method: 'get' },
+  { path: '/operations/shelters', method: 'get' },
   { path: '/operations/resources', method: 'get' },
   { path: '/operations/resources', method: 'post' },
   { path: '/operations/resources/{id}', method: 'get' },

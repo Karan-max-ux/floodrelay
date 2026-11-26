@@ -26,6 +26,19 @@ class MockFleetQueryable implements Queryable {
     { id: string; status: string; resourceId: string }
   >();
   public operationalEvents = new Map<string, DbOperationalEvent>();
+  public shelters = new Map<
+    string,
+    {
+      id: string;
+      name: string;
+      capacity: number;
+      current_occupancy: number;
+      is_active: boolean;
+      source: string;
+      lat: number;
+      lng: number;
+    }
+  >();
 
   async query<R = unknown>(
     queryTextOrConfig: string | { text: string; values?: unknown[] },
@@ -157,8 +170,11 @@ class MockFleetQueryable implements Queryable {
             id: r.id,
             name: r.name,
             type: r.type,
+            model_id: r.model_id || null,
             capacity: r.capacity,
             speed_km_h: r.speed_km_h,
+            lat: 28.668,
+            lng: 77.232,
             source: r.source,
             status: r.status,
             version: r.version || 1,
@@ -167,6 +183,50 @@ class MockFleetQueryable implements Queryable {
         ],
         command: 'SELECT',
         rowCount: 1,
+        oid: 0,
+        fields: [],
+      };
+    }
+
+    // Shelter by ID query
+    if (sql.includes('FROM shelters WHERE id = $1')) {
+      const id = vals[0] as string;
+      const sh = this.shelters.get(id);
+      if (!sh) return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+      return {
+        rows: [
+          {
+            id: sh.id,
+            name: sh.name,
+            capacity: sh.capacity,
+            currentOccupancy: sh.current_occupancy,
+            source: sh.source,
+            lat: sh.lat,
+            lng: sh.lng,
+          } as unknown as R,
+        ],
+        command: 'SELECT',
+        rowCount: 1,
+        oid: 0,
+        fields: [],
+      };
+    }
+
+    // List shelters query
+    if (sql.includes('FROM shelters')) {
+      const rows = Array.from(this.shelters.values()).map((sh) => ({
+        id: sh.id,
+        name: sh.name,
+        capacity: sh.capacity,
+        currentOccupancy: sh.current_occupancy,
+        source: sh.source,
+        lat: sh.lat,
+        lng: sh.lng,
+      }));
+      return {
+        rows: rows as unknown as R[],
+        command: 'SELECT',
+        rowCount: rows.length,
         oid: 0,
         fields: [],
       };
@@ -345,32 +405,52 @@ class MockFleetQueryable implements Queryable {
     ) {
       const id = vals[0] as string;
       const r = this.resources.get(id);
-      if (r) {
-        r.version = (r.version || 1) + 1;
-        if (vals[2] !== undefined) r.name = vals[2] as string;
-        if (vals[3] !== undefined) r.capacity = vals[3] as number;
-        return {
-          rows: [
-            {
-              id: r.id,
-              name: r.name,
-              type: r.type,
-              capacity: r.capacity,
-              speedKmH: r.speed_km_h,
-              lat: 28.668,
-              lng: 77.232,
-              status: r.status,
-              source: r.source,
-              version: r.version,
-            } as unknown as R,
-          ],
-          command: 'UPDATE',
-          rowCount: 1,
-          oid: 0,
-          fields: [],
-        };
+      if (!r) return { rows: [], command: 'UPDATE', rowCount: 0, oid: 0, fields: [] };
+      if (sql.includes('AND version = $')) {
+        const expectedV = vals[vals.length - 1] as number;
+        if (r.version !== expectedV) {
+          return { rows: [], command: 'UPDATE', rowCount: 0, oid: 0, fields: [] };
+        }
       }
-      return { rows: [], command: 'UPDATE', rowCount: 0, oid: 0, fields: [] };
+      r.version = (r.version || 1) + 1;
+
+      const setPart = sql.substring(sql.indexOf('SET') + 3, sql.indexOf('WHERE'));
+      const clauses = setPart.split(',').map((s) => s.trim());
+      for (const clause of clauses) {
+        const match = clause.match(/^(\w+)\s*=\s*\$(\d+)$/);
+        if (match && match[1] && match[2]) {
+          const col = match[1];
+          const paramIdx = parseInt(match[2], 10) - 1;
+          const val = vals[paramIdx];
+          if (col === 'name') r.name = val as string;
+          if (col === 'type') r.type = val as DbResource['type'];
+          if (col === 'model_id') r.model_id = val as string;
+          if (col === 'capacity') r.capacity = Number(val);
+          if (col === 'speed_km_h') r.speed_km_h = Number(val);
+          if (col === 'depot_id') r.depot_id = (val as string) || null;
+          if (col === 'notes') r.notes = (val as string) || null;
+        }
+      }
+      return {
+        rows: [
+          {
+            id: r.id,
+            name: r.name,
+            type: r.type,
+            capacity: r.capacity,
+            speedKmH: r.speed_km_h,
+            lat: 28.668,
+            lng: 77.232,
+            status: r.status,
+            source: r.source,
+            version: r.version,
+          } as unknown as R,
+        ],
+        command: 'UPDATE',
+        rowCount: 1,
+        oid: 0,
+        fields: [],
+      };
     }
 
     // Update resource status
@@ -449,6 +529,28 @@ describe('Rescue Fleet Management Portal API & Security Invariants', () => {
     });
     const opLogin = await authService.authenticate('operator_user', 'Password123!');
     operatorToken = opLogin.token;
+
+    // Seed baseline shelters
+    mockQueryable.shelters.set('shelter-kashmere-gate', {
+      id: 'shelter-kashmere-gate',
+      name: 'Kashmere Gate Relief Camp & Depot',
+      capacity: 120,
+      current_occupancy: 10,
+      is_active: true,
+      source: 'REAL',
+      lat: 28.668,
+      lng: 77.232,
+    });
+    mockQueryable.shelters.set('shelter-sim-depot', {
+      id: 'shelter-sim-depot',
+      name: 'Simulated Benchmark Depot',
+      capacity: 100,
+      current_occupancy: 0,
+      is_active: true,
+      source: 'SIMULATED',
+      lat: 28.668,
+      lng: 77.232,
+    });
 
     // Seed baseline resources (REAL and SIMULATED)
     mockQueryable.resources.set('res-boat-real', {
@@ -610,7 +712,7 @@ describe('Rescue Fleet Management Portal API & Security Invariants', () => {
       expect(res.body.data.resource.type).toBe('HIGH_WATER_VEHICLE');
     });
 
-    it('rejects duplicate custom ID with 409 DUPLICATE_RESOURCE_ID', async () => {
+    it('rejects duplicate custom ID with 409 RESOURCE_ID_EXISTS', async () => {
       const res = await request(app)
         .post('/operations/resources')
         .set('Authorization', `Bearer ${adminToken}`)
@@ -622,7 +724,7 @@ describe('Rescue Fleet Management Portal API & Security Invariants', () => {
         });
 
       expect(res.status).toBe(409);
-      expect(res.body.error.code).toBe('DUPLICATE_RESOURCE_ID');
+      expect(res.body.error.code).toBe('RESOURCE_ID_EXISTS');
     });
 
     it('rejects registration from DISPATCHER with 403 FORBIDDEN', async () => {
@@ -710,6 +812,60 @@ describe('Rescue Fleet Management Portal API & Security Invariants', () => {
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
+
+    it('rejects registration with nonexistent depotId with 400 INVALID_DEPOT', async () => {
+      const res = await request(app)
+        .post('/operations/resources')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          modelId: 'boat-irb-standard',
+          lat: 28.668,
+          lng: 77.232,
+          depotId: 'shelter-nonexistent-99',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('INVALID_DEPOT');
+    });
+
+    it('rejects assigning real resource to simulated depot with 400 SIMULATED_DEPOT_FORBIDDEN', async () => {
+      const res = await request(app)
+        .post('/operations/resources')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          modelId: 'boat-irb-standard',
+          lat: 28.668,
+          lng: 77.232,
+          depotId: 'shelter-sim-depot',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('SIMULATED_DEPOT_FORBIDDEN');
+    });
+  });
+
+  describe('GET /operations/shelters (Authoritative Staging Depots)', () => {
+    it('returns list of authoritative shelters/depots for authenticated operators', async () => {
+      const res = await request(app)
+        .get('/operations/shelters')
+        .set('Authorization', `Bearer ${operatorToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(Array.isArray(res.body.data)).toBe(true);
+      expect(res.body.data.length).toBeGreaterThanOrEqual(2);
+
+      const kashmere = res.body.data.find((s: { id: string }) => s.id === 'shelter-kashmere-gate');
+      expect(kashmere).toBeDefined();
+      expect(kashmere.source).toBe('REAL');
+      expect(kashmere.name).toBe('Kashmere Gate Relief Camp & Depot');
+    });
+
+    it('rejects unauthenticated requests to list shelters with 401', async () => {
+      const res = await request(app).get('/operations/shelters');
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe('UNAUTHORIZED');
+    });
   });
 
   describe('PATCH /operations/resources/:id (Editing Vehicle Details)', () => {
@@ -720,6 +876,7 @@ describe('Rescue Fleet Management Portal API & Security Invariants', () => {
         .send({
           name: 'Yamuna Patrol 1 (Overhauled)',
           capacity: 10,
+          expectedVersion: 1,
         });
 
       expect(res.status).toBe(200);
@@ -741,6 +898,7 @@ describe('Rescue Fleet Management Portal API & Security Invariants', () => {
         .set('Authorization', `Bearer ${adminToken}`)
         .send({
           name: 'Renamed Simulated Craft',
+          expectedVersion: 1,
         });
 
       expect(res.status).toBe(409);
@@ -773,6 +931,7 @@ describe('Rescue Fleet Management Portal API & Security Invariants', () => {
         .set('Authorization', `Bearer ${adminToken}`)
         .send({
           capacity: 4, // Modifying capacity while committed!
+          expectedVersion: 1,
         });
 
       expect(res.status).toBe(409);
@@ -783,14 +942,301 @@ describe('Rescue Fleet Management Portal API & Security Invariants', () => {
       const dispRes = await request(app)
         .patch('/operations/resources/res-boat-real')
         .set('Authorization', `Bearer ${dispatcherToken}`)
-        .send({ name: 'Unauthorized edit' });
+        .send({ name: 'Unauthorized edit', expectedVersion: 1 });
       expect(dispRes.status).toBe(403);
 
       const opRes = await request(app)
         .patch('/operations/resources/res-boat-real')
         .set('Authorization', `Bearer ${operatorToken}`)
-        .send({ name: 'Unauthorized edit' });
+        .send({ name: 'Unauthorized edit', expectedVersion: 1 });
       expect(opRes.status).toBe(403);
+    });
+
+    it('rejects details update when expectedVersion is missing with 400 VALIDATION_ERROR', async () => {
+      const res = await request(app)
+        .patch('/operations/resources/res-boat-real')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'Missing Expected Version' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('rejects details update when expectedVersion is non-positive with 400 VALIDATION_ERROR', async () => {
+      const res = await request(app)
+        .patch('/operations/resources/res-boat-real')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'Invalid Expected Version', expectedVersion: 0 });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('enforces optimistic concurrency: first update succeeds, competing update using same version fails with 409', async () => {
+      // First update with version 1 succeeds and bumps to version 2
+      const firstRes = await request(app)
+        .patch('/operations/resources/res-boat-real')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'First Concurrent Edit', expectedVersion: 1 });
+
+      expect(firstRes.status).toBe(200);
+      expect(firstRes.body.data.resource.version).toBe(2);
+
+      // Competing update still attempting to use stale version 1 fails with 409
+      const secondRes = await request(app)
+        .patch('/operations/resources/res-boat-real')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'Competing Concurrent Edit', expectedVersion: 1 });
+
+      expect(secondRes.status).toBe(409);
+      expect(secondRes.body.error.code).toBe('CONCURRENCY_CONFLICT');
+    });
+
+    describe('Active committed rescue assignment protection on edit', () => {
+      beforeEach(() => {
+        // Place res-boat-real in an active committed assignment
+        mockQueryable.committedAssignments.set('plan-committed-assignment-1', {
+          id: 'plan-committed-assignment-1',
+          status: 'COMMITTED',
+          resourceId: 'res-boat-real',
+        });
+      });
+
+      it('rejects changing vehicle model while assigned to an active committed plan with 409', async () => {
+        const res = await request(app)
+          .patch('/operations/resources/res-boat-real')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({
+            modelId: 'boat-flood-rescue-craft',
+            expectedVersion: 1,
+          });
+
+        expect(res.status).toBe(409);
+        expect(res.body.error.code).toBe('RESOURCE_ACTIVE_IN_COMMITTED_PLAN');
+      });
+
+      it('rejects changing vehicle model to different type while assigned to an active plan with 409', async () => {
+        const res = await request(app)
+          .patch('/operations/resources/res-boat-real')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({
+            modelId: 'high-water-truck-heavy',
+            capacity: 16,
+            speedKmH: 40,
+            expectedVersion: 1,
+          });
+
+        expect(res.status).toBe(409);
+        expect(res.body.error.code).toBe('RESOURCE_ACTIVE_IN_COMMITTED_PLAN');
+      });
+
+      it('rejects changing speed while assigned to an active plan with 409', async () => {
+        const res = await request(app)
+          .patch('/operations/resources/res-boat-real')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({
+            speedKmH: 30, // Current speed is 25
+            expectedVersion: 1,
+          });
+
+        expect(res.status).toBe(409);
+        expect(res.body.error.code).toBe('RESOURCE_ACTIVE_IN_COMMITTED_PLAN');
+      });
+
+      it('rejects changing actual coordinates while assigned to an active plan with 409', async () => {
+        const res = await request(app)
+          .patch('/operations/resources/res-boat-real')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({
+            lat: 28.675, // Changed from 28.668
+            lng: 77.232,
+            expectedVersion: 1,
+          });
+
+        expect(res.status).toBe(409);
+        expect(res.body.error.code).toBe('RESOURCE_ACTIVE_IN_COMMITTED_PLAN');
+      });
+
+      it('allows sending unchanged coordinates while assigned to an active committed plan', async () => {
+        const res = await request(app)
+          .patch('/operations/resources/res-boat-real')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({
+            name: 'Yamuna Patrol 1 (Unchanged Coords)',
+            lat: 28.668, // Identical to database coordinates
+            lng: 77.232,
+            expectedVersion: 1,
+          });
+
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.data.resource.name).toBe('Yamuna Patrol 1 (Unchanged Coords)');
+      });
+
+      it('allows safe descriptive metadata updates (name, notes) while assigned to an active plan', async () => {
+        const res = await request(app)
+          .patch('/operations/resources/res-boat-real')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({
+            name: 'Yamuna Patrol 1 (Metadata Only)',
+            notes: 'Radio check completed; battery status 98%',
+            expectedVersion: 1,
+          });
+
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.data.resource.name).toBe('Yamuna Patrol 1 (Metadata Only)');
+      });
+    });
+
+    describe('Model-specific capacity and speed validation on edit', () => {
+      it('rejects editing capacity below selected model minimum with 400 CAPACITY_OUT_OF_RANGE', async () => {
+        // Model 'boat-irb-standard' has minCapacity 2
+        const res = await request(app)
+          .patch('/operations/resources/res-boat-real')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({
+            capacity: 1,
+            expectedVersion: 1,
+          });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe('CAPACITY_OUT_OF_RANGE');
+      });
+
+      it('rejects editing capacity above selected model maximum with 400 CAPACITY_OUT_OF_RANGE', async () => {
+        // Model 'boat-irb-standard' has maxCapacity 12
+        const res = await request(app)
+          .patch('/operations/resources/res-boat-real')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({
+            capacity: 15,
+            expectedVersion: 1,
+          });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe('CAPACITY_OUT_OF_RANGE');
+      });
+
+      it('rejects editing speed below selected model minimum with 400 SPEED_OUT_OF_RANGE', async () => {
+        // Model 'boat-irb-standard' has minSpeedKmH 5
+        const res = await request(app)
+          .patch('/operations/resources/res-boat-real')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({
+            speedKmH: 3,
+            expectedVersion: 1,
+          });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe('SPEED_OUT_OF_RANGE');
+      });
+
+      it('rejects editing speed above selected model maximum with 400 SPEED_OUT_OF_RANGE', async () => {
+        // Model 'boat-irb-standard' has maxSpeedKmH 45
+        const res = await request(app)
+          .patch('/operations/resources/res-boat-real')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({
+            speedKmH: 50,
+            expectedVersion: 1,
+          });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe('SPEED_OUT_OF_RANGE');
+      });
+
+      it('allows valid capacity and speed within model range with 200', async () => {
+        const res = await request(app)
+          .patch('/operations/resources/res-boat-real')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({
+            capacity: 10,
+            speedKmH: 30,
+            expectedVersion: 1,
+          });
+
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.data.resource.capacity).toBe(10);
+        expect(res.body.data.resource.speedKmH).toBe(30);
+      });
+
+      it('rejects model change when retained existing speed violates new model range with 400 SPEED_OUT_OF_RANGE', async () => {
+        // Retained speed is 25.
+        // helicopter-light-utility has minSpeedKmH: 80, maxSpeedKmH: 280, minCapacity: 1, maxCapacity: 6
+        const res = await request(app)
+          .patch('/operations/resources/res-boat-real')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({
+            modelId: 'helicopter-light-utility',
+            capacity: 4, // Valid for helicopter (range 1-6)
+            // speedKmH omitted: retains existing speed 25, which is below helicopter minSpeedKmH of 80
+            expectedVersion: 1,
+          });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe('SPEED_OUT_OF_RANGE');
+      });
+
+      it('allows changing model when accompanied by valid new capacity and speed with 200', async () => {
+        const res = await request(app)
+          .patch('/operations/resources/res-boat-real')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({
+            modelId: 'high-water-truck-heavy',
+            capacity: 18,
+            speedKmH: 45,
+            expectedVersion: 1,
+          });
+
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.data.resource.type).toBe('HIGH_WATER_VEHICLE');
+        expect(res.body.data.resource.capacity).toBe(18);
+        expect(res.body.data.resource.speedKmH).toBe(45);
+      });
+    });
+
+    describe('Staging depot validation on edit', () => {
+      it('rejects editing resource with nonexistent depotId with 400 INVALID_DEPOT', async () => {
+        const res = await request(app)
+          .patch('/operations/resources/res-boat-real')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({
+            depotId: 'shelter-fake-nonexistent',
+            expectedVersion: 1,
+          });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe('INVALID_DEPOT');
+      });
+
+      it('rejects editing real resource to simulated depot with 400 SIMULATED_DEPOT_FORBIDDEN', async () => {
+        const res = await request(app)
+          .patch('/operations/resources/res-boat-real')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({
+            depotId: 'shelter-sim-depot',
+            expectedVersion: 1,
+          });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe('SIMULATED_DEPOT_FORBIDDEN');
+      });
+
+      it('allows updating depot to valid real depot with 200', async () => {
+        const res = await request(app)
+          .patch('/operations/resources/res-boat-real')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({
+            depotId: 'shelter-kashmere-gate',
+            expectedVersion: 1,
+          });
+
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+      });
     });
   });
 

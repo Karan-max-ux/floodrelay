@@ -1698,6 +1698,54 @@
         ]
       }
     },
+    "/operations/shelters": {
+      "get": {
+        "summary": "List authoritative relief shelters and depots",
+        "description": "Retrieves list of authoritative staging depots and shelters with capacity, occupancy, and geographic coordinates.",
+        "parameters": [
+          {
+            "name": "activeOnly",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true
+            },
+            "description": "Filter for active shelters only"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authoritative shelters retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShelterListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Operator authentication required or session expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "CookieAuth": []
+          }
+        ]
+      }
+    },
     "/operations/vehicle-models": {
       "get": {
         "summary": "List approved vehicle catalog models",
@@ -4065,6 +4113,7 @@
       },
       "UpdateResourceDetailsInput": {
         "type": "object",
+        "required": ["expectedVersion"],
         "properties": {
           "name": {
             "type": "string",
@@ -4076,7 +4125,7 @@
           "capacity": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 100
+            "maximum": 1000
           },
           "speedKmH": {
             "type": "number",
@@ -4105,6 +4154,61 @@
           "expectedVersion": {
             "type": "integer",
             "minimum": 1
+          }
+        }
+      },
+      "Shelter": {
+        "type": "object",
+        "required": ["id", "name", "lat", "lng", "capacity"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "shelter_north"
+          },
+          "name": {
+            "type": "string",
+            "example": "North Sector Relief Camp"
+          },
+          "lat": {
+            "type": "number",
+            "example": 28.668
+          },
+          "lng": {
+            "type": "number",
+            "example": 77.232
+          },
+          "capacity": {
+            "type": "integer",
+            "example": 120
+          },
+          "currentOccupancy": {
+            "type": "integer",
+            "example": 0
+          },
+          "source": {
+            "type": "string",
+            "enum": ["SIMULATED", "REAL"],
+            "example": "REAL"
+          }
+        }
+      },
+      "ShelterListResponse": {
+        "type": "object",
+        "required": ["success", "count", "data"],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "count": {
+            "type": "integer",
+            "example": 4
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Shelter"
+            }
           }
         }
       }

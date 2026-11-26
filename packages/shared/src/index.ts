@@ -201,6 +201,34 @@ export function isValidCatalogModel(modelId: string): boolean {
   return APPROVED_VEHICLE_CATALOG.some((m) => m.id === modelId);
 }
 
+export interface ModelConstraintValidationResult {
+  valid: boolean;
+  code?: 'CAPACITY_OUT_OF_RANGE' | 'SPEED_OUT_OF_RANGE';
+  message?: string;
+}
+
+export function validateModelConstraints(
+  model: VehicleCatalogModel,
+  capacity: number,
+  speedKmH: number,
+): ModelConstraintValidationResult {
+  if (capacity < model.minCapacity || capacity > model.maxCapacity) {
+    return {
+      valid: false,
+      code: 'CAPACITY_OUT_OF_RANGE',
+      message: `Capacity ${capacity} is outside the allowed range for model "${model.name}" (${model.minCapacity} to ${model.maxCapacity} passengers)`,
+    };
+  }
+  if (speedKmH < model.minSpeedKmH || speedKmH > model.maxSpeedKmH) {
+    return {
+      valid: false,
+      code: 'SPEED_OUT_OF_RANGE',
+      message: `Speed ${speedKmH} km/h is outside the allowed range for model "${model.name}" (${model.minSpeedKmH} to ${model.maxSpeedKmH} km/h)`,
+    };
+  }
+  return { valid: true };
+}
+
 // Safe Shelters and Depots
 export interface Shelter {
   id: string;

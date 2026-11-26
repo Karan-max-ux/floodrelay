@@ -14,7 +14,11 @@ import {
   RequestRepairSchema,
 } from '../validation/operationsSchema.js';
 import { dbToBlockedZone } from '../db/schema.js';
-import { APPROVED_VEHICLE_CATALOG, getVehicleCatalogModel } from '@floodrelay/shared';
+import {
+  APPROVED_VEHICLE_CATALOG,
+  getVehicleCatalogModel,
+  validateModelConstraints,
+} from '@floodrelay/shared';
 import { ServiceAreaService } from '../services/serviceAreaService.js';
 
 export function createOperationsRouter(
@@ -157,6 +161,25 @@ export function createOperationsRouter(
     },
   );
 
+  // GET /operations/shelters - List authoritative staging depots & shelters (RBAC: VIEW_EVENTS)
+  router.get(
+    '/shelters',
+    requirePermission('VIEW_EVENTS'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const activeOnly = req.query.activeOnly !== 'false';
+        const shelters = await repo.listShelters({ activeOnly });
+        res.status(200).json({
+          success: true,
+          count: shelters.length,
+          data: shelters,
+        });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
   // GET /operations/resources - List operational resources (RBAC: VIEW_EVENTS)
   router.get(
     '/resources',
@@ -223,26 +246,42 @@ export function createOperationsRouter(
         const capacity = parsed.data.capacity ?? model.defaultCapacity;
         const speedKmH = parsed.data.speedKmH ?? model.defaultSpeedKmH;
 
-        if (capacity < model.minCapacity || capacity > model.maxCapacity) {
+        const constraintValidation = validateModelConstraints(model, capacity, speedKmH);
+        if (!constraintValidation.valid) {
           res.status(400).json({
             error: {
-              code: 'CAPACITY_OUT_OF_RANGE',
-              message: `Capacity ${capacity} is outside the allowed range for model "${model.name}" (${model.minCapacity} to ${model.maxCapacity} passengers)`,
+              code: constraintValidation.code,
+              message: constraintValidation.message,
               timestamp: new Date().toISOString(),
             },
           });
           return;
         }
 
-        if (speedKmH < model.minSpeedKmH || speedKmH > model.maxSpeedKmH) {
-          res.status(400).json({
-            error: {
-              code: 'SPEED_OUT_OF_RANGE',
-              message: `Speed ${speedKmH} km/h is outside the allowed range for model "${model.name}" (${model.minSpeedKmH} to ${model.maxSpeedKmH} km/h)`,
-              timestamp: new Date().toISOString(),
-            },
-          });
-          return;
+        // Validate authoritative depot if provided
+        if (parsed.data.depotId) {
+          const depotId = parsed.data.depotId.trim();
+          const depot = await repo.getShelterById(depotId);
+          if (!depot) {
+            res.status(400).json({
+              error: {
+                code: 'INVALID_DEPOT',
+                message: `Staging depot / shelter "${depotId}" does not exist in authoritative records`,
+                timestamp: new Date().toISOString(),
+              },
+            });
+            return;
+          }
+          if (depot.source === 'SIMULATED') {
+            res.status(400).json({
+              error: {
+                code: 'SIMULATED_DEPOT_FORBIDDEN',
+                message: `Cannot assign operational resource to simulated depot "${depotId}"`,
+                timestamp: new Date().toISOString(),
+              },
+            });
+            return;
+          }
         }
 
         // Validate coordinates against Delhi NCR service area policy
@@ -269,80 +308,110 @@ export function createOperationsRouter(
           throw locErr;
         }
 
-        // Determine Resource ID
-        let resourceId: string;
-        if (parsed.data.id) {
-          const customId = parsed.data.id.trim();
+        const operatorId = req.operator?.username ?? req.operator?.id ?? 'OPERATOR';
+        const isCustomId = Boolean(parsed.data.id);
+        const customId = parsed.data.id ? parsed.data.id.trim() : null;
+
+        if (customId) {
           const existing = await repo.getResourceById(customId);
           if (existing) {
             res.status(409).json({
               error: {
-                code: 'DUPLICATE_RESOURCE_ID',
+                code: 'RESOURCE_ID_EXISTS',
                 message: `A resource with ID "${customId}" already exists. Resource IDs must be globally unique.`,
                 timestamp: new Date().toISOString(),
               },
             });
             return;
           }
-          resourceId = customId;
-        } else {
-          // Automatic collision-resistant ID generation
-          let generatedId = `res-${crypto.randomBytes(4).toString('hex')}`;
-          let attempts = 0;
-          while (await repo.getResourceById(generatedId)) {
-            generatedId = `res-${crypto.randomBytes(4).toString('hex')}`;
-            attempts++;
-            if (attempts > 5) break;
-          }
-          resourceId = generatedId;
         }
 
-        const operatorId = req.operator?.username ?? req.operator?.id ?? 'OPERATOR';
+        let createdResource = null;
+        const maxAttempts = isCustomId ? 1 : 3;
 
-        // Transactional create-only insertion and audit event
-        const createdResource = await repo.withTransaction(async (txRepo) => {
-          const resRow = await txRepo.createResource(
-            {
-              id: resourceId,
-              name: vehicleName,
-              type: model.type,
-              capacity,
-              speedKmH,
-              lat: parsed.data.lat,
-              lng: parsed.data.lng,
-              status: parsed.data.status,
-              depotId: parsed.data.depotId || undefined,
-              source: 'REAL',
-              modelId: model.id,
-              notes: parsed.data.notes || undefined,
-            },
-            'REAL',
-            operatorId,
-          );
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          const resourceId = customId ?? `res-${crypto.randomBytes(4).toString('hex')}`;
 
-          await txRepo.insertAuditEvent({
-            entityType: 'RESOURCE',
-            entityId: resourceId,
-            eventType: 'RESOURCE_REGISTERED',
-            actor: operatorId,
-            payload: {
-              resourceId,
-              name: vehicleName,
-              type: model.type,
-              modelId: model.id,
-              capacity,
-              speedKmH,
-              lat: parsed.data.lat,
-              lng: parsed.data.lng,
-              status: parsed.data.status,
-              source: 'REAL',
-              depotId: parsed.data.depotId || null,
-              notes: parsed.data.notes || null,
+          try {
+            createdResource = await repo.withTransaction(async (txRepo) => {
+              const resRow = await txRepo.createResource(
+                {
+                  id: resourceId,
+                  name: vehicleName,
+                  type: model.type,
+                  capacity,
+                  speedKmH,
+                  lat: parsed.data.lat,
+                  lng: parsed.data.lng,
+                  status: parsed.data.status,
+                  depotId: parsed.data.depotId?.trim() || undefined,
+                  source: 'REAL',
+                  modelId: model.id,
+                  notes: parsed.data.notes || undefined,
+                },
+                'REAL',
+                operatorId,
+              );
+
+              await txRepo.insertAuditEvent({
+                entityType: 'RESOURCE',
+                entityId: resourceId,
+                eventType: 'RESOURCE_REGISTERED',
+                actor: operatorId,
+                payload: {
+                  resourceId,
+                  name: vehicleName,
+                  type: model.type,
+                  modelId: model.id,
+                  capacity,
+                  speedKmH,
+                  lat: parsed.data.lat,
+                  lng: parsed.data.lng,
+                  status: parsed.data.status,
+                  source: 'REAL',
+                  depotId: parsed.data.depotId?.trim() || null,
+                  notes: parsed.data.notes || null,
+                },
+              });
+
+              return resRow;
+            });
+
+            break; // Successfully inserted
+          } catch (err: unknown) {
+            const isUniqueViolation =
+              (err as { code?: string })?.code === '23505' ||
+              /unique constraint|duplicate key/i.test((err as Error)?.message || '');
+
+            if (isUniqueViolation) {
+              if (isCustomId || attempt >= maxAttempts) {
+                res.status(409).json({
+                  error: {
+                    code: 'RESOURCE_ID_EXISTS',
+                    message: `A resource with ID "${resourceId}" already exists. Resource IDs must be globally unique.`,
+                    timestamp: new Date().toISOString(),
+                  },
+                });
+                return;
+              }
+              // Generated ID collision -> retry with new ID
+              continue;
+            }
+            throw err;
+          }
+        }
+
+        if (!createdResource) {
+          res.status(409).json({
+            error: {
+              code: 'RESOURCE_ID_EXISTS',
+              message:
+                'Failed to generate a unique resource ID after multiple attempts. Please try again.',
+              timestamp: new Date().toISOString(),
             },
           });
-
-          return resRow;
-        });
+          return;
+        }
 
         res.status(201).json({
           success: true,
@@ -480,13 +549,16 @@ export function createOperationsRouter(
               id: string;
               name: string;
               type: string;
+              model_id: string | null;
               capacity: number;
               speed_km_h: number;
+              lat: number;
+              lng: number;
               source: string;
               status: string;
               version: number;
             }>(
-              'SELECT id, name, type, capacity, speed_km_h, source, status, version FROM resources WHERE id = $1 FOR UPDATE;',
+              'SELECT id, name, type, model_id, capacity, speed_km_h, ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng, source, status, version FROM resources WHERE id = $1 FOR UPDATE;',
               [id],
             );
             const lockedRow = lockResult.rows[0];
@@ -507,10 +579,7 @@ export function createOperationsRouter(
               throw err;
             }
 
-            if (
-              parsed.data.expectedVersion !== undefined &&
-              lockedRow.version !== parsed.data.expectedVersion
-            ) {
+            if (lockedRow.version !== parsed.data.expectedVersion) {
               const err = new Error(
                 `Resource "${id}" was modified by another operator (expected version ${parsed.data.expectedVersion}, current version ${lockedRow.version}). Please refresh and try again.`,
               );
@@ -520,20 +589,84 @@ export function createOperationsRouter(
               throw err;
             }
 
+            // Resolve effective model
+            const effectiveModelId = parsed.data.modelId ?? lockedRow.model_id;
+            let effectiveModel = effectiveModelId
+              ? getVehicleCatalogModel(effectiveModelId)
+              : undefined;
+            if (!effectiveModel && !effectiveModelId) {
+              effectiveModel = APPROVED_VEHICLE_CATALOG.find((m) => m.type === lockedRow.type);
+            }
+
+            // Enforce model-specific capacity and speed limits
+            const effectiveCapacity =
+              parsed.data.capacity !== undefined ? parsed.data.capacity : lockedRow.capacity;
+            const effectiveSpeedKmH =
+              parsed.data.speedKmH !== undefined ? parsed.data.speedKmH : lockedRow.speed_km_h;
+
+            if (effectiveModel) {
+              const validation = validateModelConstraints(
+                effectiveModel,
+                effectiveCapacity,
+                effectiveSpeedKmH,
+              );
+              if (!validation.valid) {
+                const err = new Error(validation.message);
+                (err as unknown as { code: string; statusCode: number }).code = validation.code!;
+                (err as unknown as { code: string; statusCode: number }).statusCode = 400;
+                throw err;
+              }
+            }
+
+            // Validate authoritative depot if provided
+            if (parsed.data.depotId) {
+              const depotId = parsed.data.depotId.trim();
+              const depot = await txRepo.getShelterById(depotId);
+              if (!depot) {
+                const err = new Error(
+                  `Staging depot / shelter "${depotId}" does not exist in authoritative records`,
+                );
+                (err as unknown as { code: string; statusCode: number }).code = 'INVALID_DEPOT';
+                (err as unknown as { code: string; statusCode: number }).statusCode = 400;
+                throw err;
+              }
+              if (depot.source === 'SIMULATED') {
+                const err = new Error(
+                  `Cannot assign operational resource to simulated depot "${depotId}"`,
+                );
+                (err as unknown as { code: string; statusCode: number }).code =
+                  'SIMULATED_DEPOT_FORBIDDEN';
+                (err as unknown as { code: string; statusCode: number }).statusCode = 400;
+                throw err;
+              }
+            }
+
             // Active assignment check: Reject edits altering operational parameters if assigned to an active committed plan
             const activeAssignments = await txRepo.getActiveCommittedAssignmentsForResource(id);
             if (activeAssignments.length > 0) {
+              const modelChanged =
+                parsed.data.modelId !== undefined && parsed.data.modelId !== lockedRow.model_id;
+              const typeChanged =
+                effectiveModel !== undefined && effectiveModel.type !== lockedRow.type;
+              const capacityChanged =
+                parsed.data.capacity !== undefined &&
+                Number(parsed.data.capacity) !== Number(lockedRow.capacity);
+              const speedChanged =
+                parsed.data.speedKmH !== undefined &&
+                Number(parsed.data.speedKmH) !== Number(lockedRow.speed_km_h);
+              const locationChanged =
+                parsed.data.lat !== undefined &&
+                parsed.data.lng !== undefined &&
+                (Math.abs(Number(parsed.data.lat) - Number(lockedRow.lat)) > 1e-6 ||
+                  Math.abs(Number(parsed.data.lng) - Number(lockedRow.lng)) > 1e-6);
+
               const altersConstraints =
-                (parsed.data.capacity !== undefined &&
-                  parsed.data.capacity !== lockedRow.capacity) ||
-                (parsed.data.speedKmH !== undefined &&
-                  parsed.data.speedKmH !== lockedRow.speed_km_h) ||
-                (parsed.data.lat !== undefined && parsed.data.lng !== undefined);
+                modelChanged || typeChanged || capacityChanged || speedChanged || locationChanged;
 
               if (altersConstraints) {
                 const activePlan = activeAssignments[0]!;
                 const err = new Error(
-                  `Cannot modify capacity, speed, or location of resource "${id}" while it is assigned to an active committed rescue plan (Assignment ID "${activePlan.id}", status ${activePlan.status}). Reassign or complete the plan first.`,
+                  `Cannot modify vehicle model, type, capacity, speed, or location of resource "${id}" while it is assigned to an active committed rescue plan (Assignment ID "${activePlan.id}", status ${activePlan.status}). Reassign or complete the plan first.`,
                 );
                 (err as unknown as { code: string; statusCode: number }).code =
                   'RESOURCE_ACTIVE_IN_COMMITTED_PLAN';
@@ -546,7 +679,7 @@ export function createOperationsRouter(
               id,
               {
                 name: parsed.data.name,
-                type: model?.type,
+                type: effectiveModel?.type,
                 modelId: parsed.data.modelId,
                 capacity: parsed.data.capacity,
                 speedKmH: parsed.data.speedKmH,

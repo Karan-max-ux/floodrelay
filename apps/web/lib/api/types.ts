@@ -235,7 +235,7 @@ export interface UpdateResourceDetailsInput {
   lng?: number;
   depotId?: string | null;
   notes?: string | null;
-  expectedVersion?: number;
+  expectedVersion: number;
 }
 
 export interface UpdateResourceDetailsResult {

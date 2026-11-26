@@ -10,6 +10,7 @@ import type {
 } from '@floodrelay/shared';
 import { APPROVED_VEHICLE_CATALOG } from '@floodrelay/shared';
 import { apiClient } from '@/lib/api/client';
+import type { UpdateResourceDetailsInput } from '@/lib/api/types';
 import { useOperatorAuth } from '@/lib/auth/OperatorAuthContext';
 import { hasPermission } from '@/lib/auth/permissions';
 import { LiveStatusIndicator } from '@/components/operator/LiveStatusIndicator';
@@ -106,9 +107,10 @@ export function RescueFleetManagementView({
       setIsLoading(true);
       setError(null);
 
-      const [resList, modelsList] = await Promise.allSettled([
+      const [resList, modelsList, sheltersList] = await Promise.allSettled([
         apiClient.listResources(),
         apiClient.listVehicleModels(),
+        apiClient.listShelters(),
       ]);
 
       if (resList.status === 'fulfilled') {
@@ -124,6 +126,10 @@ export function RescueFleetManagementView({
       if (modelsList.status === 'fulfilled' && modelsList.value.length > 0) {
         setVehicleModels(modelsList.value);
       }
+
+      if (sheltersList.status === 'fulfilled') {
+        setShelters(sheltersList.value.filter((s) => s.source !== 'SIMULATED'));
+      }
     } catch (err) {
       console.error('Error fetching fleet data:', err);
       setError((err as Error).message || 'Failed to load fleet');
@@ -136,41 +142,6 @@ export function RescueFleetManagementView({
   useEffect(() => {
     void fetchFleetData();
   }, [fetchFleetData]);
-
-  // Load shelters from demo or requests endpoint for depot selection
-  useEffect(() => {
-    // Known default staging relief depots in Delhi NCR
-    setShelters([
-      {
-        id: 'shelter-kashmere-gate',
-        name: 'Kashmere Gate Relief Camp & Depot',
-        lat: 28.668,
-        lng: 77.232,
-        capacity: 120,
-      },
-      {
-        id: 'shelter-wazirabad',
-        name: 'Wazirabad Community Relief Centre',
-        lat: 28.705,
-        lng: 77.228,
-        capacity: 150,
-      },
-      {
-        id: 'shelter-mayur-vihar',
-        name: 'Mayur Vihar Relief Staging Area',
-        lat: 28.608,
-        lng: 77.295,
-        capacity: 200,
-      },
-      {
-        id: 'shelter-ito',
-        name: 'ITO Barrage Emergency Post',
-        lat: 28.632,
-        lng: 77.248,
-        capacity: 80,
-      },
-    ]);
-  }, []);
 
   // When selected catalog model changes in Add Form, update defaults
   useEffect(() => {
@@ -360,11 +331,13 @@ export function RescueFleetManagementView({
     const capNum = parseInt(editCapacity.toString(), 10);
     const speedNum = parseFloat(editSpeedKmH.toString());
 
+    const currentVersion = editingResource.version ?? 1;
+
     setIsSubmittingEdit(true);
     setEditError(null);
 
     try {
-      const payload = {
+      const payload: UpdateResourceDetailsInput = {
         name: editName.trim() || undefined,
         modelId: editModelId || undefined,
         capacity: capNum,
@@ -373,7 +346,7 @@ export function RescueFleetManagementView({
         lng: lngNum,
         depotId: editDepotId.trim() || null,
         notes: editNotes.trim() || null,
-        expectedVersion: editingResource.version,
+        expectedVersion: currentVersion,
       };
 
       const result = await apiClient.updateResourceDetails(editingResource.id, payload);
@@ -1246,7 +1219,11 @@ export function RescueFleetManagementView({
                     onChange={(e) => handleAddDepotChange(e.target.value)}
                     value={addSelectedDepotId}
                   >
-                    <option value="">Select an approved relief camp / depot...</option>
+                    <option value="">
+                      {shelters.length === 0
+                        ? 'No authoritative staging depots available — use manual coordinates below'
+                        : 'Select an authoritative staging depot...'}
+                    </option>
                     {shelters.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name} [{s.lat.toFixed(3)}, {s.lng.toFixed(3)}]
