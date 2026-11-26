@@ -986,7 +986,7 @@ export class PostgisRepository {
         ST_X(location::geometry) as lng,
         source
       FROM shelters
-      WHERE id = $1;
+      WHERE id = $1 AND is_active = TRUE;
     `;
     const result = await this.client.query(sql, [id]);
     const row = result.rows[0];

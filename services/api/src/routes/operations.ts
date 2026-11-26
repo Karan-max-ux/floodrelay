@@ -258,15 +258,15 @@ export function createOperationsRouter(
           return;
         }
 
-        // Validate authoritative depot if provided
-        if (parsed.data.depotId) {
-          const depotId = parsed.data.depotId.trim();
-          const depot = await repo.getShelterById(depotId);
+        // Normalize and validate authoritative depot if provided
+        const normalizedDepotId = parsed.data.depotId?.trim() || null;
+        if (normalizedDepotId) {
+          const depot = await repo.getShelterById(normalizedDepotId);
           if (!depot) {
             res.status(400).json({
               error: {
                 code: 'INVALID_DEPOT',
-                message: `Staging depot / shelter "${depotId}" does not exist in authoritative records`,
+                message: `Staging depot / shelter "${normalizedDepotId}" does not exist or is inactive in authoritative records`,
                 timestamp: new Date().toISOString(),
               },
             });
@@ -276,7 +276,7 @@ export function createOperationsRouter(
             res.status(400).json({
               error: {
                 code: 'SIMULATED_DEPOT_FORBIDDEN',
-                message: `Cannot assign operational resource to simulated depot "${depotId}"`,
+                message: `Cannot assign operational resource to simulated depot "${normalizedDepotId}"`,
                 timestamp: new Date().toISOString(),
               },
             });
@@ -344,7 +344,7 @@ export function createOperationsRouter(
                   lat: parsed.data.lat,
                   lng: parsed.data.lng,
                   status: parsed.data.status,
-                  depotId: parsed.data.depotId?.trim() || undefined,
+                  depotId: normalizedDepotId || undefined,
                   source: 'REAL',
                   modelId: model.id,
                   notes: parsed.data.notes || undefined,
@@ -594,8 +594,20 @@ export function createOperationsRouter(
             let effectiveModel = effectiveModelId
               ? getVehicleCatalogModel(effectiveModelId)
               : undefined;
-            if (!effectiveModel && !effectiveModelId) {
-              effectiveModel = APPROVED_VEHICLE_CATALOG.find((m) => m.type === lockedRow.type);
+
+            // If a new modelId was explicitly provided but is not in the catalog, reject immediately
+            if (parsed.data.modelId !== undefined && !getVehicleCatalogModel(parsed.data.modelId)) {
+              const err = new Error(
+                `Unknown vehicle model "${parsed.data.modelId}". Only approved catalog models are permitted.`,
+              );
+              (err as unknown as { code: string; statusCode: number }).code = 'VALIDATION_ERROR';
+              (err as unknown as { code: string; statusCode: number }).statusCode = 400;
+              throw err;
+            }
+
+            // If the existing model_id is set but not in catalog (truly unknown legacy), treat as no model
+            if (effectiveModelId && !effectiveModel) {
+              effectiveModel = undefined;
             }
 
             // Enforce model-specific capacity and speed limits
@@ -603,6 +615,16 @@ export function createOperationsRouter(
               parsed.data.capacity !== undefined ? parsed.data.capacity : lockedRow.capacity;
             const effectiveSpeedKmH =
               parsed.data.speedKmH !== undefined ? parsed.data.speedKmH : lockedRow.speed_km_h;
+
+            // Determine if operational (capacity/speed) changes are requested
+            const changesCapacity =
+              parsed.data.capacity !== undefined &&
+              Number(parsed.data.capacity) !== Number(lockedRow.capacity);
+            const changesSpeed =
+              parsed.data.speedKmH !== undefined &&
+              Number(parsed.data.speedKmH) !== Number(lockedRow.speed_km_h);
+            const changesOperational =
+              changesCapacity || changesSpeed || parsed.data.modelId !== undefined;
 
             if (effectiveModel) {
               const validation = validateModelConstraints(
@@ -616,15 +638,25 @@ export function createOperationsRouter(
                 (err as unknown as { code: string; statusCode: number }).statusCode = 400;
                 throw err;
               }
+            } else if (changesOperational) {
+              // No valid model available — reject operational changes that require model validation
+              const err = new Error(
+                `Cannot modify capacity, speed, or model of resource "${id}" without a valid vehicle model. ` +
+                  `Please assign an approved catalog model before changing operational parameters.`,
+              );
+              (err as unknown as { code: string; statusCode: number }).code = 'MODEL_REQUIRED';
+              (err as unknown as { code: string; statusCode: number }).statusCode = 400;
+              throw err;
             }
 
-            // Validate authoritative depot if provided
-            if (parsed.data.depotId) {
-              const depotId = parsed.data.depotId.trim();
-              const depot = await txRepo.getShelterById(depotId);
+            // Normalize and validate authoritative depot if provided
+            const normalizedEditDepotId =
+              parsed.data.depotId !== undefined ? parsed.data.depotId?.trim() || null : undefined;
+            if (normalizedEditDepotId) {
+              const depot = await txRepo.getShelterById(normalizedEditDepotId);
               if (!depot) {
                 const err = new Error(
-                  `Staging depot / shelter "${depotId}" does not exist in authoritative records`,
+                  `Staging depot / shelter "${normalizedEditDepotId}" does not exist or is inactive in authoritative records`,
                 );
                 (err as unknown as { code: string; statusCode: number }).code = 'INVALID_DEPOT';
                 (err as unknown as { code: string; statusCode: number }).statusCode = 400;
@@ -632,7 +664,7 @@ export function createOperationsRouter(
               }
               if (depot.source === 'SIMULATED') {
                 const err = new Error(
-                  `Cannot assign operational resource to simulated depot "${depotId}"`,
+                  `Cannot assign operational resource to simulated depot "${normalizedEditDepotId}"`,
                 );
                 (err as unknown as { code: string; statusCode: number }).code =
                   'SIMULATED_DEPOT_FORBIDDEN';
@@ -685,7 +717,8 @@ export function createOperationsRouter(
                 speedKmH: parsed.data.speedKmH,
                 lat: parsed.data.lat,
                 lng: parsed.data.lng,
-                depotId: parsed.data.depotId,
+                depotId:
+                  normalizedEditDepotId !== undefined ? normalizedEditDepotId : parsed.data.depotId,
                 notes: parsed.data.notes,
                 expectedVersion: parsed.data.expectedVersion,
               },

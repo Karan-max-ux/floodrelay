@@ -188,11 +188,12 @@ class MockFleetQueryable implements Queryable {
       };
     }
 
-    // Shelter by ID query
+    // Shelter by ID query (only returns active shelters, matching repository)
     if (sql.includes('FROM shelters WHERE id = $1')) {
       const id = vals[0] as string;
       const sh = this.shelters.get(id);
-      if (!sh) return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+      if (!sh || !sh.is_active)
+        return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
       return {
         rows: [
           {
@@ -214,15 +215,18 @@ class MockFleetQueryable implements Queryable {
 
     // List shelters query
     if (sql.includes('FROM shelters')) {
-      const rows = Array.from(this.shelters.values()).map((sh) => ({
-        id: sh.id,
-        name: sh.name,
-        capacity: sh.capacity,
-        currentOccupancy: sh.current_occupancy,
-        source: sh.source,
-        lat: sh.lat,
-        lng: sh.lng,
-      }));
+      const activeOnly = sql.includes('is_active = TRUE');
+      const rows = Array.from(this.shelters.values())
+        .filter((sh) => !activeOnly || sh.is_active)
+        .map((sh) => ({
+          id: sh.id,
+          name: sh.name,
+          capacity: sh.capacity,
+          currentOccupancy: sh.current_occupancy,
+          source: sh.source,
+          lat: sh.lat,
+          lng: sh.lng,
+        }));
       return {
         rows: rows as unknown as R[],
         command: 'SELECT',
@@ -312,7 +316,7 @@ class MockFleetQueryable implements Queryable {
         speed_km_h: vals[4] as number,
         location: 'POINT(77.232 28.668)',
         status: vals[7] as DbResource['status'],
-        depot_id: (vals[8] as string) || null,
+        depot_id: vals[8] === undefined ? null : (vals[8] as string | null),
         shift_max_duration_min: 480,
         source: vals[10] as 'REAL' | 'SIMULATED',
         model_id: (vals[11] as string) || null,
@@ -427,7 +431,7 @@ class MockFleetQueryable implements Queryable {
           if (col === 'model_id') r.model_id = val as string;
           if (col === 'capacity') r.capacity = Number(val);
           if (col === 'speed_km_h') r.speed_km_h = Number(val);
-          if (col === 'depot_id') r.depot_id = (val as string) || null;
+          if (col === 'depot_id') r.depot_id = val === undefined ? null : (val as string | null);
           if (col === 'notes') r.notes = (val as string) || null;
         }
       }
@@ -551,6 +555,16 @@ describe('Rescue Fleet Management Portal API & Security Invariants', () => {
       lat: 28.668,
       lng: 77.232,
     });
+    mockQueryable.shelters.set('shelter-inactive-depot', {
+      id: 'shelter-inactive-depot',
+      name: 'Decommissioned Depot',
+      capacity: 50,
+      current_occupancy: 0,
+      is_active: false,
+      source: 'REAL',
+      lat: 28.67,
+      lng: 77.23,
+    });
 
     // Seed baseline resources (REAL and SIMULATED)
     mockQueryable.resources.set('res-boat-real', {
@@ -591,6 +605,50 @@ describe('Rescue Fleet Management Portal API & Security Invariants', () => {
       verification_status: 'VERIFIED',
       created_by: 'system',
       updated_by: 'system',
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+
+    // Legacy resource with no model_id — simulates pre-catalog data
+    mockQueryable.resources.set('res-legacy-no-model', {
+      id: 'res-legacy-no-model',
+      name: 'Legacy Rescue Dinghy',
+      type: 'BOAT',
+      capacity: 6,
+      speed_km_h: 20,
+      location: 'POINT(77.232 28.668)',
+      status: 'AVAILABLE',
+      depot_id: 'shelter-kashmere-gate',
+      shift_max_duration_min: 480,
+      source: 'REAL',
+      model_id: null,
+      notes: 'Pre-catalog legacy resource',
+      version: 1,
+      verification_status: 'VERIFIED',
+      created_by: 'admin_user',
+      updated_by: 'admin_user',
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+
+    // Resource with unknown (non-catalog) model_id
+    mockQueryable.resources.set('res-unknown-model', {
+      id: 'res-unknown-model',
+      name: 'Unknown Model Craft',
+      type: 'BOAT',
+      capacity: 6,
+      speed_km_h: 20,
+      location: 'POINT(77.232 28.668)',
+      status: 'AVAILABLE',
+      depot_id: 'shelter-kashmere-gate',
+      shift_max_duration_min: 480,
+      source: 'REAL',
+      model_id: 'boat-discontinued-xyz',
+      notes: 'Has an unknown catalog model',
+      version: 1,
+      verification_status: 'VERIFIED',
+      created_by: 'admin_user',
+      updated_by: 'admin_user',
       created_at: new Date(),
       updated_at: new Date(),
     });
@@ -859,6 +917,9 @@ describe('Rescue Fleet Management Portal API & Security Invariants', () => {
       expect(kashmere).toBeDefined();
       expect(kashmere.source).toBe('REAL');
       expect(kashmere.name).toBe('Kashmere Gate Relief Camp & Depot');
+
+      const inactive = res.body.data.find((s: { id: string }) => s.id === 'shelter-inactive-depot');
+      expect(inactive).toBeUndefined();
     });
 
     it('rejects unauthenticated requests to list shelters with 401', async () => {
@@ -1446,6 +1507,206 @@ describe('Rescue Fleet Management Portal API & Security Invariants', () => {
       expect(availRes.status).toBe(200);
       expect(availRes.body.data.resource.status).toBe('AVAILABLE');
       expect(availRes.body.data.event.type).toBe('RESOURCE_AVAILABLE');
+    });
+  });
+
+  describe('Authoritative Depot Validation (Fix #1)', () => {
+    it('rejects registration with an inactive depot with 400 INVALID_DEPOT', async () => {
+      const res = await request(app)
+        .post('/operations/resources')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          modelId: 'boat-irb-standard',
+          name: 'Inactive Depot Test Boat',
+          id: 'res-inactive-depot-1',
+          lat: 28.65,
+          lng: 77.22,
+          capacity: 6,
+          speedKmH: 22,
+          status: 'OFFLINE',
+          depotId: 'shelter-inactive-depot',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('INVALID_DEPOT');
+      expect(res.body.error.message).toContain('does not exist or is inactive');
+    });
+
+    it('rejects editing resource to assign an inactive depot with 400 INVALID_DEPOT', async () => {
+      const res = await request(app)
+        .patch('/operations/resources/res-boat-real')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          depotId: 'shelter-inactive-depot',
+          expectedVersion: 1,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('INVALID_DEPOT');
+      expect(res.body.error.message).toContain('does not exist or is inactive');
+    });
+
+    it('accepts registration with an active valid depot', async () => {
+      const res = await request(app)
+        .post('/operations/resources')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          modelId: 'boat-irb-standard',
+          name: 'Active Depot Test Boat',
+          id: 'res-active-depot-1',
+          lat: 28.65,
+          lng: 77.22,
+          capacity: 6,
+          speedKmH: 22,
+          status: 'OFFLINE',
+          depotId: 'shelter-kashmere-gate',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.resource.depotId).toBe('shelter-kashmere-gate');
+    });
+
+    it('normalizes empty depotId to null during registration', async () => {
+      const res = await request(app)
+        .post('/operations/resources')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          modelId: 'boat-irb-standard',
+          name: 'Empty Depot Test Boat',
+          id: 'res-empty-depot-1',
+          lat: 28.65,
+          lng: 77.22,
+          capacity: 6,
+          speedKmH: 22,
+          status: 'OFFLINE',
+          depotId: '',
+        });
+
+      expect(res.status).toBe(201);
+      // Empty string should not be persisted — depotId should be null/undefined
+      const persisted = mockQueryable.resources.get('res-empty-depot-1');
+      expect(persisted?.depot_id).toBeNull();
+    });
+
+    it('normalizes whitespace-only depotId to null during registration', async () => {
+      const res = await request(app)
+        .post('/operations/resources')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          modelId: 'boat-irb-standard',
+          name: 'Whitespace Depot Test Boat',
+          id: 'res-ws-depot-1',
+          lat: 28.65,
+          lng: 77.22,
+          capacity: 6,
+          speedKmH: 22,
+          status: 'OFFLINE',
+          depotId: '   ',
+        });
+
+      expect(res.status).toBe(201);
+      const persisted = mockQueryable.resources.get('res-ws-depot-1');
+      expect(persisted?.depot_id).toBeNull();
+    });
+
+    it('normalizes empty depotId to null during resource edit', async () => {
+      const res = await request(app)
+        .patch('/operations/resources/res-boat-real')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          depotId: '',
+          expectedVersion: 1,
+        });
+
+      expect(res.status).toBe(200);
+      const persisted = mockQueryable.resources.get('res-boat-real');
+      expect(persisted?.depot_id).toBeNull();
+    });
+  });
+
+  describe('Model Validation Bypass Protection (Fix #2)', () => {
+    it('allows metadata-only edit on legacy resource without model_id', async () => {
+      const res = await request(app)
+        .patch('/operations/resources/res-legacy-no-model')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          name: 'Renamed Legacy Dinghy',
+          notes: 'Updated notes only',
+          expectedVersion: 1,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.resource.name).toBe('Renamed Legacy Dinghy');
+    });
+
+    it('rejects capacity change on legacy resource without model_id with 400 MODEL_REQUIRED', async () => {
+      const res = await request(app)
+        .patch('/operations/resources/res-legacy-no-model')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          capacity: 10,
+          expectedVersion: 1,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('MODEL_REQUIRED');
+      expect(res.body.error.message).toContain('valid vehicle model');
+    });
+
+    it('rejects speed change on legacy resource without model_id with 400 MODEL_REQUIRED', async () => {
+      const res = await request(app)
+        .patch('/operations/resources/res-legacy-no-model')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          speedKmH: 30,
+          expectedVersion: 1,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('MODEL_REQUIRED');
+      expect(res.body.error.message).toContain('valid vehicle model');
+    });
+
+    it('rejects operational changes on resource with unknown (non-catalog) model_id with 400 MODEL_REQUIRED', async () => {
+      const res = await request(app)
+        .patch('/operations/resources/res-unknown-model')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          capacity: 12,
+          expectedVersion: 1,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('MODEL_REQUIRED');
+    });
+
+    it('rejects explicitly setting an unknown modelId with 400 VALIDATION_ERROR', async () => {
+      const res = await request(app)
+        .patch('/operations/resources/res-boat-real')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          modelId: 'boat-nonexistent-model-999',
+          expectedVersion: 1,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('allows assigning valid model to legacy resource with valid operational params', async () => {
+      const res = await request(app)
+        .patch('/operations/resources/res-legacy-no-model')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          modelId: 'boat-irb-standard',
+          capacity: 6,
+          speedKmH: 22,
+          expectedVersion: 1,
+        });
+
+      expect(res.status).toBe(200);
+      const persisted = mockQueryable.resources.get('res-legacy-no-model');
+      expect(persisted?.model_id).toBe('boat-irb-standard');
     });
   });
 });
