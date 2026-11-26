@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "express",
+  "regions": ["sin1"],
+  "functions": {
+    "server.ts": {
+      "includeFiles": "services/api/src/{openapi.json,geo/delhi-ncr-boundary.geojson}",
+      "maxDuration": 60
+    }
+  }
+}

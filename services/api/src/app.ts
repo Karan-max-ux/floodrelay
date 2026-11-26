@@ -1,7 +1,7 @@
 import express, { type Express, type Request, type Response, type NextFunction } from 'express';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { getPool } from './db/connection.js';
 import { PostgisRepository } from './db/repository.js';
 import { RequestService } from './services/requestService.js';
@@ -22,7 +22,24 @@ import { requireOperatorAuth } from './middleware/authMiddleware.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const openapiSpec = JSON.parse(readFileSync(join(__dirname, 'openapi.json'), 'utf-8'));
+
+function resolveOpenApiPath(): string {
+  const candidates = [
+    join(__dirname, 'openapi.json'),
+    resolve(__dirname, '../src/openapi.json'),
+    resolve(__dirname, '../../src/openapi.json'),
+    resolve(process.cwd(), 'services/api/src/openapi.json'),
+    resolve(process.cwd(), 'src/openapi.json'),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  throw new Error('OpenAPI specification file openapi.json not found');
+}
+
+const openapiSpec = JSON.parse(readFileSync(resolveOpenApiPath(), 'utf-8'));
 
 export interface AppDependencies {
   repository?: PostgisRepository;
