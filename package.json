@@ -28,6 +28,9 @@
     "demo:cleanup": "tsx tools/demo/cleanupDemo.ts",
     "demo:credentials": "tsx tools/demo/showCredentials.ts"
   },
+  "dependencies": {
+    "express": "^4.21.2"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "eslint": "^10.12.0",
