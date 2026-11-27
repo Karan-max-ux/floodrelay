@@ -1,7 +1,7 @@
-import express, { type Express } from 'express';
-import app from './services/api/src/vercel.js';
+import express from 'express';
+import vercelApp from './services/api/src/vercel.js';
 
-// Vercel Express entrypoint
-const serverlessApp: Express = app;
-export default serverlessApp;
+const app = express();
+app.use(vercelApp);
 
+export default app;

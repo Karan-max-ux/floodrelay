@@ -3,7 +3,19 @@
   "framework": "express",
   "regions": ["sin1"],
   "functions": {
+    "index.ts": {
+      "includeFiles": "services/api/src/{openapi.json,geo/delhi-ncr-boundary.geojson}",
+      "maxDuration": 60
+    },
     "server.ts": {
+      "includeFiles": "services/api/src/{openapi.json,geo/delhi-ncr-boundary.geojson}",
+      "maxDuration": 60
+    },
+    "app.ts": {
+      "includeFiles": "services/api/src/{openapi.json,geo/delhi-ncr-boundary.geojson}",
+      "maxDuration": 60
+    },
+    "api/index.ts": {
       "includeFiles": "services/api/src/{openapi.json,geo/delhi-ncr-boundary.geojson}",
       "maxDuration": 60
     }
